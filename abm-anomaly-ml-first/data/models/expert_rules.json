@@ -1,0 +1,69 @@
+{
+  "normal_transaction_indicators": [
+    [
+      "NOTES PRESENTED",
+      "NOTES TAKEN"
+    ],
+    [
+      "CARD INSERTED",
+      "PIN ENTERED",
+      "NOTES PRESENTED",
+      "NOTES TAKEN",
+      "CARD TAKEN"
+    ],
+    [
+      "NOTES STACKED",
+      "NOTES PRESENTED",
+      "NOTES TAKEN"
+    ],
+    [
+      "CARD INSERTED",
+      "PIN ENTERED",
+      "CARD TAKEN"
+    ],
+    [
+      "BALANCE INQUIRY",
+      "RECEIPT PRINTED",
+      "CARD TAKEN"
+    ]
+  ],
+  "genuine_anomaly_indicators": [
+    [
+      "UNABLE TO DISPENSE"
+    ],
+    [
+      "DEVICE ERROR"
+    ],
+    [
+      "NOTES PRESENTED",
+      "TIMEOUT"
+    ],
+    [
+      "NOTES PRESENTED",
+      "NOTES RETRACTED"
+    ],
+    [
+      "HARDWARE FAULT"
+    ],
+    [
+      "COMMUNICATION ERROR"
+    ],
+    [
+      "SUPERVISOR MODE ENTRY"
+    ]
+  ],
+  "maintenance_indicators": [
+    [
+      "POWER-UP/RESET"
+    ],
+    [
+      "SUPERVISOR MODE EXIT"
+    ],
+    [
+      "CASSETTE REPLENISHED"
+    ],
+    [
+      "SYSTEM STARTUP"
+    ]
+  ]
+}
