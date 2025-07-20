@@ -12,8 +12,13 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-COPY --from=builder /app/build ./build
-COPY --from=builder /app/package*.json ./
+# To run in Nginx
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# To run with serve
+# Uncomment the following lines if you want to use serve instead of Nginx
+#COPY --from=builder /app/build ./build
+#COPY --from=builder /app/package*.json ./
 
 RUN npm install --production
 
