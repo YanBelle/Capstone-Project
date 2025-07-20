@@ -10,7 +10,7 @@ jobs:
 
     steps:
       - name: Mark repo as safe for Git
-        run: git config --global --add safe.directory /home/${{ secrets.DROPLET_USER }}/Capstone-Project
+        run: sudo -u $USER git config --global --add safe.directory /home/runner/Capstone-Project
       - name: Connect to DigitalOcean and Deploy
         uses: appleboy/ssh-action@master
         with:
