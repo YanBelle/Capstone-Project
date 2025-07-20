@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+
+# Data
+data/logs/*
+data/input/*
+!data/input/processed/
+data/output/*
+data/models/*.pkl
+data/models/*.h5
+data/sessions/*
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Docker
+*.log
+
+# Environment
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# React
+services/dashboard/build/
+services/dashboard/.env.local
+
+# Models
+*.pkl
+*.h5
+*.pth
+*.bin

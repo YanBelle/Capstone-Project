@@ -1,0 +1,27 @@
+fastapi==0.101.0
+uvicorn==0.23.2
+pydantic==1.10.12
+redis==4.6.0
+psycopg2-binary==2.9.7
+sqlalchemy==2.0.19
+pandas==2.0.3
+numpy==1.24.3
+scikit-learn==1.3.0
+joblib==1.3.1
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+prometheus-client==0.17.1
+httpx==0.24.1
+python-dotenv==1.0.0
+loguru==0.7.0
+psutil==5.9.4
+websockets==11.0.3
+spacy==3.4.4
+
+# Essential ML dependencies for retraining (compatible versions)
+transformers==4.21.3
+torch==1.13.1
+tokenizers==0.12.1
+textblob==0.17.1
+vaderSentiment==3.3.2
