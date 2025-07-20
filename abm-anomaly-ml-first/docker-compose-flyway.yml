@@ -1,0 +1,22 @@
+services:
+  # ML-First anomaly detection db backup service
+  flyway:
+    build: 
+      context: ./data/flyway
+      dockerfile: Dockerfile-Flyway
+    container_name: abm-ml-flyway
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ./data/db/migrations:/flyway/sql
+      - ./data/db/schema:/flyway/schema
+    entrypoint: >
+      bash -c "flyway -url=jdbc:postgresql://postgres:5432/${POSTGRES_DB} -user=${POSTGRES_USER} -password=${POSTGRES_PASSWORD} -baselineOnMigrate=true migrate && export PGPASSWORD=${POSTGRES_PASSWORD} && pg_dump -h postgres -U ${POSTGRES_USER} -s ${POSTGRES_DB} > /flyway/schema/updated_schema.sql"
+    networks:
+      - abm-network
+
+networks:
+  abm-network:
+    driver: bridge

@@ -53,3 +53,8 @@ services/dashboard/.env.local
 *.h5
 *.pth
 *.bin
+
+# Ignore all schema dumps
+/data/db/schema/*
+# Except the latest one
+!/data/db/schema/updated_schema.sql
