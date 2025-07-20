@@ -47,3 +47,30 @@ components:
 	@if grep -q "expert/anomalies" services/api/main.py 2>/dev/null; then echo "✓ Present"; else echo "✗ Missing - Add expert labeling endpoints"; fi
 	@echo -n "Dashboard components: "
 	@if grep -q "ExpertLabelingInterface" services/dashboard/src/Dashboard.js 2>/dev/null; then echo "✓ Present"; else echo "✗ Missing - Add dashboard components"; fi
+
+ENV ?= development
+
+flyway-start:
+	docker-compose -f docker-compose.yml -f docker-compose-flyway.yml up -d
+
+flyway-stop:
+	docker-compose -f docker-compose.yml -f docker-compose-flyway.yml down
+
+migrate:
+	docker-compose -f docker-compose-flyway.yml up flyway
+
+dump-schema:
+	docker exec abm-ml-postgres pg_dump -U $(POSTGRES_USER) -s $(POSTGRES_DB) > data/db/schema/updated_schema.sql
+
+seed:
+	docker-compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -f /flyway/sql/R__seed_anomaly_patterns.sql
+
+flyway-logs:
+	docker-compose logs -f
+
+rebuild-db:
+	docker-compose -f docker-compose-flyway.yml run --rm flyway bash -c \
+	"flyway -url=jdbc:postgresql://postgres:5432/$(POSTGRES_DB) \
+	        -user=$(POSTGRES_USER) \
+	        -password=$(POSTGRES_PASSWORD) \
+	        -baselineOnMigrate=true clean migrate"

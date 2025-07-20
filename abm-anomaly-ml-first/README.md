@@ -132,7 +132,7 @@ docker compose restart anomaly-detector
 ./clear_ml_sessions.sh
 
 
-
+docker compose -f docker-compose-flyway.yml up
 
 the below should have been an anomaly, the customer basically attempted a transaction and it appears to show nothing happening.
 why were they not flagged as anomalies?
