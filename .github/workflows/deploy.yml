@@ -27,8 +27,8 @@ jobs:
 
             cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project/abm-anomaly-ml-first
             echo "➡ Using Docker Compose with Flyway for migrations..."
-            docker-compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production pull
-            docker-compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
-            docker-compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production up -d --build
+            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production pull
+            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
+            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production up -d --build
 
             echo "✅ Deployment complete."
