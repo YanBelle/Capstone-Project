@@ -151,6 +151,34 @@ services:
     networks:
       - abm-network
 
+    nginx:
+    image: nginx:latest
+    container_name: abm-ml-nginx
+    depends_on:
+      - api
+      - dashboard
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/html:/usr/share/nginx/html
+      - ./letsencrypt:/etc/letsencrypt
+      - ./nginx/certbot-webroot:/var/www/certbot
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - abm-network
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: abm-ml-certbot
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./nginx/certbot-webroot:/var/www/certbot
+    # no ports; runs on demand via `docker-compose run certbot ...`
+    networks:
+      - abm-network
+      
 volumes:
   postgres_data:
   redis_data:
