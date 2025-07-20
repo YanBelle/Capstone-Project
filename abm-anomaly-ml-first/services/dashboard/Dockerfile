@@ -14,6 +14,7 @@ WORKDIR /app
 
 # To run in Nginx
 COPY --from=builder /app/build /usr/share/nginx/html
+COPY --from=builder /app/package*.json /usr/share/nginx/html
 
 # To run with serve
 # Uncomment the following lines if you want to use serve instead of Nginx
