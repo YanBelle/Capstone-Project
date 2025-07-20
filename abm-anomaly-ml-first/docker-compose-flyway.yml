@@ -13,7 +13,11 @@ services:
       - ./data/db/migrations:/flyway/sql
       - ./data/db/schema:/flyway/schema
     entrypoint: >
-      bash -c "flyway -url=jdbc:postgresql://postgres:5432/${POSTGRES_DB} -user=${POSTGRES_USER} -password=${POSTGRES_PASSWORD} -baselineOnMigrate=true migrate && export PGPASSWORD=${POSTGRES_PASSWORD} && pg_dump -h postgres -U ${POSTGRES_USER} -s ${POSTGRES_DB} > /flyway/schema/updated_schema.sql"
+      bash -c "/flyway/wait-for-postgres.sh postgres 5432 && if [ '$ENV' = 'production' ]; then 
+      flyway -configFiles=/flyway/conf/flyway.conf -cleanDisabled=true migrate; else
+      flyway -configFiles=/flyway/conf/flyway.conf clean migrate; 
+      fi && export PGPASSWORD=${POSTGRES_PASSWORD} && pg_dump -h postgres -U ${POSTGRES_USER} -s ${POSTGRES_DB} > /flyway/schema/updated_schema.sql"
+    #  bash -c "flyway -url=jdbc:postgresql://postgres:5432/${POSTGRES_DB} -user=${POSTGRES_USER} -password=${POSTGRES_PASSWORD} -baselineOnMigrate=true migrate && export PGPASSWORD=${POSTGRES_PASSWORD} && pg_dump -h postgres -U ${POSTGRES_USER} -s ${POSTGRES_DB} > /flyway/schema/updated_schema.sql"
     networks:
       - abm-network
 
