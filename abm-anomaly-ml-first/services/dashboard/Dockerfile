@@ -13,8 +13,8 @@ FROM node:18-alpine
 WORKDIR /app
 
 # To run in Nginx
-COPY --from=builder /app/build /usr/share/nginx/html
-COPY --from=builder /app/package*.json /usr/share/nginx/html
+COPY --from=builder /app/build /home/deploy/Capstone-Project/abm-anomaly-ml-first/nginx/html
+COPY --from=builder /app/package*.json /home/deploy/Capstone-Project/abm-anomaly-ml-first/nginx/html
 
 # To run with serve
 # Uncomment the following lines if you want to use serve instead of Nginx
