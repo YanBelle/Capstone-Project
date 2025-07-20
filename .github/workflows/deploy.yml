@@ -19,7 +19,7 @@ jobs:
             set -e
 
             echo "➡ Pulling latest code..."
-            cd /home/${{ secrets.DROPLET_USER }}/your_project
+            cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project
             git reset --hard
             git pull origin main
 
