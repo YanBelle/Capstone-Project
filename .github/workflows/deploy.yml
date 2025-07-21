@@ -9,8 +9,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Mark repo as safe for Git
-        run: sudo -u $USER git config --global --add safe.directory /home/runner/Capstone-Project
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install Dashboard Dependencies (CI mode)
+        working-directory: ./services/dashboard
+        run: npm ci
+
+      - name: Optional: Build Dashboard Locally
+        working-directory: ./services/dashboard
+        run: npm run build
+
       - name: Connect to DigitalOcean and Deploy
         uses: appleboy/ssh-action@master
         with:
@@ -26,6 +49,7 @@ jobs:
             git pull origin main
 
             cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project/abm-anomaly-ml-first
+
             echo "➡ Using Docker Compose with Flyway for migrations..."
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production pull
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
