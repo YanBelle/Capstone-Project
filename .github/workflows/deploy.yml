@@ -30,7 +30,7 @@ jobs:
         working-directory: ./services/dashboard
         run: npm ci
 
-      - name: Optional: Build Dashboard Locally
+      - name: "Optional: Build Dashboard Locally"
         working-directory: ./services/dashboard
         run: npm run build
 
