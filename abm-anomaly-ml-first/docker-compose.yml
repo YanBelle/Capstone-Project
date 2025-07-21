@@ -59,7 +59,11 @@ services:
 
   # Enhanced dashboard with expert labeling interface
   dashboard:
-    build: ./services/dashboard
+    build: 
+      context: ./services/dashboard
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL}
     container_name: abm-ml-dashboard
     #ports:
     #  - "3000:3000"
