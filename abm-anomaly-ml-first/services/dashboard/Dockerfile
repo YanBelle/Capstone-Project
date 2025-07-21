@@ -1,29 +1,25 @@
-# Stage 1: Build React App
-FROM node:18-alpine as builder
+# Stage 1: Build React app
+FROM node:20-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy source files
-COPY package*.json ./
+COPY package.json package-lock.json ./
 RUN npm install
 
 COPY . .
+
+# Ensure output is relative to /dashboard path for Nginx routing
+ENV PUBLIC_URL=/dashboard
+
 RUN npm run build
 
-# Stage 2: Transfer build files only
-FROM alpine:3.18
+# Stage 2: Only export built static files
+FROM nginx:stable-alpine AS dashboard
 
-# Set target directory for Nginx to serve from
-WORKDIR /nginx/html
+# Clean default nginx site and copy built assets
+RUN rm -rf /usr/share/nginx/html/*
 
-# Copy build artifacts from the builder
-COPY --from=builder /app/build ./
+COPY --from=builder /app/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# This image is just for copying files during docker-compose
-# You will mount this output in nginx using:
-#   - ./nginx/html:/usr/share/nginx/html
-
-EXPOSE 3000
-
-CMD ["npx", "serve", "-s", "build", "-l", "3000"]
+# You don't need to expose or start Nginx here since this container's content is used by your reverse proxy
