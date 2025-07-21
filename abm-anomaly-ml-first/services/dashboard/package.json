@@ -2,7 +2,7 @@
   "name": "abm-ml-anomaly-dashboard",
   "version": "1.0.0",
   "private": true,
-  "homepage": "/dashboard",
+  "homepage": "/dashboard/",
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
