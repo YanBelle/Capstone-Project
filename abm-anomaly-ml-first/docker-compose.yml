@@ -65,6 +65,8 @@ services:
     #  - "3000:3000"
     environment:
       - REACT_APP_API_URL=${REACT_APP_API_URL}
+    env_file:
+    - .env
     depends_on:
       - api
     restart: unless-stopped
@@ -184,7 +186,7 @@ services:
     command: sh -c 'echo $POSTGRES_USER'
     env_file:
       - .env.production
-      
+
 volumes:
   postgres_data:
   redis_data:
