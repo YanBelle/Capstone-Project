@@ -44,6 +44,13 @@ jobs:
 
             echo "➡ Pulling latest code..."
             cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project
+
+            # Remove untracked env file to avoid git pull conflict
+            if [ -f abm-anomaly-ml-first/.env.production ]; then
+              echo "⚠ Removing existing .env.production to avoid git conflict..."
+              rm abm-anomaly-ml-first/.env.production
+            fi
+            
             git reset --hard
             git pull origin main
 
