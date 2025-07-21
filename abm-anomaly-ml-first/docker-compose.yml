@@ -179,6 +179,12 @@ services:
     networks:
       - abm-network
 
+  debug-env:
+    image: alpine
+    command: sh -c 'echo $POSTGRES_USER'
+    env_file:
+      - .env.production
+      
 volumes:
   postgres_data:
   redis_data:
