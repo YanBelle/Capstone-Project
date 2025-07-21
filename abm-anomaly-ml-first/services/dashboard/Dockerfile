@@ -1,27 +1,28 @@
-FROM node:18-alpine AS builder
+# Stage 1: Build React App
+FROM node:18-alpine as builder
 
+# Set working directory
 WORKDIR /app
 
+# Copy source files
 COPY package*.json ./
 RUN npm install
 
 COPY . .
 RUN npm run build
 
-FROM node:18-alpine
+# Stage 2: Transfer build files only
+FROM alpine:3.18
 
-WORKDIR /app
+# Set target directory for Nginx to serve from
+WORKDIR /nginx/html
 
-# To run in Nginx
-COPY --from=builder /app/build /home/deploy/Capstone-Project/abm-anomaly-ml-first/nginx/html
-COPY --from=builder /app/package*.json /home/deploy/Capstone-Project/abm-anomaly-ml-first/nginx/html
+# Copy build artifacts from the builder
+COPY --from=builder /app/build ./
 
-# To run with serve
-# Uncomment the following lines if you want to use serve instead of Nginx
-#COPY --from=builder /app/build ./build
-#COPY --from=builder /app/package*.json ./
-
-RUN npm install --production
+# This image is just for copying files during docker-compose
+# You will mount this output in nginx using:
+#   - ./nginx/html:/usr/share/nginx/html
 
 EXPOSE 3000
 
