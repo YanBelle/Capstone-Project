@@ -32,7 +32,11 @@ services:
 
   # API service with expert labeling endpoints
   api:
-    build: ./services/api
+    build: 
+      context: ./services/api
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL}
     container_name: abm-ml-api
     ports:
       - "8000:8000"
@@ -45,6 +49,9 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - JWT_SECRET=${JWT_SECRET}
+      - REACT_APP_API_URL=${REACT_APP_API_URL}
+    env_file:
+    - .env.production
     volumes:
       - ./data/models:/app/models
       - ./data/input:/app/input

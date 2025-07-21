@@ -2,6 +2,9 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=${REACT_APP_API_URL}
+
 # Install system dependencies needed for psutil and other packages
 RUN apt-get update && apt-get install -y \
     gcc \
