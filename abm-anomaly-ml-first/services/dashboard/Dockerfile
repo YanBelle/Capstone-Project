@@ -1,32 +1,32 @@
-# Stage 1: Build React App
+# Stage 1 - Build React Dashboard
 FROM node:18 AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files and install dependencies
-COPY package.json package-lock.json ./
-RUN npm ci
-
-# Copy remaining source code
-COPY . .
-
-# Explicitly pass environment variable used by React
-# This ensures REACT_APP_API_URL is baked into the final build
+# Accept runtime variable for API URL
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 
-# Build the app
+# Copy and install dependencies
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy the rest of the source code
+COPY . .
+
+# Build the React app with API URL injected
 RUN npm run build
 
-# Stage 2: Serve with NGINX
-FROM nginx:latest
+# Stage 2 - Serve with Nginx
+FROM nginx:1.25-alpine
 
-# Copy built assets to NGINX html directory
+# Copy custom Nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy build files
 COPY --from=builder /app/build /usr/share/nginx/html
 
-# Use your existing nginx.conf (optional if customized)
-COPY nginx.conf /etc/nginx/nginx.conf
-
+# Expose default port
 EXPOSE 80
+
 CMD ["nginx", "-g", "daemon off;"]
