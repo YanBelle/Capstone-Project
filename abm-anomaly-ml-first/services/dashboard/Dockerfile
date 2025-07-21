@@ -20,8 +20,10 @@ RUN npm run build
 # Stage 2 - Serve with Nginx
 FROM nginx:1.25-alpine
 
-# Copy custom Nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Remove default config and copy your custom config
+RUN rm /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/nginx.conf
+COPY default.conf /etc/nginx/conf.d/default.conf
 
 # Copy build files
 COPY --from=builder /app/build /usr/share/nginx/html
