@@ -20,6 +20,6 @@ FROM nginx:stable-alpine AS dashboard
 RUN rm -rf /usr/share/nginx/html/*
 
 COPY --from=builder /app/build /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 
 # You don't need to expose or start Nginx here since this container's content is used by your reverse proxy
