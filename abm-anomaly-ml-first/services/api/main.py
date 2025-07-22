@@ -24,7 +24,8 @@ from monitoring_utils import monitoring_collector
 
 load_dotenv()
 
-app = FastAPI(title="ABM ML Anomaly Detection API", version="1.0.0")
+app = FastAPI(title="ABM ML Anomaly Detection API", version="1.0.0", docs_url="/api/docs",
+    openapi_url="/api/openapi.json")
 
 # Add CORS middleware
 app.add_middleware(

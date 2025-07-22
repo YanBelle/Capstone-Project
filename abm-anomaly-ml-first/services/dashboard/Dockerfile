@@ -10,7 +10,10 @@ ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# Copy the entire dashboard source code
 COPY . .
+
+# Build the React app
 RUN npm run build
 
 # Stage 2 - Serve with Nginx
