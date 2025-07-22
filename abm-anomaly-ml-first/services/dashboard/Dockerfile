@@ -1,35 +1,36 @@
 # Stage 1 - Build React Dashboard
 FROM node:18 AS builder
 
+# Set working directory inside container
 WORKDIR /app
 
-# Accept runtime variable for API URL
+# Accept runtime variable for API URL (for use in React build)
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 
-# Copy and install dependencies
+# Install dependencies
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy the rest of the source code
+# Copy the rest of the dashboard source
 COPY . .
 
-# Build the React app with API URL injected
+# Build the React app
 RUN npm run build
 
 # Stage 2 - Serve with Nginx
 FROM nginx:1.25-alpine
 
-# Remove default config and copy your custom config
+# Remove default Nginx site config and replace with our own
 RUN rm /etc/nginx/conf.d/default.conf
-COPY ./dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/nginx.conf
 COPY default.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/nginx.conf
 
-# Copy build files
+# Copy built React app from previous stage
 COPY --from=builder /app/build /usr/share/nginx/html
 
-# Expose default port
+# Expose default HTTP port
 EXPOSE 80
 
+# Start Nginx server
 CMD ["nginx", "-g", "daemon off;"]
