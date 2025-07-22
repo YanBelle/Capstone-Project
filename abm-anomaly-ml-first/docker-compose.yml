@@ -74,6 +74,8 @@ services:
     container_name: abm-ml-dashboard
     ports:
       - "3000:3000"
+    volumes:
+      - ./services/dashboard/default.conf:/etc/nginx/conf.d/default.conf
     environment:
       - REACT_APP_API_URL=${REACT_APP_API_URL}
     env_file:
