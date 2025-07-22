@@ -172,8 +172,8 @@ services:
     depends_on:
       - api
       - dashboard
-#    volumes:
-#      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
+    volumes:
+      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "80:80"
       - "443:443"
