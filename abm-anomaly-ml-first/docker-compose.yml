@@ -172,11 +172,8 @@ services:
     depends_on:
       - api
       - dashboard
-    volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./nginx/html:/usr/share/nginx/html
-      - ./letsencrypt:/etc/letsencrypt
-      - ./nginx/certbot-webroot:/var/www/certbot
+#    volumes:
+#      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "80:80"
       - "443:443"
