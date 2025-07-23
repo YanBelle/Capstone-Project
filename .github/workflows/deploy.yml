@@ -33,6 +33,19 @@ jobs:
         working-directory: ./abm-anomaly-ml-first/services/dashboard
         run: npm run build
 
+      - name: Restructure build for /dashboard path
+        working-directory: ./abm-anomaly-ml-first/services/dashboard
+        run: |
+          mkdir -p build/dashboard
+          mv build/static build/dashboard/
+          mv build/index.html build/dashboard/
+          mv build/asset-manifest.json build/dashboard/ || true
+          mv build/favicon.ico build/dashboard/ || true
+          mv build/logo192.png build/dashboard/ || true
+          mv build/logo512.png build/dashboard/ || true
+          mv build/manifest.json build/dashboard/ || true
+          mv build/robots.txt build/dashboard/ || true
+
       - name: Connect to DigitalOcean and Deploy
         uses: appleboy/ssh-action@master
         with:
@@ -45,12 +58,11 @@ jobs:
             echo "➡ Pulling latest code..."
             cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project
 
-            # Remove untracked env file to avoid git pull conflict
             if [ -f abm-anomaly-ml-first/.env.production ]; then
               echo "⚠ Removing existing .env.production to avoid git conflict..."
               rm abm-anomaly-ml-first/.env.production
             fi
-            
+
             git reset --hard
             git pull origin main
 
