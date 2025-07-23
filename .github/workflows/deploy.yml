@@ -53,7 +53,7 @@ jobs:
             BERT_MODEL=bert-base-uncased
             API_HOST=0.0.0.0
             API_PORT=8000
-            REACT_APP_API_URL=http://64.227.16.180:3000/api/
+            REACT_APP_API_URL=http://64.227.16.180:3000
             EOF
 
             echo "➡ Setting ownership (fix any permission issues)..."
@@ -63,7 +63,7 @@ jobs:
             cd abm-anomaly-ml-first
 
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
-            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production build --build-arg REACT_APP_API_URL=http://64.227.16.180:3000/api/
+            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production build --build-arg REACT_APP_API_URL=http://64.227.16.180:3000
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production up -d
 
             echo "✅ Deployment complete."
