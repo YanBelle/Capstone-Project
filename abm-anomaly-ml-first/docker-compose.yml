@@ -23,6 +23,7 @@ services:
       - ./data/output:/app/output
       - ./data/sessions:/app/data/sessions
       - transformer-cache:/app/cache
+      - /var/log/abm-ml-anomaly-detector:/app/logs  # Host-persisted logs (optional but recommended)
     depends_on:
       - postgres
       - redis
@@ -98,7 +99,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+       - /var/lib/postgresql/abm-ml-db:/var/lib/postgresql/data  # Host-persisted DB data
+     # - postgres_data:/var/lib/postgresql/data
      # - ./init-db:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"

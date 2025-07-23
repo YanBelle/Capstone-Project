@@ -131,6 +131,9 @@ docker compose restart api dashboard
 docker compose restart anomaly-detector
 ./clear_ml_sessions.sh
 
+git push -u origin feature/cp
+git push -u origin feature/cp
+
 
 docker compose -f docker-compose-flyway.yml up
 
@@ -138,6 +141,8 @@ docker compose stop grafana jupyter prometheus
 docker compose rm grafana jupyter prometheus
 
 sudo chown -R deploy:deploy /home/deploy/Capstone-Project/abm-anomaly-ml-first
+
+
 
 docker exec -it abm-ml-dashboard sh
 ls /usr/share/nginx/html
