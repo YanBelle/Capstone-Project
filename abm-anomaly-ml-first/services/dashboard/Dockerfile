@@ -4,8 +4,8 @@ FROM node:18-alpine as build-stage
 WORKDIR /app
 
 # Install deps
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # Copy source
 COPY . .
