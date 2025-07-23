@@ -27,12 +27,18 @@ jobs:
             echo "➡ Pulling latest code..."
             cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project
 
+            # ⚠ Clean up existing dashboard build artifacts (avoids permission errors)
+            echo "⚠ Removing old dashboard build folder (if any)..."
+            rm -rf abm-anomaly-ml-first/services/dashboard/build
+
+            # Remove .env.production if exists
             if [ -f abm-anomaly-ml-first/.env.production ]; then
               echo "⚠ Removing existing .env.production to avoid git conflict..."
               rm abm-anomaly-ml-first/.env.production
             fi
 
             git reset --hard
+            git clean -fd
             git pull origin main
 
             echo "➡ Creating .env.production file..."
@@ -44,7 +50,7 @@ jobs:
             EOF
 
             echo "➡ Starting Docker Compose build and deployment..."
-            cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project/abm-anomaly-ml-first
+            cd abm-anomaly-ml-first
 
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production build --build-arg REACT_APP_API_URL=http://64.227.16.180:3000/api/
