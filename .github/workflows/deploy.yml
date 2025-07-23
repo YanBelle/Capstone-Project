@@ -63,7 +63,7 @@ jobs:
             cd abm-anomaly-ml-first
 
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
-            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production build --build-arg REACT_APP_API_URL=/
+            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production build --build-arg REACT_APP_API_URL=http://64.227.16.180
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production up -d
 
             echo "✅ Deployment complete."
