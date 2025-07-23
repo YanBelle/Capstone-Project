@@ -1,43 +1,26 @@
-# --------------------------------------
-# 🛠️ Build Stage
-# --------------------------------------
-FROM node:18-alpine3.19 AS build-stage
+# Stage 1: Build React App
+FROM node:18-alpine as build-stage
 
 WORKDIR /app
 
-# Update apk and install dependencies
-RUN apk update && apk upgrade --no-cache
+# Copy package files and install deps
+COPY package*.json ./
+RUN npm install
 
-# Inject the env variable into build
+# Copy source code and build the app
+COPY . .
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
-
-# Copy package files and install dependencies
-COPY package*.json ./
-RUN npm ci
-
-# Copy the rest of the source code
-COPY . .
-
-# Build the React app for production
 RUN npm run build
 
+# Stage 2: Serve with Nginx
+FROM nginx:1.25-alpine
 
-# --------------------------------------
-# 🚀 Production Stage
-# --------------------------------------
-FROM nginx:alpine AS production
+# Remove default nginx index page
+RUN rm -rf /usr/share/nginx/html/*
 
-# Update packages to reduce vulnerabilities and remove cache
-RUN apk update && apk upgrade --no-cache
-
-# Copy built React static files into Nginx's public folder
+# Copy built React app
 COPY --from=build-stage /app/build /usr/share/nginx/html
 
-# Replace default Nginx config if needed
-# COPY nginx.conf /etc/nginx/nginx.conf
-# COPY default.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+# Replace Nginx config
+COPY default.conf /etc/nginx/conf.d/default.conf
