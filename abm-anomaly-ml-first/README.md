@@ -137,6 +137,11 @@ docker compose -f docker-compose-flyway.yml up
 docker compose stop grafana jupyter prometheus
 docker compose rm grafana jupyter prometheus
 
+docker exec -it abm-ml-dashboard sh
+ls /usr/share/nginx/html
+ls /usr/share/nginx/html/static/js
+cat /usr/share/nginx/html/index.html | grep main
+
 docker exec -it abm-ml-nginx
 
 docker exec -it abm-ml-postgres psql -U abm_user -d abm_ml_db
