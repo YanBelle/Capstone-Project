@@ -1,29 +1,28 @@
-# Stage 1 - Build React app
-FROM node:18 AS builder
+# ---- Stage 1: Build the React app ----
+FROM node:18-alpine AS build-stage
 
 WORKDIR /app
 
-# Accept runtime API URL
-ARG REACT_APP_API_URL
-ENV REACT_APP_API_URL=${REACT_APP_API_URL}
-
-COPY package.json package-lock.json ./
+# Copy and install dependencies
+COPY package*.json ./
 RUN npm ci
 
-# Copy the entire dashboard source code
+# Copy app source and build
 COPY . .
-
-# Build the React app
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
 RUN npm run build
 
-# Stage 2 - Serve with Nginx
+# ---- Stage 2: Serve with nginx ----
 FROM nginx:1.25-alpine
 
+# Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY default.conf /etc/nginx/conf.d/default.conf
 
-# ✅ Correct: Copy from builder stage
+# Copy custom nginx config
+COPY default.conf /etc/nginx/conf.d/
+
+# Copy the built app from previous stage
 COPY --from=build-stage /app/build /usr/share/nginx/html
 
 EXPOSE 80
