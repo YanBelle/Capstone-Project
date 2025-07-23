@@ -134,6 +134,17 @@ docker compose restart anomaly-detector
 
 docker compose -f docker-compose-flyway.yml up
 
+docker compose stop grafana jupyter prometheus
+docker compose rm grafana jupyter prometheus
+
+docker exec -it abm-ml-nginx
+
+docker exec -it abm-ml-postgres psql -U abm_user -d abm_ml_db
+docker exec -i abm-ml-postgres psql -U abm_user -d abm_ml_db < ./data/db/schema/updated_schema.sql
+
+docker exec -i abm-ml-postgres psql -U abm_user -d abm_ml_db < ./database/migrations/002_multi_anomaly_support.sql
+docker exec -i abm-ml-postgres psql -U abm_user -d abm_ml_db < ./database/migrations/003_fix_missing_schema.sql
+
 the below should have been an anomaly, the customer basically attempted a transaction and it appears to show nothing happening.
 why were they not flagged as anomalies?
 <txn1>
