@@ -12,39 +12,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('abm-anomaly-ml-first/services/dashboard/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Install Dashboard Dependencies (CI mode)
-        working-directory: ./abm-anomaly-ml-first/services/dashboard
-        run: npm ci
-
-      - name: Build Dashboard Locally
-        working-directory: ./abm-anomaly-ml-first/services/dashboard
-        run: npm run build
-
-      - name: Restructure build for /dashboard path
-        working-directory: ./abm-anomaly-ml-first/services/dashboard
-        run: |
-          mkdir -p build/dashboard
-          mv build/static build/dashboard/
-          mv build/index.html build/dashboard/
-          mv build/asset-manifest.json build/dashboard/ || true
-          mv build/favicon.ico build/dashboard/ || true
-          mv build/logo192.png build/dashboard/ || true
-          mv build/logo512.png build/dashboard/ || true
-          mv build/manifest.json build/dashboard/ || true
-          mv build/robots.txt build/dashboard/ || true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Connect to DigitalOcean and Deploy
         uses: appleboy/ssh-action@master
@@ -66,11 +35,19 @@ jobs:
             git reset --hard
             git pull origin main
 
-            echo "➡ Starting deployment..."
+            echo "➡ Creating .env.production file..."
+            cat <<EOF > abm-anomaly-ml-first/.env.production
+            POSTGRES_USER=abm_user
+            POSTGRES_PASSWORD=secure_ml_password123
+            POSTGRES_DB=abm_ml_db
+            REACT_APP_API_URL=http://64.227.16.180:3000/api/
+            EOF
+
+            echo "➡ Starting Docker Compose build and deployment..."
             cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project/abm-anomaly-ml-first
 
-            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production pull
             docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
-            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production up -d --build
+            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production build --build-arg REACT_APP_API_URL=http://64.227.16.180:3000/api/
+            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production up -d
 
             echo "✅ Deployment complete."
