@@ -8,6 +8,10 @@ WORKDIR /app
 # Update apk and install dependencies
 RUN apk update && apk upgrade --no-cache
 
+# Inject the env variable into build
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+
 # Copy package files and install dependencies
 COPY package*.json ./
 RUN npm ci
