@@ -137,6 +137,8 @@ docker compose -f docker-compose-flyway.yml up
 docker compose stop grafana jupyter prometheus
 docker compose rm grafana jupyter prometheus
 
+sudo chown -R deploy:deploy /home/deploy/Capstone-Project/abm-anomaly-ml-first
+
 docker exec -it abm-ml-dashboard sh
 ls /usr/share/nginx/html
 ls /usr/share/nginx/html/static/js
