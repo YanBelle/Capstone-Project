@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Save, RefreshCw, CheckCircle, XCircle, AlertTriangle, Brain, Tag, Filter } from 'lucide-react';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import apiConfig from './config/api';
 
 const ExpertLabelingInterface = () => {
   const [sessions, setSessions] = useState([]);
@@ -22,7 +21,7 @@ const ExpertLabelingInterface = () => {
   const fetchAnomalies = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/v1/expert/anomalies?filter=${filter}`);
+      const response = await fetch(apiConfig.endpoint(`/api/v1/expert/anomalies?filter=${filter}`));
       const data = await response.json();
       setSessions(data.sessions);
       setStats(data.stats);
@@ -46,7 +45,7 @@ const ExpertLabelingInterface = () => {
 
   const fetchPredefinedLabels = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/expert/labels`);
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/labels'));
       const data = await response.json();
       setPredefinedLabels(data.labels);
     } catch (error) {
@@ -112,7 +111,7 @@ const ExpertLabelingInterface = () => {
         is_multi_label: data.labels?.length > 1 || false
       }));
 
-      const response = await fetch(`${API_URL}/api/v1/expert/save-labels`, {
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/save-labels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ labels: labelData })
@@ -145,7 +144,7 @@ const ExpertLabelingInterface = () => {
 
     setTrainingStatus('training');
     try {
-      const response = await fetch(`${API_URL}/api/v1/expert/train-supervised`, {
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/train-supervised'), {
         method: 'POST'
       });
 

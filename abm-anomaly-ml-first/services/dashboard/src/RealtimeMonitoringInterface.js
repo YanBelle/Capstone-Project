@@ -19,8 +19,7 @@ import {
   Square
 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import apiConfig from './config/api';
 
 const RealtimeMonitoringInterface = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -105,7 +104,7 @@ const RealtimeMonitoringInterface = () => {
 
   const connectWebSocket = () => {
     try {
-      const wsUrl = API_URL.replace('http://', 'ws://').replace('https://', 'wss://');
+      const wsUrl = apiConfig.getApiUrl().replace('http://', 'ws://').replace('https://', 'wss://');
       websocketRef.current = new WebSocket(`${wsUrl}/ws/monitoring`);
 
       websocketRef.current.onopen = () => {
@@ -149,7 +148,7 @@ const RealtimeMonitoringInterface = () => {
 
   const fetchMonitoringData = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/monitoring/status`);
+      const response = await fetch(apiConfig.endpoint('/v1/monitoring/status'));
       if (response.ok) {
         const data = await response.json();
         
