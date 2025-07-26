@@ -71,12 +71,10 @@ services:
       context: ./services/dashboard
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost}
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost/api}
     container_name: abm-ml-dashboard
     environment:
-      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost}
-    volumes:
-      - ./services/dashboard/build:/usr/share/nginx/html:ro
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost/api}
     depends_on:
       - api
     restart: unless-stopped
@@ -94,9 +92,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-       - /var/lib/postgresql/abm-ml-db:/var/lib/postgresql/data  # Host-persisted DB data
-     # - postgres_data:/var/lib/postgresql/data
-     # - ./init-db:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
     restart: unless-stopped

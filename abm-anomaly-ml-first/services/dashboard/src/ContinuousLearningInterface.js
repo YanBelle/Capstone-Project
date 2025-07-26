@@ -13,8 +13,7 @@ import {
   Award,
   Activity
 } from 'lucide-react';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import apiConfig from './config/api';
 
 const ContinuousLearningInterface = () => {
   const [learningStatus, setLearningStatus] = useState(null);
@@ -34,7 +33,7 @@ const ContinuousLearningInterface = () => {
   // Fetch continuous learning status
   const fetchLearningStatus = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/continuous-learning/status`);
+      const response = await fetch(apiConfig.endpoint("/api/v1/continuous-learning/status"));
       if (response.ok) {
         const data = await response.json();
         setLearningStatus(data.learning_status);
@@ -48,7 +47,7 @@ const ContinuousLearningInterface = () => {
   const fetchFeedbackSessions = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_URL}/api/v1/continuous-learning/feedback-sessions?filter_type=${feedbackFilter}&limit=50`);
+      const response = await fetch(apiConfig.endpoint("/api/v1/continuous-learning/feedback-sessions?filter_type=${feedbackFilter}&limit=50"));
       if (response.ok) {
         const data = await response.json();
         setFeedbackSessions(data.sessions);
@@ -63,7 +62,7 @@ const ContinuousLearningInterface = () => {
   // Fetch detailed session information
   const fetchSessionDetails = async (sessionId) => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/continuous-learning/session-details/${sessionId}`);
+      const response = await fetch(apiConfig.endpoint("/api/v1/continuous-learning/session-details/${sessionId}"));
       if (response.ok) {
         const data = await response.json();
         setSelectedSession(data.session);
@@ -99,7 +98,7 @@ const ContinuousLearningInterface = () => {
     try {
       setSubmittingFeedback(true);
       
-      const response = await fetch(`${API_URL}/api/v1/continuous-learning/feedback`, {
+      const response = await fetch(apiConfig.endpoint("/api/v1/continuous-learning/feedback"), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -134,7 +133,7 @@ const ContinuousLearningInterface = () => {
     try {
       setRetraining(true);
       
-      const response = await fetch(`${API_URL}/api/v1/continuous-learning/trigger-retraining`, {
+      const response = await fetch(apiConfig.endpoint("/api/v1/continuous-learning/trigger-retraining"), {
         method: 'POST'
       });
 
@@ -214,7 +213,7 @@ const ContinuousLearningInterface = () => {
             retraining || (learningStatus && learningStatus.feedback_buffer_size < 5)
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-blue-600 text-white hover:bg-blue-700'
-          }`}
+          }")}
         >
           {retraining ? (
             <RefreshCw className="w-4 h-4 animate-spin" />
@@ -233,7 +232,7 @@ const ContinuousLearningInterface = () => {
             value={learningStatus.feedback_buffer_size}
             icon={Database}
             color="bg-blue-500"
-            subtitle={`Threshold: ${learningStatus.learning_threshold}`}
+            subtitle={")Threshold: ${learningStatus.learning_threshold}`}
           />
           <StatusCard
             title="Retraining Cycles"

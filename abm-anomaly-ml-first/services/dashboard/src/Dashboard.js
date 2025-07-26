@@ -5,8 +5,7 @@ import ExpertLabelingInterface from './ExpertLabelingInterface';
 import ContinuousLearningInterface from './ContinuousLearningInterface';
 import MultiAnomalyView from './MultiAnomalyView';
 import RealtimeMonitoringInterface from './RealtimeMonitoringInterface';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import apiConfig from './config/api';
 
 const ATMDashboard = () => {
   const [stats, setStats] = useState({
@@ -26,8 +25,8 @@ const ATMDashboard = () => {
   // Fetch dashboard stats
   const fetchStats = async () => {
     try {
-      console.log('Fetching dashboard stats from:', `${API_URL}/api/v1/dashboard/stats`);
-      const response = await fetch(`${API_URL}/api/v1/dashboard/stats`);
+      console.log('Fetching dashboard stats from:', apiConfig.endpoint('/api/v1/dashboard/stats'));
+      const response = await fetch(apiConfig.endpoint('/api/v1/dashboard/stats'));
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -53,8 +52,8 @@ const ATMDashboard = () => {
   // Fetch anomalies
   const fetchAnomalies = async () => {
     try {
-      console.log('Fetching anomalies from:', `${API_URL}/api/v1/anomalies?limit=50`);
-      const response = await fetch(`${API_URL}/api/v1/anomalies?limit=50`);
+      console.log('Fetching anomalies from:', apiConfig.endpoint('/api/v1/anomalies?limit=50'));
+      const response = await fetch(apiConfig.endpoint('/api/v1/anomalies?limit=50'));
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -95,7 +94,7 @@ const ATMDashboard = () => {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/upload`, {
+      const response = await fetch(apiConfig.endpoint('/api/v1/upload'), {
         method: 'POST',
         body: formData
       });
@@ -481,7 +480,7 @@ const ATMDashboard = () => {
             {process.env.NODE_ENV === 'development' && (
               <div className="bg-gray-100 border-l-4 border-blue-500 p-4">
                 <p className="text-sm text-gray-700">
-                  <strong>Debug Info:</strong> API URL: {API_URL}
+                  <strong>Debug Info:</strong> API URL: {apiConfig.endpoint()}
                 </p>
                 <p className="text-sm text-gray-600">
                   Last fetch: {new Date().toLocaleString()}

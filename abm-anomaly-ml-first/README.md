@@ -157,6 +157,13 @@ docker exec -i abm-ml-postgres psql -U abm_user -d abm_ml_db < ./data/db/schema/
 docker exec -i abm-ml-postgres psql -U abm_user -d abm_ml_db < ./database/migrations/002_multi_anomaly_support.sql
 docker exec -i abm-ml-postgres psql -U abm_user -d abm_ml_db < ./database/migrations/003_fix_missing_schema.sql
 
+
+docker exec -it abm-ml-dashboard /bin/sh - Access dashboard container
+ls -la /usr/share/nginx/html/ - Check build files
+docker exec abm-ml-dashboard curl -I http://localhost
+
+cd /Users/christopherpearson/Projects/abm_ej_exporter_docker_cleaned/EJAnomalyDetectionV3/abm-anomaly-ml-first && docker run --rm -it abm-anomaly-ml-first-dashboard sh -c "ls -la /usr/share/nginx/html/"
+
 the below should have been an anomaly, the customer basically attempted a transaction and it appears to show nothing happening.
 why were they not flagged as anomalies?
 <txn1>
