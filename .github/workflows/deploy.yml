@@ -43,6 +43,7 @@ jobs:
             # Just need to set the correct API URL for this deployment
             sed -i 's|REACT_APP_API_URL=.*|REACT_APP_API_URL=http://64.227.16.180/api|g' abm-anomaly-ml-first/.env.production
 
+
             echo "➡ Setting ownership (fix any permission issues)..."
             sudo chown -R $USER:$USER /home/$USER/Capstone-Project
 
@@ -50,7 +51,6 @@ jobs:
             cd abm-anomaly-ml-first
 
             # Make sure deploy script is executable
-            chmod +x deploy.sh
 
             # Stop any existing deployment
             ./deploy.sh production down || true
