@@ -25,45 +25,40 @@ jobs:
             set -e
 
             echo "➡ Pulling latest code..."
-            cd /home/${{ secrets.DROPLET_USER }}/Capstone-Project
+            cd /home/$USER/Capstone-Project
 
             echo "⚠ Removing dashboard build if present..."
             rm -rf abm-anomaly-ml-first/services/dashboard/build
 
             if [ -f abm-anomaly-ml-first/.env.production ]; then
-              echo "⚠ Removing existing .env.production to avoid git conflict..."
-              rm abm-anomaly-ml-first/.env.production
+              echo "⚠ Backing up existing .env.production..."
+              cp abm-anomaly-ml-first/.env.production abm-anomaly-ml-first/.env.production.backup
             fi
 
             git reset --hard
             git pull origin main
 
-            echo "➡ Creating fresh .env.production file..."
-            cat <<EOF > abm-anomaly-ml-first/.env.production
-            POSTGRES_USER=abm_user
-            POSTGRES_PASSWORD=secure_ml_password123
-            POSTGRES_DB=abm_ml_db
-            POSTGRES_HOST=postgres
-            REDIS_HOST=redis
-            REDIS_PASSWORD=redis_ml_password123
-            JWT_SECRET=your_jwt_secret_key_ml_first
-            ANOMALY_THRESHOLD=0.7
-            MODEL_UPDATE_INTERVAL=3600
-            LOG_LEVEL=INFO
-            BERT_MODEL=bert-base-uncased
-            API_HOST=0.0.0.0
-            API_PORT=8000
-            REACT_APP_API_URL=http://64.227.16.180:3000
-            EOF
+            echo "➡ Ensuring .env.production is configured for production..."
+            # The .env.production file is now managed in the repository
+            # Just need to set the correct API URL for this deployment
+            sed -i 's|REACT_APP_API_URL=.*|REACT_APP_API_URL=http://64.227.16.180/api|g' abm-anomaly-ml-first/.env.production
+
 
             echo "➡ Setting ownership (fix any permission issues)..."
-            sudo chown -R $USER:$USER /home/${{ secrets.DROPLET_USER }}/Capstone-Project
+            sudo chown -R $USER:$USER /home/$USER/Capstone-Project
 
-            echo "➡ Running Docker Compose..."
+            echo "➡ Running deployment with new architecture..."
             cd abm-anomaly-ml-first
 
-            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production down
-            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production build --build-arg REACT_APP_API_URL=http://64.227.16.180
-            docker compose -f docker-compose.yml -f docker-compose-flyway.yml --env-file .env.production up -d
+            # Make sure deploy script is executable
 
-            echo "✅ Deployment complete."
+            # Stop any existing deployment
+            ./deploy.sh production down || true
+
+            # Build and start with production configuration
+            ./deploy.sh production build
+            ./deploy.sh production up
+
+            echo "✅ Deployment complete using new flexible architecture."
+            echo "➡ Checking service status..."
+            ./deploy.sh production status
