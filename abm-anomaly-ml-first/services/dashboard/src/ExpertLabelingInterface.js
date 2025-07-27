@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Save, RefreshCw, CheckCircle, XCircle, AlertTriangle, Brain, Tag, Filter } from 'lucide-react';
+import Layout from './Layout';
 import apiConfig from './config/api';
 
 const ExpertLabelingInterface = () => {
@@ -172,19 +173,22 @@ const ExpertLabelingInterface = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <RefreshCw className="w-12 h-12 animate-spin mx-auto mb-4" />
-          <p>Loading anomalies for review...</p>
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <RefreshCw className="w-12 h-12 animate-spin mx-auto mb-4" />
+            <p>Loading anomalies for review...</p>
+          </div>
         </div>
-      </div>
+      </Layout>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-md p-6">
+    <Layout>
+      <div className="space-y-6 p-6">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex justify-between items-center mb-4">
           <div>
             <h1 className="text-2xl font-bold flex items-center">
@@ -522,7 +526,8 @@ const ExpertLabelingInterface = () => {
           <p className="text-lg text-gray-600">No anomalies to review</p>
         </div>
       )}
-    </div>
+      </div>
+    </Layout>
   );
 };
 
