@@ -63,6 +63,11 @@ const DataViewer = React.lazy(() => import('./DataViewer').catch(err => {
   return { default: () => <div>Error loading DataViewer component</div> };
 }));
 
+const BertAnalysisInterface = React.lazy(() => import('./BertAnalysisInterface').catch(err => {
+  console.error('Error loading BertAnalysisInterface:', err);
+  return { default: () => <div>Error loading BertAnalysisInterface component</div> };
+}));
+
 function App() {
   return (
     <ErrorBoundary>
@@ -79,6 +84,7 @@ function App() {
             <Route path="/dashboard/expert-labeling" element={<ExpertLabelingInterface />} />
             <Route path="/dashboard/continuous-learning" element={<ContinuousLearningInterface />} />
             <Route path="/dashboard/data-viewer" element={<DataViewer />} />
+            <Route path="/dashboard/bert-analysis" element={<BertAnalysisInterface />} />
           </Routes>
         </React.Suspense>
       </Router>

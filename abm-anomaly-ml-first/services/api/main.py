@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import os
+import sys
 from datetime import datetime, timedelta
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -21,6 +22,19 @@ import time
 import psutil
 import threading
 # from monitoring_utils import monitoring_collector  # Commented to prevent import errors
+
+# Add the anomaly-detector directory to the path
+anomaly_detector_path = os.path.join(os.path.dirname(__file__), '..', 'anomaly-detector')
+sys.path.append(os.path.abspath(anomaly_detector_path))
+
+# Import our BertViz analyzer
+try:
+    from bertviz_analyzer import BertVisualizationAnalyzer
+    BERTVIZ_AVAILABLE = True
+    logger.info("BertViz analyzer imported successfully")
+except ImportError as e:
+    logger.warning(f"BertViz analyzer not available: {e}")
+    BERTVIZ_AVAILABLE = False
 
 # Import the new expert feedback endpoint
 try:
@@ -1830,6 +1844,201 @@ async def get_model_performance(model_version: str):
         raise
     except Exception as e:
         logger.error(f"Error getting model performance: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# BertViz Analysis Endpoints
+class BertAnalysisRequest(BaseModel):
+    text: str
+    analysis_type: str = "full"  # Options: full, attention, importance, patterns
+    layers: Optional[List[int]] = None
+    heads: Optional[List[int]] = None
+
+@app.post("/api/v1/bert/analyze")
+async def analyze_bert_attention(request: BertAnalysisRequest):
+    """Analyze BERT attention patterns and token importance for given text"""
+    if not BERTVIZ_AVAILABLE:
+        raise HTTPException(status_code=503, detail="BertViz analyzer not available")
+    
+    try:
+        analyzer = BertVisualizationAnalyzer()
+        
+        # Analyze the text
+        analysis_results = await asyncio.to_thread(
+            analyzer.analyze_session_text, 
+            request.text
+        )
+        
+        response = {
+            'status': 'success',
+            'text': request.text,
+            'analysis_type': request.analysis_type,
+            'results': analysis_results
+        }
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in BERT analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/bert/visualize")
+async def create_bert_visualization(request: BertAnalysisRequest):
+    """Create BERT attention visualizations"""
+    if not BERTVIZ_AVAILABLE:
+        raise HTTPException(status_code=503, detail="BertViz analyzer not available")
+    
+    try:
+        analyzer = BertVisualizationAnalyzer()
+        
+        # Generate visualizations
+        visualizations = await asyncio.to_thread(
+            analyzer._generate_visualizations,
+            request.text,
+            layers=request.layers,
+            heads=request.heads
+        )
+        
+        response = {
+            'status': 'success',
+            'text': request.text,
+            'visualizations': visualizations
+        }
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error creating BERT visualizations: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/bert/patterns")
+async def get_bert_patterns():
+    """Get detected BERT attention patterns for ABM anomaly detection"""
+    if not BERTVIZ_AVAILABLE:
+        raise HTTPException(status_code=503, detail="BertViz analyzer not available")
+    
+    try:
+        analyzer = BertVisualizationAnalyzer()
+        
+        # Get patterns from recent sessions
+        query = """
+        SELECT DISTINCT log_content 
+        FROM session_logs 
+        WHERE created_at >= NOW() - INTERVAL '24 hours'
+        AND anomaly_score > 0.7
+        ORDER BY created_at DESC 
+        LIMIT 10
+        """
+        
+        with db_engine.connect() as conn:
+            result = conn.execute(text(query))
+            sample_texts = [row[0] for row in result if row[0]]
+        
+        if not sample_texts:
+            return {
+                'status': 'success',
+                'message': 'No recent anomalous sessions found',
+                'patterns': []
+            }
+        
+        # Analyze patterns across multiple texts
+        patterns = []
+        for text in sample_texts[:5]:  # Limit to 5 samples
+            analysis = await asyncio.to_thread(analyzer.analyze_session_text, text)
+            if 'detected_patterns' in analysis:
+                patterns.extend(analysis['detected_patterns'])
+        
+        # Aggregate patterns
+        pattern_summary = {}
+        for pattern in patterns:
+            pattern_type = pattern.get('type', 'unknown')
+            if pattern_type not in pattern_summary:
+                pattern_summary[pattern_type] = {
+                    'count': 0,
+                    'examples': [],
+                    'avg_confidence': 0
+                }
+            pattern_summary[pattern_type]['count'] += 1
+            pattern_summary[pattern_type]['examples'].append(pattern)
+            pattern_summary[pattern_type]['avg_confidence'] = np.mean([
+                p.get('confidence', 0) for p in pattern_summary[pattern_type]['examples']
+            ])
+        
+        return {
+            'status': 'success',
+            'sample_count': len(sample_texts),
+            'pattern_summary': pattern_summary,
+            'patterns': patterns
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting BERT patterns: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/bert/optimize")
+async def optimize_bert_attention(request: BertAnalysisRequest):
+    """Analyze BERT attention to suggest optimization strategies"""
+    if not BERTVIZ_AVAILABLE:
+        raise HTTPException(status_code=503, detail="BertViz analyzer not available")
+    
+    try:
+        analyzer = BertVisualizationAnalyzer()
+        
+        # Get comprehensive analysis
+        analysis = await asyncio.to_thread(analyzer.analyze_session_text, request.text)
+        
+        # Generate optimization suggestions
+        suggestions = []
+        
+        # Check token importance distribution
+        if 'token_importance' in analysis:
+            importance_scores = [token['importance'] for token in analysis['token_importance']]
+            importance_std = np.std(importance_scores)
+            
+            if importance_std < 0.1:
+                suggestions.append({
+                    'type': 'attention_distribution',
+                    'issue': 'Low attention variance detected',
+                    'suggestion': 'Consider fine-tuning with more diverse ABM-specific examples',
+                    'confidence': 0.8
+                })
+        
+        # Check for ABM-specific pattern recognition
+        if 'detected_patterns' in analysis:
+            abm_patterns = [p for p in analysis['detected_patterns'] if p.get('type') in ['error_keywords', 'transaction_patterns']]
+            if len(abm_patterns) < 2:
+                suggestions.append({
+                    'type': 'domain_adaptation',
+                    'issue': 'Limited ABM-specific pattern recognition',
+                    'suggestion': 'Add more ABM transaction and error keywords to fine-tuning data',
+                    'confidence': 0.7
+                })
+        
+        # Check attention head specialization
+        if 'attention_analysis' in analysis and 'head_analysis' in analysis['attention_analysis']:
+            head_specialization = analysis['attention_analysis']['head_analysis']
+            low_specialization_heads = [
+                head for head, data in head_specialization.items() 
+                if data.get('specialization_score', 0) < 0.3
+            ]
+            
+            if len(low_specialization_heads) > 6:  # More than half of typical 12 heads
+                suggestions.append({
+                    'type': 'head_pruning',
+                    'issue': f'{len(low_specialization_heads)} attention heads show low specialization',
+                    'suggestion': 'Consider attention head pruning or targeted fine-tuning',
+                    'confidence': 0.6
+                })
+        
+        return {
+            'status': 'success',
+            'text': request.text,
+            'analysis': analysis,
+            'optimization_suggestions': suggestions,
+            'suggestion_count': len(suggestions)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error optimizing BERT attention: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Start monitoring background task

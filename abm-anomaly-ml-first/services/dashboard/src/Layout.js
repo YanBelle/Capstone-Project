@@ -15,6 +15,7 @@ const Layout = ({ children }) => {
     if (path.includes('/dashboard/continuous-learning')) return 'continuous-learning';
     if (path.includes('/dashboard/realtime')) return 'monitoring';
     if (path.includes('/dashboard/analytics')) return 'analytics';
+    if (path.includes('/dashboard/bert-analysis')) return 'bert-analysis';
     return 'overview';
   };
 
@@ -84,6 +85,7 @@ const Layout = ({ children }) => {
               { key: 'alerts', label: 'Alerts', path: '/dashboard/alerts' },
               { key: 'expert-labeling', label: 'Expert Review', path: '/dashboard/expert-labeling' },
               { key: 'continuous-learning', label: 'ML Training', path: '/dashboard/continuous-learning' },
+              { key: 'bert-analysis', label: 'BERT Analysis', path: '/dashboard/bert-analysis' },
               { key: 'monitoring', label: 'Real-time Monitor', path: '/dashboard/realtime' },
               { key: 'analytics', label: 'Analytics', path: '/dashboard/analytics' }
             ].map((tab) => (
