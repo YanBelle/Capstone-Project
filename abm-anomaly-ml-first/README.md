@@ -164,38 +164,8 @@ docker exec abm-ml-dashboard curl -I http://localhost
 
 cd /Users/christopherpearson/Projects/abm_ej_exporter_docker_cleaned/EJAnomalyDetectionV3/abm-anomaly-ml-first && docker run --rm -it abm-anomaly-ml-first-dashboard sh -c "ls -la /usr/share/nginx/html/"
 
-the below should have been an anomaly, the customer basically attempted a transaction and it appears to show nothing happening.
-why were they not flagged as anomalies?
-<txn1>
-[020t15706/18/202513:39
-TRANSACTION START
-[020t CARD INSERTED
-[020t 13:39:56 CARD TAKEN
-[000p[040q(I 75561D(10,M-090B0210B9,R-4S
-[000p[040q(I 75561D(10,M-00,R-4S
-[020t 13:39:56 TRANSACTION END
-[020t15806/18/202513:39
-PRIMARY CARD READER ACTIVATED
-</txn1>
-
- <txn2>
- [020t*209*06/18/2025*14:23*
-      *TRANSACTION START*
- [020t CARD INSERTED
-  14:23:03 ATR RECEIVED T=0
- [020t 14:23:06 OPCODE = FI      
- 
-   PAN 0004263********6687
-   ---START OF TRANSACTION---
-  
- [020t 14:23:22 PIN ENTERED
- [020t 14:23:36 OPCODE = BC      
- 
-   PAN 0004263********6687
-   ---START OF TRANSACTION---
-  
- [020t 14:24:28 CARD TAKEN
- [020t 14:24:29 TRANSACTION END
- [020t*210*06/18/2025*14:24*
-      *PRIMARY CARD READER ACTIVATED*
- </txn2>
+dev-start    # Start development containers
+dev-stop     # Stop development containers
+dev-status   # Check status
+dev-push     # Git commit and push to GitHub
+dev-cd       # Navigate to project directory
