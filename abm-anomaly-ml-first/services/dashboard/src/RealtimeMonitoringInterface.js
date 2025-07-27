@@ -19,6 +19,7 @@ import {
   Square
 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import Layout from './Layout';
 import apiConfig from './config/api';
 
 const RealtimeMonitoringInterface = () => {
@@ -360,17 +361,18 @@ const RealtimeMonitoringInterface = () => {
   });
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center">
-            <Monitor className="w-8 h-8 text-purple-600 mr-3" />
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Real-time System Monitoring</h1>
-              <p className="text-gray-600 mt-1">Monitor parsing, sessionization, and ML training processes</p>
+    <Layout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <Monitor className="w-8 h-8 text-purple-600 mr-3" />
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Real-time System Monitoring</h1>
+                <p className="text-gray-600 mt-1">Monitor parsing, sessionization, and ML training processes</p>
+              </div>
             </div>
-          </div>
           
           <div className="flex items-center space-x-4">
             <button
@@ -640,7 +642,8 @@ const RealtimeMonitoringInterface = () => {
           <div ref={logsEndRef} />
         </div>
       </div>
-    </div>
+      </div>
+    </Layout>
   );
 };
 

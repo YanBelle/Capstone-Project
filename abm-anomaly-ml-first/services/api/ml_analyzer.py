@@ -218,6 +218,189 @@ class MLFirstAnomalyDetector:
     """ML-First approach with supervised learning integration and expert knowledge"""
     
     def __init__(self, model_name: str = 'bert-base-uncased'):
+        # Initialize ML models
+        self.model_name = model_name
+        self.tokenizer = None
+        self.bert_model = None
+        self.scaler = StandardScaler()
+        self.pca = PCA(n_components=50)
+        self.isolation_forest = IsolationForest(contamination=0.1, random_state=42)
+        self.one_class_svm = OneClassSVM(gamma='auto')
+        
+        # Initialize ML-first components
+        self.normal_embeddings_cluster = None
+        self.anomaly_embeddings_cluster = None
+        self.cluster_centers = None
+        self.cluster_threshold = 2.0
+        self.learned_normal_sequences = []
+        self.learned_anomaly_sequences = []
+        self.expert_normal_patterns = {}
+        
+        # Dynamic thresholds (adjusted by expert feedback)
+        self.semantic_threshold = 0.75
+        self.sequence_threshold = 0.7
+        self.ensemble_threshold = 0.6
+        
+        # Ensemble weights (adjusted by expert feedback)
+        self.ensemble_weights = {
+            'bert_semantic': 0.3,
+            'lstm_sequence': 0.25,
+            'ml_ensemble': 0.25,
+            'clustering': 0.2
+        }
+        
+        # Load expert rules (kept minimal for critical safety only)
+        self.expert_rules = self.load_expert_rules()
+        
+        # Initialize supervised model components
+        self.supervised_classifier = None
+        self.label_encoder = None
+        
+        # ML-first continuous learning system
+        self.initialize_feedback_system()
+        
+        # Load pre-trained models if available
+        self.load_pretrained_ml_models()
+        
+        # Initialize explanation patterns (reduced to minimal critical set)
+        self.explanation_patterns = self._get_minimal_explanation_patterns()
+        
+        # Enhanced session tracking
+        self.sessions = []
+        self.embeddings_matrix = None
+        self.latest_anomaly_summary = None
+    
+    def _get_minimal_explanation_patterns(self) -> Dict[str, re.Pattern]:
+        """Get minimal set of critical explanation patterns (safety-focused only)"""
+        return {
+            # Only critical safety patterns that require immediate action
+            'critical_hardware_fault': re.compile(r'HARDWARE\s+FAULT|SYSTEM\s+FAILURE|CRITICAL\s+ERROR', re.IGNORECASE),
+            'security_violation': re.compile(r'UNAUTHORIZED|SECURITY\s+VIOLATION|TAMPER\s+DETECTED', re.IGNORECASE),
+            'power_failure': re.compile(r'POWER\s+FAILURE|UPS\s+FAILURE|EMERGENCY\s+SHUTDOWN', re.IGNORECASE)
+        }
+    
+    def initialize_feedback_system(self):
+        """Enhanced feedback system initialization for ML-first approach"""
+        self.feedback_buffer = []
+        self.learning_threshold = 5  # Reduced threshold for more frequent learning
+        self.feedback_weights = {
+            'expert_confirmed_anomaly': 3.0,
+            'expert_confirmed_normal': 3.0,
+            'expert_new_anomaly_type': 4.0,
+            'false_positive_correction': 2.5,
+            'false_negative_correction': 3.5
+        }
+        self.model_performance_history = []
+        
+        # ML-first specific feedback tracking
+        self.detection_method_feedback = {
+            'bert_semantic': {'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0},
+            'lstm_sequence': {'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0},
+            'ml_ensemble': {'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0},
+            'clustering': {'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0}
+        }
+    
+    def collect_expert_feedback(self, session_id: str, expert_label: str, 
+                               expert_confidence: float, feedback_type: str, 
+                               expert_explanation: str = None) -> bool:
+        """
+        Enhanced expert feedback collection for ML-first continuous learning
+        
+        Args:
+            session_id: ID of the session being corrected
+            expert_label: Expert's classification ('normal', 'anomaly', or specific type)
+            expert_confidence: Expert's confidence (0.0 to 1.0)
+            feedback_type: Type of feedback ('confirmation', 'correction', 'new_discovery')
+            expert_explanation: Optional explanation from expert
+        """
+        try:
+            # Find the session
+            session = next((s for s in self.sessions if s.session_id == session_id), None)
+            if not session:
+                logger.warning(f"Session {session_id} not found for feedback collection")
+                return False
+            
+            # Get current ML predictions for this session
+            ml_prediction = session.is_anomaly
+            ml_confidence = getattr(session, 'overall_anomaly_score', 0.0)
+            detection_methods = [anomaly.detection_method for anomaly in session.anomalies]
+            
+            # Create enhanced feedback record
+            feedback_record = {
+                'timestamp': datetime.now().isoformat(),
+                'session_id': session_id,
+                'session_text': session.raw_text,
+                'expert_label': expert_label,
+                'expert_confidence': expert_confidence,
+                'expert_explanation': expert_explanation,
+                'feedback_type': feedback_type,
+                'ml_prediction': ml_prediction,
+                'ml_confidence': ml_confidence,
+                'detection_methods': detection_methods,
+                'anomaly_types': session.get_anomaly_types() if hasattr(session, 'get_anomaly_types') else [],
+                'feedback_weight': self._calculate_feedback_weight(ml_prediction, expert_label, expert_confidence, feedback_type)
+            }
+            
+            # Add to feedback buffer
+            self.feedback_buffer.append(feedback_record)
+            
+            # Update method-specific feedback statistics
+            self._update_method_feedback_stats(feedback_record)
+            
+            # Log the feedback
+            logger.info(f"Expert feedback collected for session {session_id}: "
+                       f"Expert={expert_label} (conf: {expert_confidence}), "
+                       f"ML={ml_prediction} (conf: {ml_confidence}), "
+                       f"Type={feedback_type}")
+            
+            # Trigger retraining if threshold reached
+            if len(self.feedback_buffer) >= self.learning_threshold:
+                logger.info(f"Feedback threshold reached ({len(self.feedback_buffer)} samples), triggering retraining")
+                self.continuous_model_retraining()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Expert feedback collection failed for session {session_id}: {str(e)}")
+            return False
+    
+    def _calculate_feedback_weight(self, ml_prediction: bool, expert_label: str, 
+                                  expert_confidence: float, feedback_type: str) -> float:
+        """Calculate the weight of feedback based on agreement and confidence"""
+        base_weight = self.feedback_weights.get(f"expert_{feedback_type}", 1.0)
+        
+        # Increase weight for high-confidence expert corrections
+        confidence_multiplier = 1.0 + (expert_confidence - 0.5)  # 0.5 to 1.5 range
+        
+        # Increase weight for corrections vs confirmations
+        expert_is_anomaly = expert_label != 'normal' and expert_label != ''
+        if ml_prediction != expert_is_anomaly:
+            # This is a correction
+            base_weight *= 1.5
+        
+        return base_weight * confidence_multiplier
+    
+    def _update_method_feedback_stats(self, feedback_record: Dict):
+        """Update statistics for each detection method based on expert feedback"""
+        expert_label = feedback_record['expert_label']
+        ml_prediction = feedback_record['ml_prediction']
+        detection_methods = feedback_record['detection_methods']
+        
+        expert_is_anomaly = expert_label != 'normal' and expert_label != ''
+        
+        # Update stats for each method that participated in detection
+        for method in detection_methods:
+            if method in self.detection_method_feedback:
+                stats = self.detection_method_feedback[method]
+                
+                if expert_is_anomaly and ml_prediction:
+                    stats['tp'] += 1  # True Positive
+                elif expert_is_anomaly and not ml_prediction:
+                    stats['fn'] += 1  # False Negative
+                elif not expert_is_anomaly and ml_prediction:
+                    stats['fp'] += 1  # False Positive
+                elif not expert_is_anomaly and not ml_prediction:
+                    stats['tn'] += 1  # True Negative
         # Initialize BERT for embeddings
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
         self.bert_model = BertModel.from_pretrained(model_name)
@@ -775,6 +958,9 @@ class MLFirstAnomalyDetector:
         # DeepLog sequential anomaly detection
         self._detect_deeplog_anomalies(session, events)
         
+        # NEW: DeepLog-enhanced sentiment anomaly detection
+        self._detect_deeplog_sentiment_anomalies(session, events)
+        
         # Incomplete/Failed Transactions
         self._detect_incomplete_transactions(session, events, session.raw_text)
         
@@ -834,29 +1020,355 @@ class MLFirstAnomalyDetector:
         return False
     
     def _detect_specific_anomalies(self, session: TransactionSession, events: List[Dict]):
-        """Detect specific types of anomalies based on event patterns"""
+        """Detect specific types of anomalies using ML-first approach with minimal rule-based fallback"""
+        
+        # ML-First Anomaly Detection using Advanced Models
+        ml_anomalies = self._detect_ml_anomalies(session)
+        for anomaly in ml_anomalies:
+            session.add_anomaly(**anomaly)
+        
+        # Only use rule-based detection for critical safety patterns (minimal set)
+        self._detect_critical_safety_patterns(session)
+    
+    def _detect_ml_anomalies(self, session: TransactionSession) -> List[Dict]:
+        """Advanced ML-based anomaly detection using multiple models"""
+        anomalies = []
+        
+        try:
+            # 1. BERT-based semantic anomaly detection
+            semantic_anomalies = self._detect_semantic_anomalies(session)
+            anomalies.extend(semantic_anomalies)
+            
+            # 2. Sequence-based anomaly detection using LSTM
+            sequence_anomalies = self._detect_sequence_anomalies(session)
+            anomalies.extend(sequence_anomalies)
+            
+            # 3. Statistical ensemble detection
+            ensemble_anomalies = self._detect_ensemble_anomalies(session)
+            anomalies.extend(ensemble_anomalies)
+            
+            # 4. Pattern clustering anomaly detection
+            cluster_anomalies = self._detect_cluster_anomalies(session)
+            anomalies.extend(cluster_anomalies)
+            
+        except Exception as e:
+            logger.warning(f"ML anomaly detection failed for session {session.session_id}: {str(e)}")
+            # Fallback to minimal rule-based detection only for critical cases
+        
+        return anomalies
+    
+    def _detect_critical_safety_patterns(self, session: TransactionSession):
+        """Minimal rule-based detection only for critical safety patterns"""
         text = session.raw_text.upper()
         
-        # Hardware/Mechanical Issues
-        if 'DISPENSE FAIL' in text or 'DISPENSER FAULT' in text:
-            session.add_anomaly(
-                anomaly_type="dispense_failure",
-                confidence=0.95,
-                detection_method="expert_rule",
-                description="Cash dispenser failed to dispense notes",
-                severity="high",
-                details={"keywords": ["DISPENSE FAIL", "DISPENSER FAULT"]}
-            )
+        # Only detect truly critical patterns that require immediate attention
+        critical_patterns = {
+            "hardware_failure": {
+                "patterns": ['HARDWARE FAULT', 'SYSTEM FAILURE', 'CRITICAL ERROR'],
+                "confidence": 0.98,
+                "severity": "critical"
+            },
+            "security_breach": {
+                "patterns": ['UNAUTHORIZED ACCESS', 'SECURITY VIOLATION', 'TAMPER DETECTED'],
+                "confidence": 0.99,
+                "severity": "critical"
+            }
+        }
         
-        if any(error in text for error in ['HARDWARE ERROR', 'SENSOR ERROR', 'MOTOR ERROR', 'DEVICE ERROR']):
-            session.add_anomaly(
-                anomaly_type="hardware_error",
-                confidence=0.90,
-                detection_method="expert_rule",
-                description="Hardware component malfunction detected",
-                severity="high",
-                details={"detected_errors": [error for error in ['HARDWARE ERROR', 'SENSOR ERROR', 'MOTOR ERROR', 'DEVICE ERROR'] if error in text]}
-            )
+        for anomaly_type, config in critical_patterns.items():
+            if any(pattern in text for pattern in config["patterns"]):
+                session.add_anomaly(
+                    anomaly_type=anomaly_type,
+                    confidence=config["confidence"],
+                    detection_method="critical_safety_rule",
+                    description=f"Critical safety pattern detected: {anomaly_type}",
+                    severity=config["severity"],
+                    details={"matched_patterns": [p for p in config["patterns"] if p in text]}
+                )
+    
+    def _detect_semantic_anomalies(self, session: TransactionSession) -> List[Dict]:
+        """BERT-based semantic anomaly detection"""
+        anomalies = []
+        
+        try:
+            # Generate embedding for this session
+            session_embedding = self._generate_single_embedding(session.raw_text)
+            
+            # Compare against learned normal patterns
+            if hasattr(self, 'normal_embeddings_cluster'):
+                semantic_score = self._calculate_semantic_distance(session_embedding, self.normal_embeddings_cluster)
+                
+                if semantic_score > 0.75:  # Threshold for semantic anomaly
+                    anomalies.append({
+                        "anomaly_type": "semantic_anomaly",
+                        "confidence": semantic_score,
+                        "detection_method": "bert_semantic",
+                        "description": "Transaction semantically differs from normal patterns",
+                        "severity": self._determine_severity(semantic_score),
+                        "details": {"semantic_distance": semantic_score}
+                    })
+        except Exception as e:
+            logger.warning(f"Semantic anomaly detection failed: {str(e)}")
+        
+        return anomalies
+    
+    def _detect_sequence_anomalies(self, session: TransactionSession) -> List[Dict]:
+        """LSTM-based sequence anomaly detection"""
+        anomalies = []
+        
+        try:
+            # Extract event sequence from session
+            events_sequence = self._extract_event_sequence(session.raw_text)
+            
+            if hasattr(self, 'sequence_model') and len(events_sequence) > 3:
+                # Predict next events and calculate anomaly score
+                sequence_score = self._calculate_sequence_anomaly_score(events_sequence)
+                
+                if sequence_score > 0.7:  # Threshold for sequence anomaly
+                    anomalies.append({
+                        "anomaly_type": "sequence_anomaly", 
+                        "confidence": sequence_score,
+                        "detection_method": "lstm_sequence",
+                        "description": "Transaction event sequence is unusual",
+                        "severity": self._determine_severity(sequence_score),
+                        "details": {"sequence_score": sequence_score, "events": events_sequence}
+                    })
+        except Exception as e:
+            logger.warning(f"Sequence anomaly detection failed: {str(e)}")
+        
+        return anomalies
+    
+    def _detect_ensemble_anomalies(self, session: TransactionSession) -> List[Dict]:
+        """Ensemble-based anomaly detection using multiple ML models"""
+        anomalies = []
+        
+        try:
+            # Get session features
+            features = self._extract_ml_features(session)
+            
+            # Apply multiple models and combine predictions
+            model_scores = {}
+            
+            if hasattr(self, 'autoencoder_model'):
+                model_scores['autoencoder'] = self._autoencoder_anomaly_score(features)
+            
+            if hasattr(self, 'dbscan_model'):
+                model_scores['clustering'] = self._clustering_anomaly_score(features)
+            
+            if hasattr(self, 'local_outlier_factor'):
+                model_scores['lof'] = self._lof_anomaly_score(features)
+            
+            # Ensemble voting
+            if model_scores:
+                ensemble_score = np.mean(list(model_scores.values()))
+                voting_threshold = 0.6
+                
+                if ensemble_score > voting_threshold:
+                    anomalies.append({
+                        "anomaly_type": "ensemble_anomaly",
+                        "confidence": ensemble_score,
+                        "detection_method": "ml_ensemble",
+                        "description": f"Multiple ML models indicate anomaly (consensus: {len(model_scores)} models)",
+                        "severity": self._determine_severity(ensemble_score),
+                        "details": {"model_scores": model_scores, "ensemble_score": ensemble_score}
+                    })
+        except Exception as e:
+            logger.warning(f"Ensemble anomaly detection failed: {str(e)}")
+        
+        return anomalies
+    
+    def _detect_cluster_anomalies(self, session: TransactionSession) -> List[Dict]:
+        """Clustering-based anomaly detection"""
+        anomalies = []
+        
+        try:
+            # Generate embedding for this session
+            session_embedding = self._generate_single_embedding(session.raw_text)
+            
+            # Check distance to nearest cluster centers
+            if hasattr(self, 'cluster_centers'):
+                min_distance = float('inf')
+                nearest_cluster = -1
+                
+                for i, center in enumerate(self.cluster_centers):
+                    distance = np.linalg.norm(session_embedding - center)
+                    if distance < min_distance:
+                        min_distance = distance
+                        nearest_cluster = i
+                
+                # If distance is too large, it's an anomaly
+                cluster_threshold = getattr(self, 'cluster_threshold', 2.0)
+                if min_distance > cluster_threshold:
+                    anomalies.append({
+                        "anomaly_type": "cluster_outlier",
+                        "confidence": min(0.95, min_distance / cluster_threshold * 0.5),
+                        "detection_method": "clustering",
+                        "description": f"Transaction doesn't fit any known cluster (distance: {min_distance:.2f})",
+                        "severity": self._determine_severity(min_distance / cluster_threshold * 0.5),
+                        "details": {"cluster_distance": min_distance, "nearest_cluster": nearest_cluster}
+                    })
+        except Exception as e:
+            logger.warning(f"Cluster anomaly detection failed: {str(e)}")
+        
+        return anomalies
+    
+    # Helper methods for ML-based anomaly detection
+    def _generate_single_embedding(self, text: str) -> np.ndarray:
+        """Generate embedding for a single text session"""
+        try:
+            from sentence_transformers import SentenceTransformer
+            if not hasattr(self, '_embedding_model'):
+                self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            
+            # Clean and prepare text
+            cleaned_text = re.sub(r'\s+', ' ', text).strip()
+            if len(cleaned_text) > 512:
+                cleaned_text = cleaned_text[:512]  # Truncate for performance
+            
+            embedding = self._embedding_model.encode([cleaned_text])[0]
+            return embedding
+        except Exception as e:
+            logger.warning(f"Embedding generation failed: {str(e)}")
+            # Fallback to simple feature vector
+            return self._create_simple_feature_vector(text)
+    
+    def _create_simple_feature_vector(self, text: str) -> np.ndarray:
+        """Create a simple feature vector as fallback"""
+        features = [
+            len(text),
+            text.count('CARD'),
+            text.count('PIN'),
+            text.count('NOTES'),
+            text.count('ERROR'),
+            text.count('TIMEOUT'),
+            text.count('SUPERVISOR'),
+            len(re.findall(r'\d+', text)),
+            text.count('\n')
+        ]
+        return np.array(features, dtype=np.float32)
+    
+    def _calculate_semantic_distance(self, embedding: np.ndarray, cluster_center: np.ndarray) -> float:
+        """Calculate semantic distance between embedding and cluster center"""
+        try:
+            distance = np.linalg.norm(embedding - cluster_center)
+            # Normalize to 0-1 range
+            return min(1.0, distance / 2.0)
+        except:
+            return 0.0
+    
+    def _extract_event_sequence(self, text: str) -> List[str]:
+        """Extract sequence of events from session text"""
+        events = []
+        event_patterns = {
+            'CARD_INSERT': r'CARD INSERTED',
+            'PIN_ENTRY': r'PIN ENTERED',
+            'TRANSACTION_START': r'TRANSACTION START',
+            'NOTES_PRESENT': r'NOTES PRESENTED',
+            'NOTES_TAKEN': r'NOTES TAKEN',
+            'CARD_TAKEN': r'CARD TAKEN',
+            'ERROR': r'ERROR|FAULT|FAIL',
+            'TIMEOUT': r'TIMEOUT',
+            'TRANSACTION_END': r'TRANSACTION END'
+        }
+        
+        for event_name, pattern in event_patterns.items():
+            if re.search(pattern, text, re.IGNORECASE):
+                events.append(event_name)
+        
+        return events
+    
+    def _calculate_sequence_anomaly_score(self, events_sequence: List[str]) -> float:
+        """Calculate anomaly score based on event sequence"""
+        # Simple sequence analysis - can be enhanced with LSTM
+        normal_sequences = [
+            ['CARD_INSERT', 'PIN_ENTRY', 'NOTES_PRESENT', 'NOTES_TAKEN', 'CARD_TAKEN'],
+            ['CARD_INSERT', 'PIN_ENTRY', 'CARD_TAKEN'],
+            ['TRANSACTION_START', 'CARD_INSERT', 'PIN_ENTRY', 'TRANSACTION_END']
+        ]
+        
+        # Check similarity to normal sequences
+        max_similarity = 0.0
+        for normal_seq in normal_sequences:
+            similarity = self._sequence_similarity(events_sequence, normal_seq)
+            max_similarity = max(max_similarity, similarity)
+        
+        # Return anomaly score (1 - similarity)
+        return 1.0 - max_similarity
+    
+    def _sequence_similarity(self, seq1: List[str], seq2: List[str]) -> float:
+        """Calculate similarity between two sequences"""
+        if not seq1 or not seq2:
+            return 0.0
+        
+        # Simple Jaccard similarity
+        set1, set2 = set(seq1), set(seq2)
+        intersection = len(set1.intersection(set2))
+        union = len(set1.union(set2))
+        
+        return intersection / union if union > 0 else 0.0
+    
+    def _extract_ml_features(self, session: TransactionSession) -> np.ndarray:
+        """Extract numerical features for ML models"""
+        text = session.raw_text
+        
+        features = [
+            # Basic text statistics
+            len(text),
+            len(text.split('\n')),
+            len(text.split()),
+            
+            # Event counts
+            text.count('CARD'),
+            text.count('PIN'),
+            text.count('NOTES'),
+            text.count('ERROR'),
+            text.count('TIMEOUT'),
+            text.count('SUPERVISOR'),
+            text.count('FAULT'),
+            text.count('FAIL'),
+            
+            # Timing indicators
+            len(re.findall(r'\d{2}:\d{2}:\d{2}', text)),
+            
+            # Transaction indicators
+            len(re.findall(r'TRANSACTION', text)),
+            len(re.findall(r'OPCODE', text)),
+            
+            # Error indicators
+            len(re.findall(r'ESC:\s*\d+', text)),
+            len(re.findall(r'VAL:\s*\d+', text)),
+            
+            # Session characteristics
+            session.session_length if hasattr(session, 'session_length') else len(text),
+            session.overall_anomaly_score if hasattr(session, 'overall_anomaly_score') else 0.0
+        ]
+        
+        return np.array(features, dtype=np.float32)
+    
+    def _autoencoder_anomaly_score(self, features: np.ndarray) -> float:
+        """Calculate anomaly score using autoencoder (placeholder)"""
+        # This would use a trained autoencoder model
+        # For now, return a simple statistical measure
+        mean_val = np.mean(features)
+        std_val = np.std(features)
+        z_score = abs(mean_val - 50) / (std_val + 1e-8)  # Arbitrary baseline
+        return min(1.0, z_score / 3.0)
+    
+    def _clustering_anomaly_score(self, features: np.ndarray) -> float:
+        """Calculate anomaly score using clustering"""
+        # Simple distance-based scoring
+        # In practice, this would use DBSCAN or similar
+        feature_norm = np.linalg.norm(features)
+        baseline_norm = 100.0  # Arbitrary baseline
+        return min(1.0, abs(feature_norm - baseline_norm) / baseline_norm)
+    
+    def _lof_anomaly_score(self, features: np.ndarray) -> float:
+        """Calculate Local Outlier Factor score"""
+        # Simplified LOF calculation
+        # In practice, use sklearn's LocalOutlierFactor
+        feature_sum = np.sum(features)
+        baseline_sum = 500.0  # Arbitrary baseline
+        return min(1.0, abs(feature_sum - baseline_sum) / baseline_sum)
         
         # Security Issues
         if 'SUPERVISOR MODE' in text and 'UNAUTHORIZED' in text:
@@ -1788,25 +2300,57 @@ class MLFirstAnomalyDetector:
     
     def continuous_model_retraining(self):
         """
-        Continuously retrain models based on accumulated expert feedback
-        This implements the true feedback loop for unsupervised learning improvement
+        Enhanced continuous retraining with ML-first approach
+        This is the core feedback loop that makes the system learn from expert input
         """
-        if len(self.feedback_buffer) < 10:
-            logger.info("Insufficient feedback for retraining")
+        if len(self.feedback_buffer) < 5:  # Reduced threshold for more frequent learning
+            logger.info(f"Insufficient feedback for retraining: {len(self.feedback_buffer)} samples (need 5+)")
             return
         
-        logger.info(f"Starting continuous retraining with {len(self.feedback_buffer)} feedback samples")
+        logger.info(f"Starting ML-first continuous retraining with {len(self.feedback_buffer)} feedback samples")
         
         # Mark training start for monitoring
-        mark_ml_training_start("continuous_learning")
+        mark_ml_training_start("continuous_learning_ml_first")
         training_start_time = time.time()
         
         try:
-            # 1. Update Isolation Forest with weighted feedback
-            self._retrain_isolation_forest_with_feedback()
+            # 1. Update embeddings model with expert feedback
+            self._update_embeddings_model_with_feedback()
             
-            # 2. Update One-Class SVM decision boundary
-            self._retrain_svm_with_feedback()
+            # 2. Retrain clustering models with new data
+            self._retrain_clustering_models()
+            
+            # 3. Update anomaly thresholds based on expert corrections
+            self._update_anomaly_thresholds()
+            
+            # 4. Train sequence model with expert-labeled sequences
+            self._retrain_sequence_model()
+            
+            # 5. Update ensemble weights based on expert feedback accuracy
+            self._update_ensemble_weights()
+            
+            # 6. Create expert-informed normal patterns
+            self._build_expert_normal_patterns()
+            
+            # Clear processed feedback
+            processed_feedback = len(self.feedback_buffer)
+            self.feedback_buffer.clear()
+            
+            training_duration = time.time() - training_start_time
+            logger.info(f"ML-first continuous retraining completed in {training_duration:.2f}s")
+            logger.info(f"Processed {processed_feedback} expert feedback samples")
+            
+            # Save updated models
+            self._save_updated_models()
+            
+            # Log training success
+            mark_ml_training_complete("continuous_learning_ml_first", 
+                                    feedback_samples=processed_feedback,
+                                    training_duration=training_duration)
+            
+        except Exception as e:
+            logger.error(f"Continuous retraining failed: {str(e)}")
+            mark_ml_training_error("continuous_learning_ml_first", str(e))
             
             # 3. Retrain supervised classifier if enough labeled data
             self._retrain_supervised_with_feedback()
@@ -2218,8 +2762,8 @@ class MLFirstAnomalyDetector:
             logger.error(f"Error loading models: {e}")
     
     def initialize_sentiment_models(self):
-        """Initialize sentiment analysis and negative text detection models"""
-        logger.info("Initializing sentiment analysis and negative text detection models")
+        """Initialize sentiment analysis and negative text detection models with DeepLog integration"""
+        logger.info("Initializing advanced sentiment analysis and negative text detection models")
         
         try:
             # 1. VADER Sentiment Analyzer (Rule-based, good for technical text)
@@ -2237,7 +2781,16 @@ class MLFirstAnomalyDetector:
             # 5. Error severity classifier
             self.initialize_error_severity_classifier()
             
-            logger.info("Sentiment analysis models initialized successfully")
+            # 6. NEW: DeepLog-enhanced sentiment context analyzer
+            self.initialize_deeplog_sentiment_analyzer()
+            
+            # 7. NEW: Contextual emotion detection for ATM transactions
+            self.initialize_contextual_emotion_detector()
+            
+            # 8. NEW: Adaptive negative pattern learner
+            self.initialize_adaptive_pattern_learner()
+            
+            logger.info("Advanced sentiment analysis models with DeepLog integration initialized successfully")
             
         except Exception as e:
             logger.error(f"Error initializing sentiment models: {str(e)}")
@@ -2519,6 +3072,155 @@ class MLFirstAnomalyDetector:
         
         return min(overall_confidence, 1.0)  # Cap at 1.0
     
+    def initialize_deeplog_sentiment_analyzer(self):
+        """Initialize DeepLog-enhanced sentiment context analyzer"""
+        logger.info("Initializing DeepLog-enhanced sentiment context analyzer")
+        
+        try:
+            # DeepLog-sentiment integration parameters
+            self.deeplog_sentiment_config = {
+                'sequence_window': 5,  # Analyze sentiment in context of 5 events
+                'sentiment_threshold': -0.3,  # Negative sentiment threshold
+                'context_weight': 0.7,  # Weight for contextual sentiment vs isolated sentiment
+                'emotion_escalation_threshold': 2  # Number of consecutive negative events
+            }
+            
+            # Context-aware sentiment patterns for ATM transactions
+            self.contextual_sentiment_patterns = {
+                'escalating_frustration': {
+                    'pattern': ['TIMEOUT', 'ERROR', 'RETRY', 'FAIL'],
+                    'sentiment_weight': 0.8,
+                    'description': 'Progressive user frustration pattern'
+                },
+                'critical_failure_cascade': {
+                    'pattern': ['ERROR', 'FAULT', 'UNABLE', 'FAIL'],
+                    'sentiment_weight': 0.9,
+                    'description': 'Multiple system failures in sequence'
+                },
+                'security_concern_pattern': {
+                    'pattern': ['UNAUTHORIZED', 'RETAINED', 'CAPTURED', 'SUPERVISOR'],
+                    'sentiment_weight': 0.95,
+                    'description': 'Security-related negative events'
+                },
+                'incomplete_transaction_frustration': {
+                    'pattern': ['START', 'INVALID', 'UNABLE', 'END'],
+                    'sentiment_weight': 0.75,
+                    'description': 'Transaction starts but fails to complete properly'
+                }
+            }
+            
+            # Initialize sentiment-sequence correlation model
+            self.sentiment_sequence_model = {
+                'normal_sentiment_sequences': [],
+                'anomaly_sentiment_sequences': [],
+                'learned_emotional_escalations': []
+            }
+            
+            logger.info("DeepLog-sentiment analyzer initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Error initializing DeepLog-sentiment analyzer: {str(e)}")
+            self.deeplog_sentiment_config = None
+    
+    def initialize_contextual_emotion_detector(self):
+        """Initialize contextual emotion detection for ATM transactions"""
+        logger.info("Initializing contextual emotion detector")
+        
+        try:
+            # ATM-specific emotional indicators and their contexts
+            self.atm_emotional_indicators = {
+                # Frustration indicators
+                'frustration': {
+                    'keywords': ['TIMEOUT', 'RETRY', 'AGAIN', 'REPEAT', 'MULTIPLE'],
+                    'context_multipliers': {
+                        'sequential': 1.5,  # Multiple frustration events in sequence
+                        'timeout_related': 1.3,  # Timeout-related frustration
+                        'repeated_attempts': 1.4  # Multiple retry attempts
+                    },
+                    'base_weight': 0.6
+                },
+                
+                # Anxiety/concern indicators
+                'anxiety': {
+                    'keywords': ['CARD RETAINED', 'CARD CAPTURED', 'UNAUTHORIZED', 'SECURITY'],
+                    'context_multipliers': {
+                        'security_related': 1.8,
+                        'card_capture': 1.6,
+                        'unauthorized_access': 1.9
+                    },
+                    'base_weight': 0.8
+                },
+                
+                # Confusion indicators
+                'confusion': {
+                    'keywords': ['INVALID', 'UNKNOWN', 'UNEXPECTED', 'UNRECOGNIZED'],
+                    'context_multipliers': {
+                        'invalid_operations': 1.2,
+                        'unknown_errors': 1.3,
+                        'unexpected_behavior': 1.4
+                    },
+                    'base_weight': 0.5
+                },
+                
+                # Urgency/critical indicators
+                'urgency': {
+                    'keywords': ['CRITICAL', 'EMERGENCY', 'IMMEDIATE', 'URGENT', 'FAULT'],
+                    'context_multipliers': {
+                        'hardware_fault': 1.7,
+                        'critical_error': 1.8,
+                        'emergency_situation': 1.9
+                    },
+                    'base_weight': 0.9
+                }
+            }
+            
+            # Initialize emotional pattern learning
+            self.emotional_pattern_learner = {
+                'learned_patterns': {},
+                'pattern_frequencies': {},
+                'expert_validated_emotions': {}
+            }
+            
+            logger.info("Contextual emotion detector initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Error initializing contextual emotion detector: {str(e)}")
+            self.atm_emotional_indicators = {}
+    
+    def initialize_adaptive_pattern_learner(self):
+        """Initialize adaptive negative pattern learner that evolves with data"""
+        logger.info("Initializing adaptive negative pattern learner")
+        
+        try:
+            # Adaptive learning configuration
+            self.adaptive_learner_config = {
+                'min_pattern_frequency': 3,  # Minimum occurrences to consider a pattern
+                'learning_rate': 0.1,  # How quickly to adapt to new patterns
+                'expert_feedback_weight': 2.0,  # Weight for expert-validated patterns
+                'auto_discovery_threshold': 0.7  # Threshold for auto-discovering new patterns
+            }
+            
+            # Dynamic pattern storage
+            self.discovered_negative_patterns = {
+                'auto_discovered': {},  # Patterns discovered automatically
+                'expert_validated': {},  # Patterns validated by experts
+                'false_positive_patterns': {},  # Patterns marked as false positives
+                'evolving_patterns': {}  # Patterns that are still being learned
+            }
+            
+            # Pattern evolution tracking
+            self.pattern_evolution_tracker = {
+                'pattern_performance': {},  # Track how well patterns perform
+                'pattern_confidence': {},  # Confidence scores for each pattern
+                'pattern_context': {}  # Contextual information for patterns
+            }
+            
+            logger.info("Adaptive pattern learner initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Error initializing adaptive pattern learner: {str(e)}")
+            self.adaptive_learner_config = None
+    
     # Override the default method to extract timestamp from individual lines
     def extract_timestamp_from_line(self, line: str) -> Optional[datetime]:
         """Extract timestamp from a single line, specifically for the line above TRANSACTION START"""
@@ -2752,6 +3454,355 @@ class MLFirstAnomalyDetector:
         except Exception as e:
             logger.error(f"Error training DeepLog model: {e}")
             return False
+    
+    def _detect_deeplog_sentiment_anomalies(self, session: TransactionSession, events: List[str]):
+        """
+        Advanced DeepLog-enhanced sentiment anomaly detection
+        Combines sequential pattern analysis with contextual sentiment analysis
+        """
+        if not hasattr(self, 'deeplog_sentiment_config') or not self.deeplog_sentiment_config:
+            return
+        
+        try:
+            # 1. Analyze overall sentiment of the session
+            sentiment_analysis = self.analyze_negative_sentiment(session)
+            
+            # 2. Extract event sequence for contextual analysis
+            event_sequence = []
+            if self.deeplog_analyzer:
+                event_sequence = self.deeplog_analyzer.extract_event_sequence(session.raw_text)
+            
+            # 3. Detect sentiment-sequence correlation anomalies
+            sentiment_anomalies = self._analyze_sentiment_sequence_correlation(
+                session, event_sequence, sentiment_analysis
+            )
+            
+            # 4. Detect contextual emotional escalation
+            emotion_anomalies = self._detect_emotional_escalation_patterns(
+                session, event_sequence, sentiment_analysis
+            )
+            
+            # 5. Apply adaptive pattern learning
+            adaptive_anomalies = self._apply_adaptive_negative_pattern_detection(
+                session, sentiment_analysis
+            )
+            
+            # Add detected anomalies to session
+            all_detected_anomalies = sentiment_anomalies + emotion_anomalies + adaptive_anomalies
+            for anomaly in all_detected_anomalies:
+                session.add_anomaly(**anomaly)
+            
+            # 6. Learn from this session for future improvement
+            self._update_sentiment_learning_models(session, sentiment_analysis, event_sequence)
+            
+        except Exception as e:
+            logger.error(f"Error in DeepLog-sentiment anomaly detection: {str(e)}")
+    
+    def _analyze_sentiment_sequence_correlation(self, session: TransactionSession, 
+                                              event_sequence: List[str], 
+                                              sentiment_analysis: Dict) -> List[Dict]:
+        """Analyze correlation between event sequences and sentiment patterns"""
+        anomalies = []
+        
+        try:
+            # Check if negative sentiment correlates with specific event patterns
+            negative_sentiment_score = min(
+                sentiment_analysis.get('vader_score', 0),
+                sentiment_analysis.get('textblob_score', 0)
+            )
+            
+            # High negative sentiment threshold
+            if negative_sentiment_score < -0.5:
+                
+                # Pattern 1: Negative sentiment with incomplete sequences
+                if len(event_sequence) < 4 and any(neg_phrase in session.raw_text.upper() 
+                                                 for neg_phrase in ['INVALID', 'UNABLE', 'ERROR', 'FAIL']):
+                    anomalies.append({
+                        'anomaly_type': 'sentiment_sequence_mismatch',
+                        'confidence': abs(negative_sentiment_score) * 0.9,
+                        'detection_method': 'deeplog_sentiment_correlation',
+                        'description': f'High negative sentiment ({negative_sentiment_score:.3f}) with incomplete transaction sequence',
+                        'severity': 'high' if abs(negative_sentiment_score) > 0.7 else 'medium',
+                        'details': {
+                            'sentiment_score': negative_sentiment_score,
+                            'event_sequence_length': len(event_sequence),
+                            'detected_negative_phrases': sentiment_analysis.get('negative_phrases', []),
+                            'correlation_type': 'negative_sentiment_incomplete_sequence'
+                        }
+                    })
+                
+                # Pattern 2: Progressive sentiment degradation
+                if self._detect_progressive_sentiment_degradation(session, event_sequence):
+                    anomalies.append({
+                        'anomaly_type': 'progressive_sentiment_degradation',
+                        'confidence': 0.8,
+                        'detection_method': 'deeplog_sentiment_progression',
+                        'description': 'Sentiment progressively worsens throughout transaction sequence',
+                        'severity': 'high',
+                        'details': {
+                            'sentiment_progression': 'degrading',
+                            'final_sentiment': negative_sentiment_score,
+                            'event_sequence': event_sequence
+                        }
+                    })
+            
+            # Pattern 3: Sentiment-sequence mismatch (positive sequence, negative sentiment)
+            if self._is_positive_sequence(event_sequence) and negative_sentiment_score < -0.3:
+                anomalies.append({
+                    'anomaly_type': 'sentiment_sequence_contradiction',
+                    'confidence': 0.75,
+                    'detection_method': 'deeplog_sentiment_contradiction',
+                    'description': 'Positive transaction sequence with unexpected negative sentiment indicators',
+                    'severity': 'medium',
+                    'details': {
+                        'sequence_type': 'positive',
+                        'sentiment_score': negative_sentiment_score,
+                        'contradiction_indicator': True
+                    }
+                })
+            
+        except Exception as e:
+            logger.warning(f"Error in sentiment-sequence correlation analysis: {str(e)}")
+        
+        return anomalies
+    
+    def _detect_emotional_escalation_patterns(self, session: TransactionSession,
+                                            event_sequence: List[str],
+                                            sentiment_analysis: Dict) -> List[Dict]:
+        """Detect emotional escalation patterns using contextual analysis"""
+        anomalies = []
+        
+        try:
+            if not hasattr(self, 'atm_emotional_indicators'):
+                return anomalies
+            
+            session_text = session.raw_text.upper()
+            detected_emotions = {}
+            
+            # Analyze each emotional category
+            for emotion_type, config in self.atm_emotional_indicators.items():
+                emotion_score = 0
+                detected_keywords = []
+                
+                # Check for emotion keywords
+                for keyword in config['keywords']:
+                    if keyword in session_text:
+                        detected_keywords.append(keyword)
+                        base_score = config['base_weight']
+                        
+                        # Apply context multipliers
+                        context_score = base_score
+                        for context, multiplier in config['context_multipliers'].items():
+                            if self._check_emotional_context(session_text, keyword, context):
+                                context_score *= multiplier
+                        
+                        emotion_score = max(emotion_score, context_score)
+                
+                if emotion_score > 0.6:  # Significant emotional indicator
+                    detected_emotions[emotion_type] = {
+                        'score': emotion_score,
+                        'keywords': detected_keywords
+                    }
+            
+            # Check for escalating emotional patterns
+            if len(detected_emotions) >= 2:  # Multiple emotions detected
+                high_emotion_types = [k for k, v in detected_emotions.items() if v['score'] > 0.7]
+                
+                if len(high_emotion_types) >= 2:
+                    anomalies.append({
+                        'anomaly_type': 'multi_emotional_escalation',
+                        'confidence': min(0.95, max(e['score'] for e in detected_emotions.values())),
+                        'detection_method': 'contextual_emotion_detection',
+                        'description': f'Multiple high-intensity emotions detected: {", ".join(high_emotion_types)}',
+                        'severity': 'high',
+                        'details': {
+                            'detected_emotions': detected_emotions,
+                            'escalation_type': 'multi_emotional',
+                            'dominant_emotions': high_emotion_types
+                        }
+                    })
+            
+            # Check for critical emotional states
+            if 'urgency' in detected_emotions and detected_emotions['urgency']['score'] > 0.8:
+                anomalies.append({
+                    'anomaly_type': 'critical_emotional_state',
+                    'confidence': detected_emotions['urgency']['score'],
+                    'detection_method': 'urgency_emotion_detection',
+                    'description': 'Critical urgency indicators detected in transaction',
+                    'severity': 'critical',
+                    'details': {
+                        'emotion_type': 'urgency',
+                        'emotion_score': detected_emotions['urgency']['score'],
+                        'triggering_keywords': detected_emotions['urgency']['keywords']
+                    }
+                })
+            
+        except Exception as e:
+            logger.warning(f"Error in emotional escalation detection: {str(e)}")
+        
+        return anomalies
+    
+    def _apply_adaptive_negative_pattern_detection(self, session: TransactionSession,
+                                                 sentiment_analysis: Dict) -> List[Dict]:
+        """Apply adaptive learning to detect evolving negative patterns"""
+        anomalies = []
+        
+        try:
+            if not hasattr(self, 'discovered_negative_patterns'):
+                return anomalies
+            
+            session_text = session.raw_text.upper()
+            
+            # Check against auto-discovered patterns
+            for pattern, pattern_info in self.discovered_negative_patterns.get('auto_discovered', {}).items():
+                if pattern in session_text and pattern_info.get('confidence', 0) > 0.6:
+                    anomalies.append({
+                        'anomaly_type': 'adaptive_negative_pattern',
+                        'confidence': pattern_info['confidence'],
+                        'detection_method': 'adaptive_pattern_learning',
+                        'description': f'Auto-discovered negative pattern detected: {pattern}',
+                        'severity': self._determine_adaptive_severity(pattern_info),
+                        'details': {
+                            'pattern': pattern,
+                            'discovery_method': 'automatic',
+                            'pattern_frequency': pattern_info.get('frequency', 0),
+                            'pattern_contexts': pattern_info.get('contexts', [])
+                        }
+                    })
+            
+            # Check against expert-validated patterns
+            for pattern, pattern_info in self.discovered_negative_patterns.get('expert_validated', {}).items():
+                if pattern in session_text:
+                    anomalies.append({
+                        'anomaly_type': 'expert_validated_negative_pattern',
+                        'confidence': pattern_info.get('confidence', 0.9),
+                        'detection_method': 'expert_validated_pattern',
+                        'description': f'Expert-validated negative pattern detected: {pattern}',
+                        'severity': pattern_info.get('severity', 'medium'),
+                        'details': {
+                            'pattern': pattern,
+                            'validation_method': 'expert',
+                            'expert_notes': pattern_info.get('expert_notes', ''),
+                            'validation_date': pattern_info.get('validation_date', '')
+                        }
+                    })
+            
+        except Exception as e:
+            logger.warning(f"Error in adaptive negative pattern detection: {str(e)}")
+        
+        return anomalies
+    
+    def _detect_progressive_sentiment_degradation(self, session: TransactionSession, 
+                                                event_sequence: List[str]) -> bool:
+        """Detect if sentiment progressively worsens throughout the session"""
+        try:
+            # Split session text into chunks and analyze sentiment progression
+            text_chunks = self._split_session_into_temporal_chunks(session.raw_text)
+            
+            if len(text_chunks) < 3:  # Need at least 3 chunks for progression analysis
+                return False
+            
+            sentiment_scores = []
+            for chunk in text_chunks:
+                if self.vader_analyzer:
+                    chunk_sentiment = self.vader_analyzer.polarity_scores(chunk)['compound']
+                    sentiment_scores.append(chunk_sentiment)
+            
+            # Check for progressive degradation (each chunk more negative than previous)
+            degradation_count = 0
+            for i in range(1, len(sentiment_scores)):
+                if sentiment_scores[i] < sentiment_scores[i-1] - 0.1:  # Significant degradation
+                    degradation_count += 1
+            
+            # Consider it progressive degradation if more than half the transitions are negative
+            return degradation_count >= len(sentiment_scores) // 2
+            
+        except:
+            return False
+    
+    def _is_positive_sequence(self, event_sequence: List[str]) -> bool:
+        """Determine if an event sequence represents a positive/successful transaction"""
+        positive_indicators = ['NOTES_TAKEN', 'CARD_TAKEN', 'RECEIPT_PRINTED', 'BALANCE_INQUIRY', 'SUCCESSFUL']
+        negative_indicators = ['ERROR', 'FAIL', 'TIMEOUT', 'UNABLE', 'INVALID']
+        
+        positive_count = sum(1 for event in event_sequence if any(pos in event.upper() for pos in positive_indicators))
+        negative_count = sum(1 for event in event_sequence if any(neg in event.upper() for neg in negative_indicators))
+        
+        return positive_count > negative_count
+    
+    def _check_emotional_context(self, text: str, keyword: str, context: str) -> bool:
+        """Check if a keyword appears in a specific emotional context"""
+        context_patterns = {
+            'sequential': lambda t, k: text.count(k) > 1,
+            'timeout_related': lambda t, k: any(timeout in t for timeout in ['TIMEOUT', 'NO RESPONSE']),
+            'repeated_attempts': lambda t, k: any(repeat in t for repeat in ['RETRY', 'AGAIN', 'REPEAT']),
+            'security_related': lambda t, k: any(sec in t for sec in ['UNAUTHORIZED', 'SECURITY', 'VIOLATION']),
+            'card_capture': lambda t, k: any(card in t for card in ['CARD RETAINED', 'CARD CAPTURED']),
+            'unauthorized_access': lambda t, k: 'UNAUTHORIZED' in t,
+            'invalid_operations': lambda t, k: 'INVALID' in t,
+            'unknown_errors': lambda t, k: any(unknown in t for unknown in ['UNKNOWN', 'UNRECOGNIZED']),
+            'unexpected_behavior': lambda t, k: 'UNEXPECTED' in t,
+            'hardware_fault': lambda t, k: any(hw in t for hw in ['HARDWARE', 'DEVICE ERROR', 'SENSOR']),
+            'critical_error': lambda t, k: 'CRITICAL' in t,
+            'emergency_situation': lambda t, k: 'EMERGENCY' in t
+        }
+        
+        if context in context_patterns:
+            return context_patterns[context](text, keyword)
+        return False
+    
+    def _determine_adaptive_severity(self, pattern_info: Dict) -> str:
+        """Determine severity level for adaptively discovered patterns"""
+        confidence = pattern_info.get('confidence', 0)
+        frequency = pattern_info.get('frequency', 0)
+        
+        if confidence > 0.9 or frequency > 10:
+            return 'high'
+        elif confidence > 0.7 or frequency > 5:
+            return 'medium'
+        else:
+            return 'low'
+    
+    def _split_session_into_temporal_chunks(self, text: str, num_chunks: int = 4) -> List[str]:
+        """Split session text into temporal chunks for progression analysis"""
+        lines = text.split('\n')
+        chunk_size = max(1, len(lines) // num_chunks)
+        
+        chunks = []
+        for i in range(0, len(lines), chunk_size):
+            chunk = '\n'.join(lines[i:i + chunk_size])
+            if chunk.strip():
+                chunks.append(chunk)
+        
+        return chunks
+    
+    def _update_sentiment_learning_models(self, session: TransactionSession,
+                                        sentiment_analysis: Dict,
+                                        event_sequence: List[str]):
+        """Update learning models based on current session analysis"""
+        try:
+            # Update discovered patterns based on this session
+            session_text = session.raw_text.upper()
+            negative_phrases = sentiment_analysis.get('negative_phrases', [])
+            
+            # Learn new negative patterns automatically
+            for phrase in negative_phrases:
+                if phrase not in self.discovered_negative_patterns.get('auto_discovered', {}):
+                    self.discovered_negative_patterns.setdefault('auto_discovered', {})[phrase] = {
+                        'confidence': 0.5,  # Start with moderate confidence
+                        'frequency': 1,
+                        'contexts': [session.session_id],
+                        'discovery_date': datetime.now().isoformat()
+                    }
+                else:
+                    # Increase frequency and confidence
+                    pattern_info = self.discovered_negative_patterns['auto_discovered'][phrase]
+                    pattern_info['frequency'] += 1
+                    pattern_info['confidence'] = min(0.95, pattern_info['confidence'] + 0.05)
+                    pattern_info['contexts'].append(session.session_id)
+            
+        except Exception as e:
+            logger.warning(f"Error updating sentiment learning models: {str(e)}")
     
     def generate_anomaly_summary_report(self) -> Dict[str, Any]:
         """Generate comprehensive anomaly grouping and tallying report"""

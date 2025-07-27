@@ -22,10 +22,23 @@ import psutil
 import threading
 from monitoring_utils import monitoring_collector
 
+# Import the new expert feedback endpoint
+try:
+    from expert_feedback_endpoint import router as expert_feedback_router
+    EXPERT_FEEDBACK_AVAILABLE = True
+except ImportError:
+    logger.warning("Expert feedback endpoint not available")
+    EXPERT_FEEDBACK_AVAILABLE = False
+
 load_dotenv()
 
 app = FastAPI(title="ABM ML Anomaly Detection API", version="1.0.0", docs_url="/api/docs",
     openapi_url="/api/openapi.json")
+
+# Add expert feedback router if available
+if EXPERT_FEEDBACK_AVAILABLE:
+    app.include_router(expert_feedback_router, prefix="/api/v1")
+    logger.info("Expert feedback endpoint registered")
 
 # Add CORS middleware
 app.add_middleware(
@@ -1501,7 +1514,7 @@ def update_sessionization_stats():
             result = conn.execute(text("""
                 SELECT 
                     COUNT(DISTINCT session_id) as total_sessions,
-                    COUNT(DISTINCT CASE WHEN last_activity > NOW() - INTERVAL '1 hour' THEN session_id END) as active_sessions
+                    COUNT(DISTINCT CASE WHEN created_at > NOW() - INTERVAL '1 hour' THEN session_id END) as active_sessions
                 FROM ml_sessions
             """))
             row = result.fetchone()
