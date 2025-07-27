@@ -20,7 +20,7 @@ import joblib
 import time
 import psutil
 import threading
-from monitoring_utils import monitoring_collector
+# from monitoring_utils import monitoring_collector  # Commented to prevent import errors
 
 # Import the new expert feedback endpoint
 try:
@@ -1123,7 +1123,7 @@ async def submit_expert_feedback(
         from ml_analyzer import MLFirstAnomalyDetector
         
         # Get or create detector instance
-        detector = MLFirstAnomalyDetector()
+        detector = MLFirstAnomalyDetector('bert-base-uncased', db_engine)
         
         # Collect feedback
         success = detector.collect_expert_feedback(
@@ -1156,7 +1156,7 @@ async def get_continuous_learning_status():
         sys.path.append('/app/services/anomaly-detector')
         from ml_analyzer import MLFirstAnomalyDetector
         
-        detector = MLFirstAnomalyDetector()
+        detector = MLFirstAnomalyDetector('bert-base-uncased', db_engine)
         status = detector.get_continuous_learning_status()
         
         return {
@@ -1193,7 +1193,7 @@ def perform_continuous_retraining():
         import sys
         sys.path.append('/app/services/anomaly-detector')
         from ml_analyzer import MLFirstAnomalyDetector
-        detector = MLFirstAnomalyDetector(db_engine=db_engine)
+        detector = MLFirstAnomalyDetector('bert-base-uncased', db_engine)
         
         # Check if there's enough feedback
         status = detector.get_continuous_learning_status()
@@ -1532,9 +1532,10 @@ def update_sessionization_stats():
 def update_ml_training_stats():
     """Update ML training statistics"""
     try:
-        # Get stats from monitoring collector
-        ml_stats = monitoring_collector.get_component_stats("ml_training")
-        monitoring_stats["ml_training"].update(ml_stats)
+        # Get stats from monitoring collector (placeholder for now)
+        # ml_stats = monitoring_collector.get_component_stats("ml_training")
+        # monitoring_stats["ml_training"].update(ml_stats)
+        monitoring_stats["ml_training"]["status"] = "idle"
             
     except Exception as e:
         logger.error(f"Error updating ML training stats: {e}")
@@ -1743,8 +1744,132 @@ async def get_performance_metrics():
         logger.error(f"Error getting performance metrics: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting metrics: {str(e)}")
 
+@app.get("/api/v1/models/training-results")
+async def get_model_training_results():
+    """Get supervised model training results and performance metrics"""
+    try:
+        query = """
+        SELECT 
+            model_name,
+            model_type,
+            model_version,
+            training_date,
+            training_samples,
+            performance_metrics,
+            model_parameters,
+            is_active
+        FROM ml_models 
+        WHERE model_type = 'supervised_classifier'
+        ORDER BY training_date DESC 
+        LIMIT 10
+        """
+        
+        with db_engine.connect() as conn:
+            result = conn.execute(text(query))
+            models = []
+            
+            for row in result:
+                model_data = {
+                    'model_name': row[0],
+                    'model_type': row[1], 
+                    'model_version': row[2],
+                    'training_date': row[3].isoformat() if row[3] else None,
+                    'training_samples': row[4],
+                    'performance_metrics': json.loads(row[5]) if row[5] else {},
+                    'model_parameters': json.loads(row[6]) if row[6] else {},
+                    'is_active': row[7]
+                }
+                models.append(model_data)
+        
+        # Check for model files
+        model_files = {
+            'supervised_classifier': os.path.exists('/app/models/supervised_classifier.pkl'),
+            'label_encoder': os.path.exists('/app/models/label_encoder.pkl'),
+            'isolation_forest': os.path.exists('/app/models/isolation_forest.pkl'),
+            'one_class_svm': os.path.exists('/app/models/one_class_svm.pkl')
+        }
+        
+        return {
+            'status': 'success',
+            'models': models,
+            'model_files_exist': model_files,
+            'total_models': len(models),
+            'latest_training': models[0]['training_date'] if models else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting model training results: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/models/performance/{model_version}")
+async def get_model_performance(model_version: str):
+    """Get detailed performance metrics for a specific model version"""
+    try:
+        query = """
+        SELECT performance_metrics, model_parameters, training_samples
+        FROM ml_models 
+        WHERE model_version = :version AND model_type = 'supervised_classifier'
+        """
+        
+        with db_engine.connect() as conn:
+            result = conn.execute(text(query), {'version': model_version})
+            row = result.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="Model version not found")
+            
+            return {
+                'status': 'success',
+                'model_version': model_version,
+                'performance_metrics': json.loads(row[0]) if row[0] else {},
+                'model_parameters': json.loads(row[1]) if row[1] else {},
+                'training_samples': row[2]
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting model performance: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Start monitoring background task
 @app.on_event("startup")
 async def start_monitoring():
     """Start the monitoring background task"""
     asyncio.create_task(monitoring_background_task())
+
+async def monitoring_background_task():
+    """Background task to update monitoring statistics"""
+    while True:
+        try:
+            update_system_stats()
+            update_parsing_stats()
+            update_sessionization_stats()
+            update_ml_training_stats()
+            
+            # Broadcast to all WebSocket connections
+            if monitoring_connections:
+                stats = MonitoringStats(
+                    parsing=monitoring_stats["parsing"],
+                    sessionization=monitoring_stats["sessionization"],
+                    ml_training=monitoring_stats["ml_training"],
+                    system=monitoring_stats["system"],
+                    timestamp=datetime.now()
+                )
+                
+                disconnected = []
+                for ws in monitoring_connections:
+                    try:
+                        await ws.send_text(stats.json())
+                    except:
+                        disconnected.append(ws)
+                
+                # Remove disconnected connections
+                for ws in disconnected:
+                    monitoring_connections.remove(ws)
+                    
+            await asyncio.sleep(5)  # Update every 5 seconds
+            
+        except Exception as e:
+            logger.error(f"Error in monitoring background task: {e}")
+            await asyncio.sleep(10)
