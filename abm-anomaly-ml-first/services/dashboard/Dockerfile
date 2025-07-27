@@ -13,7 +13,7 @@ COPY . .
 # Inject REACT_APP_API_URL from build arg and build the app
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
-RUN echo "Using API: $REACT_APP_API_URL" && yarn build
+RUN echo "Using API: $REACT_APP_API_URL" && npm run build
 
 # ------------------------
 
@@ -21,3 +21,6 @@ FROM nginx:1.25-alpine
 
 COPY --from=build-stage /app/build /usr/share/nginx/html
 COPY default.conf /etc/nginx/conf.d/default.conf
+
+# Expose the port that nginx runs on inside the container
+EXPOSE 80

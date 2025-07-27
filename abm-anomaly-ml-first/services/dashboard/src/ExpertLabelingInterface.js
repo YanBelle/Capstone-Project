@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Save, RefreshCw, CheckCircle, XCircle, AlertTriangle, Brain, Tag, Filter } from 'lucide-react';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import Layout from './Layout';
+import apiConfig from './config/api';
 
 const ExpertLabelingInterface = () => {
   const [sessions, setSessions] = useState([]);
@@ -22,7 +22,7 @@ const ExpertLabelingInterface = () => {
   const fetchAnomalies = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/v1/expert/anomalies?filter=${filter}`);
+      const response = await fetch(apiConfig.endpoint(`/api/v1/expert/anomalies?filter=${filter}`));
       const data = await response.json();
       setSessions(data.sessions);
       setStats(data.stats);
@@ -46,7 +46,7 @@ const ExpertLabelingInterface = () => {
 
   const fetchPredefinedLabels = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/expert/labels`);
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/labels'));
       const data = await response.json();
       setPredefinedLabels(data.labels);
     } catch (error) {
@@ -112,7 +112,7 @@ const ExpertLabelingInterface = () => {
         is_multi_label: data.labels?.length > 1 || false
       }));
 
-      const response = await fetch(`${API_URL}/api/v1/expert/save-labels`, {
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/save-labels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ labels: labelData })
@@ -145,7 +145,7 @@ const ExpertLabelingInterface = () => {
 
     setTrainingStatus('training');
     try {
-      const response = await fetch(`${API_URL}/api/v1/expert/train-supervised`, {
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/train-supervised'), {
         method: 'POST'
       });
 
@@ -173,19 +173,22 @@ const ExpertLabelingInterface = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <RefreshCw className="w-12 h-12 animate-spin mx-auto mb-4" />
-          <p>Loading anomalies for review...</p>
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <RefreshCw className="w-12 h-12 animate-spin mx-auto mb-4" />
+            <p>Loading anomalies for review...</p>
+          </div>
         </div>
-      </div>
+      </Layout>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-md p-6">
+    <Layout>
+      <div className="space-y-6 p-6">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex justify-between items-center mb-4">
           <div>
             <h1 className="text-2xl font-bold flex items-center">
@@ -523,7 +526,8 @@ const ExpertLabelingInterface = () => {
           <p className="text-lg text-gray-600">No anomalies to review</p>
         </div>
       )}
-    </div>
+      </div>
+    </Layout>
   );
 };
 

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AlertCircle, Activity, TrendingUp, Clock, Shield, Database, Brain, AlertTriangle } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import Layout from './Layout';
+import apiConfig from './config/api';
 import ExpertLabelingInterface from './ExpertLabelingInterface';
 import ContinuousLearningInterface from './ContinuousLearningInterface';
 import MultiAnomalyView from './MultiAnomalyView';
@@ -10,25 +13,74 @@ import SVMDebugDashboard from './SVMDebugDashboard';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const ATMDashboard = () => {
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState({
     total_transactions: 0,
     total_anomalies: 0,
     anomaly_rate: 0,
     high_risk_count: 0,
     recent_alerts: [],
-    hourly_trend: []
+    hourly_trend: [],
+    problematic_terminals: []
   });
   
   const [anomalies, setAnomalies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
   const [realTimeAlerts, setRealTimeAlerts] = useState([]);
+
+  // Get current tab from URL or state
+  const getCurrentTab = () => {
+    if (activeTab && activeTab !== 'overview') return activeTab;
+    
+    const path = location.pathname;
+    if (path === '/dashboard' || path === '/dashboard/') return 'overview';
+    if (path.includes('/dashboard/anomalies')) return 'anomalies';
+    if (path.includes('/dashboard/alerts')) return 'alerts';
+    if (path.includes('/dashboard/analytics')) return 'analytics';
+    return 'overview';
+  };
+
+  // Handle file upload
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setLoading(true);
+      console.log('Uploading file to:', apiConfig.endpoint('/api/v1/upload'));
+      const response = await fetch(apiConfig.endpoint('/api/v1/upload'), {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('File upload result:', result);
+      
+      // Refresh data after upload
+      await fetchStats();
+      await fetchAnomalies();
+      alert('File uploaded successfully!');
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Error uploading file: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Fetch dashboard stats
   const fetchStats = async () => {
     try {
-      console.log('Fetching dashboard stats from:', `${API_URL}/api/v1/dashboard/stats`);
-      const response = await fetch(`${API_URL}/api/v1/dashboard/stats`);
+      console.log('Fetching dashboard stats from:', apiConfig.endpoint('/api/v1/dashboard/stats'));
+      const response = await fetch(apiConfig.endpoint('/api/v1/dashboard/stats'));
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -39,14 +91,14 @@ const ATMDashboard = () => {
       setStats(data);
     } catch (error) {
       console.error('Error fetching stats:', error);
-      // Set default stats to show something on the dashboard
       setStats({
         total_transactions: 0,
         total_anomalies: 0,
         anomaly_rate: 0,
         high_risk_count: 0,
         recent_alerts: [],
-        hourly_trend: []
+        hourly_trend: [],
+        problematic_terminals: []
       });
     }
   };
@@ -54,8 +106,8 @@ const ATMDashboard = () => {
   // Fetch anomalies
   const fetchAnomalies = async () => {
     try {
-      console.log('Fetching anomalies from:', `${API_URL}/api/v1/anomalies?limit=50`);
-      const response = await fetch(`${API_URL}/api/v1/anomalies?limit=50`);
+      console.log('Fetching anomalies from:', apiConfig.endpoint('/api/v1/anomalies?limit=50'));
+      const response = await fetch(apiConfig.endpoint('/api/v1/anomalies?limit=50'));
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -86,33 +138,6 @@ const ATMDashboard = () => {
       clearInterval(interval);
     };
   }, []);
-
-  // Upload EJournal file
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const response = await fetch(`${API_URL}/api/v1/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      if (response.ok) {
-        alert('File uploaded successfully. Processing will begin shortly.');
-        setTimeout(() => {
-          fetchStats();
-          fetchAnomalies();
-        }, 5000);
-      }
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert('Failed to upload file');
-    }
-  };
 
   const anomalyRatePercent = (stats.anomaly_rate * 100).toFixed(2);
 
@@ -159,18 +184,23 @@ const ATMDashboard = () => {
     </div>
   );
 
-  if (loading) {
+  if (loading && getCurrentTab() === 'overview') {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading dashboard...</p>
+      <Layout>
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading dashboard...</p>
+          </div>
         </div>
-      </div>
+      </Layout>
     );
   }
 
-  return (
+  // Check if we're using Layout or direct rendering based on tabs
+  const shouldUseLayout = location.pathname.includes('/dashboard');
+
+  const DashboardContent = () => (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
       <div className="bg-white shadow-sm">
@@ -322,6 +352,47 @@ const ATMDashboard = () => {
               </div>
             </div>
 
+            {/* Most Affected ATMs/Locations */}
+            {stats.problematic_terminals && stats.problematic_terminals.length > 0 && (
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold mb-4">Most Affected ATMs/Locations</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ATM ID</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anomalies</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Critical</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Risk Score</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {stats.problematic_terminals.map((terminal, idx) => (
+                        <tr key={idx}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{terminal.terminal_id}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{terminal.location}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{terminal.total_anomalies}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{terminal.critical_count}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              terminal.avg_score > 0.8 
+                                ? 'bg-red-100 text-red-800'
+                                : terminal.avg_score > 0.6
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-green-100 text-green-800'
+                            }`}>
+                              {terminal.avg_score.toFixed(2)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {/* Recent Alerts */}
             <div className="bg-white rounded-lg shadow-md p-6">
               <h3 className="text-lg font-semibold mb-4">Recent Alerts</h3>
@@ -363,19 +434,19 @@ const ATMDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {anomalies.map((anomaly) => (
-                    <tr key={anomaly.id} className="hover:bg-gray-50">
+                  {anomalies.map((anomaly, index) => (
+                    <tr key={anomaly.id || index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {anomaly.timestamp ? new Date(anomaly.timestamp).toLocaleString() : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                        {anomaly.transaction.session_id}
+                        {anomaly.session_id}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {anomaly.anomaly_type || 'Unknown'}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">
-                        {anomaly.transaction.detected_patterns?.join(', ') || 'None'}
+                        {anomaly.detected_patterns?.join(', ') || 'None'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -396,6 +467,10 @@ const ATMDashboard = () => {
           </div>
         )}
 
+        {activeTab === 'multi-anomaly' && (
+          <MultiAnomalyView />
+        )}
+
         {activeTab === 'alerts' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow-md p-6">
@@ -413,10 +488,6 @@ const ATMDashboard = () => {
           </div>
         )}
 
-        {activeTab === 'multi-anomaly' && (
-          <MultiAnomalyView anomalies={anomalies} />
-        )}
-
         {activeTab === 'expert-labeling' && (
           <ExpertLabelingInterface />
         )}
@@ -427,6 +498,10 @@ const ATMDashboard = () => {
 
         {activeTab === 'monitoring' && (
           <RealtimeMonitoringInterface />
+        )}
+
+        {activeTab === 'svm-debug' && (
+          <SVMDebugDashboard />
         )}
 
         {activeTab === 'analytics' && (
@@ -492,13 +567,20 @@ const ATMDashboard = () => {
             )}
           </div>
         )}
-
-        {activeTab === 'svm-debug' && (
-          <SVMDebugDashboard />
-        )}
       </div>
     </div>
   );
+
+  // Return with or without Layout based on routing
+  if (shouldUseLayout) {
+    return (
+      <Layout>
+        <DashboardContent />
+      </Layout>
+    );
+  }
+
+  return <DashboardContent />;
 };
 
 export default ATMDashboard;

@@ -23,6 +23,7 @@ services:
       - ./data/output:/app/output
       - ./data/sessions:/app/data/sessions
       - transformer-cache:/app/cache
+      - /var/log/abm-ml-anomaly-detector:/app/logs  # Host-persisted logs (optional but recommended)
     depends_on:
       - postgres
       - redis
@@ -70,17 +71,10 @@ services:
       context: ./services/dashboard
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: ${REACT_APP_API_URL}
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost/api}
     container_name: abm-ml-dashboard
-    ports:
-      - "3000:80"
-    volumes:
-      - ./services/dashboard/default.conf:/etc/nginx/conf.d/default.conf
-     # - ./services/dashboard/build:/usr/share/nginx/html:ro
     environment:
-      - REACT_APP_API_URL=${REACT_APP_API_URL}
-    env_file:
-    - .env.production
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost/api}
     depends_on:
       - api
     restart: unless-stopped
@@ -99,7 +93,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-     # - ./init-db:/docker-entrypoint-initdb.d
+      - ./init-db:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
     restart: unless-stopped
@@ -176,9 +170,9 @@ services:
       - api
       - dashboard
     volumes:
-      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "80:80"
+      - "${NGINX_PORT:-80}:80"
       - "443:443"
     networks:
       - abm-network

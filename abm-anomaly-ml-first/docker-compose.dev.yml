@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres_dev
+    environment:
+      POSTGRES_DB: abmdb_dev
+      POSTGRES_USER: abmuser
+      POSTGRES_PASSWORD: abmpass123
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - abm_network_dev
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_dev
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data_dev:/data
+    networks:
+      - abm_network_dev
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: api_dev
+    ports:
+      - "8001:8000"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=abmdb_dev
+      - POSTGRES_USER=abmuser
+      - POSTGRES_PASSWORD=abmpass123
+      - REDIS_HOST=redis
+      - DATABASE_URL=postgresql://abmuser:abmpass123@postgres:5432/abmdb_dev
+    volumes:
+      - ./services/api:/app
+      - ./models:/app/models
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - abm_network_dev
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./services/dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard_dev
+    ports:
+      - "3001:3000"
+    environment:
+      - REACT_APP_API_URL=http://64.227.16.180:8001
+    volumes:
+      - ./services/dashboard/src:/app/src
+      - ./services/dashboard/public:/app/public
+    depends_on:
+      - api
+    networks:
+      - abm_network_dev
+    restart: unless-stopped
+
+  anomaly-detector:
+    build:
+      context: ./services/anomaly-detector
+      dockerfile: Dockerfile
+    container_name: anomaly_detector_dev
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=abmdb_dev
+      - POSTGRES_USER=abmuser
+      - POSTGRES_PASSWORD=abmpass123
+      - REDIS_HOST=redis
+    volumes:
+      - ./services/anomaly-detector:/app
+      - ./models:/app/models
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - abm_network_dev
+    restart: unless-stopped
+
+volumes:
+  postgres_data_dev:
+  redis_data_dev:
+
+networks:
+  abm_network_dev:
+    driver: bridge
