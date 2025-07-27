@@ -5,6 +5,7 @@ import ExpertLabelingInterface from './ExpertLabelingInterface';
 import ContinuousLearningInterface from './ContinuousLearningInterface';
 import MultiAnomalyView from './MultiAnomalyView';
 import RealtimeMonitoringInterface from './RealtimeMonitoringInterface';
+import SVMDebugDashboard from './SVMDebugDashboard';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -206,7 +207,7 @@ const ATMDashboard = () => {
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-8">
-            {['overview', 'anomalies', 'multi-anomaly', 'alerts', 'expert-labeling', 'continuous-learning', 'monitoring', 'analytics'].map((tab) => (
+            {['overview', 'anomalies', 'multi-anomaly', 'alerts', 'expert-labeling', 'continuous-learning', 'monitoring', 'analytics', 'svm-debug'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -219,7 +220,8 @@ const ATMDashboard = () => {
                 {tab === 'expert-labeling' ? 'Expert Review' : 
                  tab === 'continuous-learning' ? 'ML Training' : 
                  tab === 'multi-anomaly' ? 'Multi-Anomaly' : 
-                 tab === 'monitoring' ? 'Real-time Monitor' : tab}
+                 tab === 'monitoring' ? 'Real-time Monitor' : 
+                 tab === 'svm-debug' ? 'SVM Debug' : tab}
               </button>
             ))}
           </div>
@@ -489,6 +491,10 @@ const ATMDashboard = () => {
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'svm-debug' && (
+          <SVMDebugDashboard />
         )}
       </div>
     </div>

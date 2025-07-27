@@ -1730,6 +1730,16 @@ async def get_performance_metrics():
         logger.error(f"Error getting performance metrics: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting metrics: {str(e)}")
 
+# Include SVM Debug API routes
+try:
+    from svm_debug_api import router as svm_debug_router
+    app.include_router(svm_debug_router, prefix="/api/v1", tags=["svm-debug"])
+    logger.info("SVM Debug API routes loaded successfully")
+except ImportError:
+    logger.warning("SVM Debug API not available - install required dependencies")
+except Exception as e:
+    logger.error(f"Error loading SVM Debug API: {str(e)}")
+
 # Start monitoring background task
 @app.on_event("startup")
 async def start_monitoring():
