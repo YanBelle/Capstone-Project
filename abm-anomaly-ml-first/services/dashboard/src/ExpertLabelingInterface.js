@@ -23,13 +23,23 @@ const ExpertLabelingInterface = () => {
     setLoading(true);
     try {
       const response = await fetch(apiConfig.endpoint(`/api/v1/expert/anomalies?filter=${filter}`));
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
-      setSessions(data.sessions);
-      setStats(data.stats);
+      
+      // Ensure data structure exists with fallbacks
+      const sessions = data.sessions || [];
+      const stats = data.stats || { total: 0, labeled: 0, excluded: 0 };
+      
+      setSessions(sessions);
+      setStats(stats);
       
       const existingLabels = {};
-      data.sessions.forEach(session => {
-        if (session.expert_label) {
+      sessions.forEach(session => {
+        if (session && session.expert_label) {
           existingLabels[session.session_id] = {
             label: session.expert_label,
             excluded: session.is_excluded || false
@@ -39,6 +49,10 @@ const ExpertLabelingInterface = () => {
       setLabels(existingLabels);
     } catch (error) {
       console.error('Error fetching anomalies:', error);
+      // Set fallback values on error
+      setSessions([]);
+      setStats({ total: 0, labeled: 0, excluded: 0 });
+      setLabels({});
     } finally {
       setLoading(false);
     }
@@ -47,10 +61,16 @@ const ExpertLabelingInterface = () => {
   const fetchPredefinedLabels = async () => {
     try {
       const response = await fetch(apiConfig.endpoint('/api/v1/expert/labels'));
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
-      setPredefinedLabels(data.labels);
+      setPredefinedLabels(data.labels || []);
     } catch (error) {
       console.error('Error fetching labels:', error);
+      setPredefinedLabels([]);
     }
   };
 
@@ -397,7 +417,7 @@ const ExpertLabelingInterface = () => {
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => handleMultiLabelToggle(currentSession.session_id, label)}
+                            onChange={() => currentSession && handleMultiLabelToggle(currentSession.session_id, label)}
                             className="mr-3"
                           />
                           <span className={`flex-1 ${isSelected ? 'text-purple-700 font-medium' : ''}`}>
@@ -409,7 +429,7 @@ const ExpertLabelingInterface = () => {
                         </label>
                       ) : (
                         <button
-                          onClick={() => handleLabelChange(currentSession.session_id, label, false)}
+                          onClick={() => currentSession && handleLabelChange(currentSession.session_id, label, false)}
                           className={`w-full text-left px-4 py-3 rounded-lg border transition-colors ${
                             isSelected
                               ? 'border-purple-500 bg-purple-50 text-purple-700'
@@ -448,7 +468,7 @@ const ExpertLabelingInterface = () => {
                 />
                 <button
                   onClick={() => {
-                    if (customLabel) {
+                    if (customLabel && currentSession) {
                       if (labels[currentSession.session_id]?.multiMode) {
                         handleMultiLabelToggle(currentSession.session_id, customLabel);
                       } else {
@@ -457,10 +477,10 @@ const ExpertLabelingInterface = () => {
                       handleAddCustomLabel();
                     }
                   }}
-                  disabled={!customLabel}
+                  disabled={!customLabel || !currentSession}
                   className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
                 >
-                  {labels[currentSession.session_id]?.multiMode ? 'Add to Selection' : 'Set Label'}
+                  {currentSession && labels[currentSession.session_id]?.multiMode ? 'Add to Selection' : 'Set Label'}
                 </button>
               </div>
               <p className="text-xs text-gray-500 mt-1">
@@ -475,18 +495,20 @@ const ExpertLabelingInterface = () => {
             <div className="border-t pt-4">
               <button
                 onClick={() => {
-                  setLabels(prev => ({
-                    ...prev,
-                    [currentSession.session_id]: {
-                      label: 'not_anomaly',
-                      labels: [],
-                      excluded: true,
-                      multiMode: false
-                    }
-                  }));
+                  if (currentSession) {
+                    setLabels(prev => ({
+                      ...prev,
+                      [currentSession.session_id]: {
+                        label: 'not_anomaly',
+                        labels: [],
+                        excluded: true,
+                        multiMode: false
+                      }
+                    }));
+                  }
                 }}
                 className={`w-full px-4 py-3 rounded-lg border transition-colors flex items-center justify-center ${
-                  labels[currentSession.session_id]?.excluded
+                  currentSession && labels[currentSession.session_id]?.excluded
                     ? 'border-red-500 bg-red-50 text-red-700'
                     : 'border-gray-300 hover:border-red-400'
                 }`}

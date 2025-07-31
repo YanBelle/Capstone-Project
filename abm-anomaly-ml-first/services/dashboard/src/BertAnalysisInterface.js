@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Layout from './Layout';
+import apiConfig from './config/api';
 
 const BertAnalysisInterface = () => {
   const [textInput, setTextInput] = useState(`2025-01-06 14:30:15 ERROR Transaction failed: Card read timeout after 30 seconds
@@ -23,7 +24,7 @@ const BertAnalysisInterface = () => {
     setResults(null);
 
     try {
-      const response = await fetch('/api/v1/bert/analyze', {
+      const response = await fetch(apiConfig.endpoint('/api/v1/bert/analyze'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -34,12 +35,11 @@ const BertAnalysisInterface = () => {
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.detail || 'Analysis failed');
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
+      const data = await response.json();
       setResults(data);
     } catch (error) {
       setError(`Analysis failed: ${error.message}`);
@@ -58,7 +58,7 @@ const BertAnalysisInterface = () => {
     setError(null);
 
     try {
-      const response = await fetch('/api/v1/bert/visualize', {
+      const response = await fetch(apiConfig.endpoint('/api/v1/bert/visualize'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,6 +67,10 @@ const BertAnalysisInterface = () => {
           text: textInput
         })
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
       const data = await response.json();
 
@@ -87,12 +91,13 @@ const BertAnalysisInterface = () => {
     setError(null);
 
     try {
-      const response = await fetch('/api/v1/bert/patterns');
-      const data = await response.json();
-
+      const response = await fetch(apiConfig.endpoint('/api/v1/bert/patterns'));
+      
       if (!response.ok) {
-        throw new Error(data.detail || 'Pattern detection failed');
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+      
+      const data = await response.json();
 
       setResults(data);
     } catch (error) {
@@ -112,7 +117,7 @@ const BertAnalysisInterface = () => {
     setError(null);
 
     try {
-      const response = await fetch('/api/v1/bert/optimize', {
+      const response = await fetch(apiConfig.endpoint('/api/v1/bert/optimize'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,11 +127,11 @@ const BertAnalysisInterface = () => {
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.detail || 'Optimization analysis failed');
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+
+      const data = await response.json();
 
       setResults(data);
     } catch (error) {

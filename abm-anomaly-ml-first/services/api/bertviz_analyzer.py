@@ -7,7 +7,8 @@ import torch
 import numpy as np
 from transformers import BertTokenizer, BertModel, BertConfig
 from bertviz import head_view, model_view, neuron_view
-from bertviz.transformers_neuron_view import BertNeuronView
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend for Docker
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List, Tuple, Optional, Any
@@ -67,6 +68,23 @@ class BertVisualizationAnalyzer:
             inputs, attention_weights, hidden_states = self._get_bert_outputs(processed_text)
             tokens = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
             
+            # Fix for scalar error - ensure tensors are properly shaped
+            # Check attention_weights shape and convert as needed
+            try:
+                # Stack for consistent processing
+                stacked_attention = torch.stack(attention_weights)
+                logger.info(f"Initial attention weights shape: {stacked_attention.shape}")
+                
+                # Handle the case that causes the scalar error
+                if len(stacked_attention.shape) == 5 and stacked_attention.shape[1] == 1:
+                    # Remove batch dimension if it's 1
+                    stacked_attention = stacked_attention.squeeze(1)
+                    logger.info(f"Removed batch dimension: {stacked_attention.shape}")
+                    # Create a new tuple of attention tensors
+                    attention_weights = tuple(stacked_attention[i] for i in range(stacked_attention.shape[0]))
+            except Exception as shape_error:
+                logger.error(f"Error processing attention shape: {shape_error}")
+            
             # Perform various analyses
             analysis_results = {
                 'session_id': session_id,
@@ -75,25 +93,44 @@ class BertVisualizationAnalyzer:
                 'token_count': len(tokens),
                 'processed_text': processed_text,
                 'tokens': tokens,
-                
-                # Attention analysis
-                'attention_analysis': self._analyze_attention_patterns(attention_weights, tokens),
-                
-                # Token importance
-                'token_importance': self._calculate_token_importance(attention_weights, tokens),
-                
-                # Layer-wise analysis
-                'layer_analysis': self._analyze_layers(attention_weights, hidden_states),
-                
-                # Head analysis
-                'head_analysis': self._analyze_attention_heads(attention_weights, tokens),
-                
-                # Pattern detection
-                'patterns': self._detect_attention_patterns(attention_weights, tokens),
-                
-                # Visualizations (base64 encoded)
-                'visualizations': self._generate_visualizations(attention_weights, tokens, session_text)
             }
+            
+            # Add components one by one to isolate any issues
+            try:
+                analysis_results['attention_analysis'] = self._analyze_attention_patterns(attention_weights, tokens)
+            except Exception as e:
+                logger.error(f"Error in attention analysis: {e}")
+                analysis_results['attention_analysis'] = {'error': str(e)}
+            
+            try:
+                analysis_results['token_importance'] = self._calculate_token_importance(attention_weights, tokens)
+            except Exception as e:
+                logger.error(f"Error in token importance: {e}")
+                analysis_results['token_importance'] = {'error': str(e)}
+            
+            try:
+                analysis_results['layer_analysis'] = self._analyze_layers(attention_weights, hidden_states)
+            except Exception as e:
+                logger.error(f"Error in layer analysis: {e}")
+                analysis_results['layer_analysis'] = {'error': str(e)}
+            
+            try:
+                analysis_results['head_analysis'] = self._analyze_attention_heads(attention_weights, tokens)
+            except Exception as e:
+                logger.error(f"Error in head analysis: {e}")
+                analysis_results['head_analysis'] = {'error': str(e)}
+            
+            try:
+                analysis_results['patterns'] = self._detect_attention_patterns(attention_weights, tokens)
+            except Exception as e:
+                logger.error(f"Error in pattern detection: {e}")
+                analysis_results['patterns'] = {'error': str(e)}
+            
+            try:
+                analysis_results['visualizations'] = self._generate_visualizations(attention_weights, tokens, session_text)
+            except Exception as e:
+                logger.error(f"Error in visualizations: {e}")
+                analysis_results['visualizations'] = {'error': str(e)}
             
             # Cache results
             if session_id:
@@ -138,33 +175,72 @@ class BertVisualizationAnalyzer:
     
     def _analyze_attention_patterns(self, attention_weights: Tuple, tokens: List[str]) -> Dict[str, Any]:
         """Analyze attention patterns across layers and heads"""
-        num_layers = len(attention_weights)
-        num_heads = attention_weights[0].shape[1]
-        seq_len = len(tokens)
-        
-        # Average attention across all heads and layers
-        avg_attention = torch.stack(attention_weights).mean(dim=(0, 1)).squeeze().cpu().numpy()
-        
-        # Find tokens with highest attention
-        token_attention_scores = avg_attention.sum(axis=0)  # Sum attention received by each token
-        top_tokens_idx = np.argsort(token_attention_scores)[-10:]  # Top 10 tokens
-        
-        # Attention distribution analysis
-        attention_entropy = self._calculate_attention_entropy(avg_attention)
-        
-        return {
-            'num_layers': num_layers,
-            'num_heads': num_heads,
-            'sequence_length': seq_len,
-            'average_attention_matrix': avg_attention.tolist(),
-            'token_attention_scores': token_attention_scores.tolist(),
-            'top_attended_tokens': [
-                {'token': tokens[idx], 'score': float(token_attention_scores[idx]), 'position': int(idx)}
-                for idx in top_tokens_idx[::-1]  # Reverse for descending order
-            ],
-            'attention_entropy': float(attention_entropy),
-            'attention_concentration': float(np.max(token_attention_scores) / np.mean(token_attention_scores))
-        }
+        try:
+            num_layers = len(attention_weights)
+            if num_layers == 0:
+                return {'error': 'No attention weights provided'}
+            
+            num_heads = attention_weights[0].shape[1] if len(attention_weights[0].shape) > 1 else 1
+            seq_len = len(tokens)
+            
+            # Average attention across all heads and layers
+            # attention_weights is tuple of [batch_size, num_heads, seq_len, seq_len] tensors
+            stacked_attention = torch.stack(attention_weights)  # [num_layers, batch_size, num_heads, seq_len, seq_len]
+            logger.info(f"Stacked attention shape: {stacked_attention.shape}")
+            
+            # Handle different tensor shapes dynamically
+            if len(stacked_attention.shape) == 5:  # [layers, batch, heads, seq, seq]
+                avg_attention = stacked_attention.mean(dim=(0, 1, 2)).cpu().numpy()
+            elif len(stacked_attention.shape) == 4:  # [layers, heads, seq, seq] 
+                avg_attention = stacked_attention.mean(dim=(0, 1)).cpu().numpy()
+            elif len(stacked_attention.shape) == 3:  # [layers, seq, seq]
+                avg_attention = stacked_attention.mean(dim=0).cpu().numpy()
+            else:
+                logger.error(f"Unexpected stacked attention shape: {stacked_attention.shape}")
+                return {'error': 'Invalid attention tensor shape'}
+            
+            logger.info(f"Averaged attention shape: {avg_attention.shape}")
+            
+            # Ensure attention matrix dimensions match token length
+            if avg_attention.shape[0] != seq_len or avg_attention.shape[1] != seq_len:
+                logger.warning(f"Attention matrix shape {avg_attention.shape} doesn't match token length {seq_len}")
+                # Truncate or pad to match
+                min_dim = min(avg_attention.shape[0], avg_attention.shape[1], seq_len)
+                avg_attention = avg_attention[:min_dim, :min_dim]
+                tokens = tokens[:min_dim]
+                seq_len = min_dim
+            
+            # Find tokens with highest attention
+            token_attention_scores = avg_attention.sum(axis=0)  # Sum attention received by each token
+            top_k = min(10, len(token_attention_scores))  # Don't try to get more tokens than we have
+            top_tokens_idx = np.argsort(token_attention_scores)[-top_k:]  # Top k tokens
+            
+            # Attention distribution analysis
+            attention_entropy = self._calculate_attention_entropy(avg_attention)
+            
+            # Safe token access
+            top_attended_tokens = []
+            for idx in top_tokens_idx[::-1]:  # Reverse for descending order
+                if 0 <= idx < len(tokens):
+                    top_attended_tokens.append({
+                        'token': tokens[idx], 
+                        'score': float(token_attention_scores[idx]), 
+                        'position': int(idx)
+                    })
+            
+            return {
+                'num_layers': num_layers,
+                'num_heads': num_heads,
+                'sequence_length': seq_len,
+                'average_attention_matrix': avg_attention.tolist(),
+                'token_attention_scores': token_attention_scores.tolist(),
+                'top_attended_tokens': top_attended_tokens,
+                'attention_entropy': float(attention_entropy),
+                'attention_concentration': float(np.max(token_attention_scores) / (np.mean(token_attention_scores) + 1e-8))
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing attention patterns: {e}")
+            return {'error': str(e)}
     
     def _calculate_token_importance(self, attention_weights: Tuple, tokens: List[str]) -> Dict[str, Any]:
         """Calculate importance scores for each token"""
@@ -212,9 +288,56 @@ class BertVisualizationAnalyzer:
     
     def _attention_based_importance(self, attention_weights: Tuple) -> np.ndarray:
         """Calculate token importance based on attention patterns"""
-        # Sum attention received from all other tokens across all layers and heads
-        total_attention = torch.stack(attention_weights).sum(dim=(0, 1)).squeeze()
-        return total_attention.sum(dim=0).cpu().numpy()  # Sum along attention-to dimension
+        try:
+            # Stack attention weights
+            attention_stack = torch.stack(attention_weights)
+            logger.info(f"Attention stack shape: {attention_stack.shape}")
+            
+            # Handle different possible tensor shapes:
+            # Case 1: [num_layers, batch_size, num_heads, seq_len, seq_len]
+            # Case 2: [num_layers, num_heads, seq_len, seq_len] (no batch dim)  
+            # Case 3: [num_layers, seq_len, seq_len] (already averaged across heads)
+            
+            if len(attention_stack.shape) == 5:  # [layers, batch, heads, seq, seq]
+                # Average across layers (0), batch (1), and heads (2)
+                avg_attention = attention_stack.mean(dim=(0, 1, 2))
+            elif len(attention_stack.shape) == 4:  # [layers, heads, seq, seq] - no batch dim
+                # Average across layers (0) and heads (1)
+                avg_attention = attention_stack.mean(dim=(0, 1))
+            elif len(attention_stack.shape) == 3:  # [layers, seq, seq] - already averaged
+                # Just average across layers (0)
+                avg_attention = attention_stack.mean(dim=0)
+            else:
+                logger.error(f"Unexpected attention shape: {attention_stack.shape}")
+                # Fallback: just use zeros
+                seq_len = attention_weights[0].shape[-1]  # Get sequence length
+                return np.zeros(seq_len)
+            
+            logger.info(f"Averaged attention shape: {avg_attention.shape}")
+            
+            # Sum attention received by each token (sum along the 'from' dimension)
+            # This gives us the total attention each token receives
+            if len(avg_attention.shape) == 2:
+                token_importance = avg_attention.sum(dim=0).cpu().numpy()
+            else:
+                logger.error(f"Unexpected final attention shape: {avg_attention.shape}")
+                # Fallback: just use zeros
+                seq_len = attention_weights[0].shape[-1]  # Get sequence length
+                token_importance = np.zeros(seq_len)
+            
+            logger.info(f"Token importance shape: {token_importance.shape}")
+            return token_importance
+            
+        except Exception as e:
+            logger.error(f"Error in _attention_based_importance: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Fallback: return zeros
+            try:
+                seq_len = attention_weights[0].shape[-1] if attention_weights else 10
+            except:
+                seq_len = 10
+            return np.zeros(seq_len)
     
     def _gradient_based_importance(self, attention_weights: Tuple) -> np.ndarray:
         """Approximate gradient-based importance using attention variance"""
@@ -238,77 +361,138 @@ class BertVisualizationAnalyzer:
         """Analyze attention patterns across different BERT layers"""
         layer_analysis = []
         
-        for layer_idx, layer_attention in enumerate(attention_weights):
-            layer_avg = layer_attention.mean(dim=1).squeeze().cpu().numpy()  # Average across heads
-            
-            # Calculate layer-specific metrics
-            layer_entropy = self._calculate_attention_entropy(layer_avg)
-            layer_sparsity = np.sum(layer_avg < 0.01) / layer_avg.size  # Percentage of near-zero attention
-            layer_max_attention = np.max(layer_avg)
-            
-            layer_analysis.append({
-                'layer': layer_idx,
-                'entropy': float(layer_entropy),
-                'sparsity': float(layer_sparsity),
-                'max_attention': float(layer_max_attention),
-                'attention_matrix': layer_avg.tolist()
-            })
+        try:
+            for layer_idx, layer_attention in enumerate(attention_weights):
+                # Safely process layer attention
+                try:
+                    layer_avg = layer_attention.mean(dim=1).squeeze().cpu().numpy()  # Average across heads
+                    
+                    # Ensure we have a valid 2D array
+                    if len(layer_avg.shape) != 2:
+                        logger.warning(f"Layer {layer_idx} attention has unexpected shape: {layer_avg.shape}")
+                        continue
+                    
+                    # Calculate layer-specific metrics
+                    layer_entropy = self._calculate_attention_entropy(layer_avg)
+                    layer_sparsity = np.sum(layer_avg < 0.01) / layer_avg.size  # Percentage of near-zero attention
+                    layer_max_attention = np.max(layer_avg)
+                    
+                    layer_analysis.append({
+                        'layer': layer_idx,
+                        'entropy': float(layer_entropy),
+                        'sparsity': float(layer_sparsity),
+                        'max_attention': float(layer_max_attention),
+                        'attention_matrix': layer_avg.tolist()
+                    })
+                except Exception as layer_error:
+                    logger.error(f"Error processing layer {layer_idx}: {layer_error}")
+                    continue
+        except Exception as e:
+            logger.error(f"Error analyzing layers: {e}")
+            return {'layers': [], 'error': str(e)}
+        
+        try:
+            layer_progression = self._analyze_layer_progression(attention_weights)
+        except Exception as e:
+            logger.error(f"Error analyzing layer progression: {e}")
+            layer_progression = {'error': str(e)}
         
         return {
             'layers': layer_analysis,
-            'layer_progression': self._analyze_layer_progression(attention_weights)
+            'layer_progression': layer_progression
         }
     
     def _analyze_attention_heads(self, attention_weights: Tuple, tokens: List[str]) -> Dict[str, Any]:
         """Analyze individual attention heads to understand their specialization"""
         head_analysis = []
         
-        for layer_idx, layer_attention in enumerate(attention_weights):
-            layer_attention = layer_attention.squeeze().cpu().numpy()  # Shape: [num_heads, seq_len, seq_len]
-            
-            for head_idx in range(layer_attention.shape[0]):
-                head_attention = layer_attention[head_idx]
+        try:
+            for layer_idx, layer_attention in enumerate(attention_weights):
+                # Ensure we have the right shape and convert to numpy
+                layer_attention = layer_attention.squeeze().cpu().numpy()
                 
-                # Analyze head behavior
-                head_type = self._classify_attention_head(head_attention, tokens)
-                head_entropy = self._calculate_attention_entropy(head_attention)
+                # Handle different possible shapes
+                if len(layer_attention.shape) == 3:  # [num_heads, seq_len, seq_len]
+                    num_heads = layer_attention.shape[0]
+                elif len(layer_attention.shape) == 2:  # [seq_len, seq_len] - single head
+                    layer_attention = layer_attention[np.newaxis, :, :]  # Add head dimension
+                    num_heads = 1
+                else:
+                    continue  # Skip malformed attention tensors
                 
-                head_analysis.append({
-                    'layer': layer_idx,
-                    'head': head_idx,
-                    'type': head_type,
-                    'entropy': float(head_entropy),
-                    'max_attention': float(np.max(head_attention)),
-                    'primary_focus': self._get_head_primary_focus(head_attention, tokens)
-                })
+                for head_idx in range(num_heads):
+                    head_attention = layer_attention[head_idx]
+                    
+                    # Ensure attention matrix is square and matches token length
+                    if head_attention.shape[0] != head_attention.shape[1]:
+                        continue  # Skip malformed attention matrices
+                    
+                    # Analyze head behavior
+                    head_type = self._classify_attention_head(head_attention, tokens)
+                    head_entropy = self._calculate_attention_entropy(head_attention)
+                    
+                    head_analysis.append({
+                        'layer': layer_idx,
+                        'head': head_idx,
+                        'type': head_type,
+                        'entropy': float(head_entropy),
+                        'max_attention': float(np.max(head_attention)),
+                        'primary_focus': self._get_head_primary_focus(head_attention, tokens)
+                    })
+        except Exception as e:
+            logger.error(f"Error analyzing attention heads: {e}")
+            return {'heads': [], 'error': str(e)}
         
         return {'heads': head_analysis}
     
     def _classify_attention_head(self, head_attention: np.ndarray, tokens: List[str]) -> str:
         """Classify attention head type based on its attention pattern"""
-        # Simple heuristics to classify attention heads
-        diagonal_strength = np.trace(head_attention) / np.sum(head_attention)
-        
-        if diagonal_strength > 0.3:
-            return "self-attention"
-        elif np.max(head_attention[0, :]) > 0.5:  # High attention to [CLS]
-            return "classification-focused"
-        elif np.max(head_attention[:, -1]) > 0.5:  # High attention to [SEP]
-            return "delimiter-focused"
-        else:
-            return "content-focused"
+        try:
+            # Ensure we have a square matrix
+            if head_attention.shape[0] != head_attention.shape[1] or head_attention.size == 0:
+                return "unknown"
+            
+            # Simple heuristics to classify attention heads
+            diagonal_strength = np.trace(head_attention) / (np.sum(head_attention) + 1e-8)  # Add small epsilon
+            
+            if diagonal_strength > 0.3:
+                return "self-attention"
+            elif head_attention.shape[0] > 0 and np.max(head_attention[0, :]) > 0.5:  # High attention to [CLS]
+                return "classification-focused"
+            elif head_attention.shape[1] > 1 and np.max(head_attention[:, -1]) > 0.5:  # High attention to [SEP]
+                return "delimiter-focused"
+            else:
+                return "content-focused"
+        except Exception as e:
+            return f"error: {str(e)}"
     
     def _get_head_primary_focus(self, head_attention: np.ndarray, tokens: List[str]) -> Dict[str, Any]:
         """Get the primary focus of an attention head"""
-        # Find the token that receives the most attention overall
-        total_attention_received = head_attention.sum(axis=0)
-        max_idx = np.argmax(total_attention_received)
-        
-        return {
-            'token': tokens[max_idx] if max_idx < len(tokens) else '<UNK>',
-            'position': int(max_idx),
-            'attention_score': float(total_attention_received[max_idx])
-        }
+        try:
+            # Find the token that receives the most attention overall
+            total_attention_received = head_attention.sum(axis=0)
+            max_idx = np.argmax(total_attention_received)
+            
+            # Ensure the index is within bounds
+            if max_idx >= len(tokens) or max_idx < 0:
+                return {
+                    'token': '<UNK>',
+                    'position': -1,
+                    'attention_score': 0.0
+                }
+            
+            return {
+                'token': tokens[max_idx],
+                'position': int(max_idx),
+                'attention_score': float(total_attention_received[max_idx])
+            }
+        except Exception as e:
+            return {
+                'token': '<ERROR>',
+                'position': -1,
+                'attention_score': 0.0,
+                'error': str(e)
+            }
     
     def _detect_attention_patterns(self, attention_weights: Tuple, tokens: List[str]) -> Dict[str, Any]:
         """Detect specific attention patterns relevant to ABM anomaly detection"""
@@ -410,67 +594,162 @@ class BertVisualizationAnalyzer:
         visualizations = {}
         
         try:
+            logger.info(f"Starting visualization generation for text length: {len(original_text)}")
+            logger.info(f"Attention weights tuple length: {len(attention_weights)}")
+            logger.info(f"Number of tokens: {len(tokens)}")
+            
             # Prepare inputs for BertViz
             inputs = self.tokenizer(original_text, return_tensors='pt', truncation=True, max_length=512)
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
             # Generate head view (attention between tokens)
             try:
-                head_view_html = head_view(
-                    self.model, 
-                    self.tokenizer, 
-                    original_text,
-                    html_action='return'
-                )
-                visualizations['head_view'] = self._encode_html_to_base64(head_view_html)
+                logger.info("Attempting to generate head view...")
+                # BertViz may have compatibility issues with newer transformers versions
+                # Skip BertViz for now and focus on custom visualizations
+                logger.warning("Skipping BertViz head_view due to compatibility issues")
+                visualizations['head_view'] = ""
             except Exception as e:
                 logger.warning(f"Could not generate head view: {e}")
+                visualizations['head_view'] = ""
             
             # Generate model view (aggregated attention)
             try:
-                model_view_html = model_view(
-                    self.model,
-                    self.tokenizer,
-                    original_text,
-                    html_action='return'
-                )
-                visualizations['model_view'] = self._encode_html_to_base64(model_view_html)
+                logger.info("Attempting to generate model view...")
+                # BertViz may have compatibility issues with newer transformers versions
+                # Skip BertViz for now and focus on custom visualizations
+                logger.warning("Skipping BertViz model_view due to compatibility issues")
+                visualizations['model_view'] = ""
             except Exception as e:
                 logger.warning(f"Could not generate model view: {e}")
+                visualizations['model_view'] = ""
+            
+            # Calculate averaged attention matrix first
+            logger.info("Computing averaged attention matrix for visualizations...")
+            try:
+                stacked_attention = torch.stack(attention_weights)
+                logger.info(f"Stacked attention shape: {stacked_attention.shape}")
+                
+                # Handle different tensor shapes dynamically
+                if len(stacked_attention.shape) == 5:  # [layers, batch, heads, seq, seq]
+                    avg_attention = stacked_attention.mean(dim=(0, 1, 2)).cpu().numpy()
+                elif len(stacked_attention.shape) == 4:  # [layers, heads, seq, seq] 
+                    avg_attention = stacked_attention.mean(dim=(0, 1)).cpu().numpy()
+                elif len(stacked_attention.shape) == 3:  # [layers, seq, seq]
+                    avg_attention = stacked_attention.mean(dim=0).cpu().numpy()
+                else:
+                    logger.error(f"Unexpected stacked attention shape: {stacked_attention.shape}")
+                    return {'error': 'Invalid attention tensor shape for visualization'}
+                
+                logger.info(f"Averaged attention shape: {avg_attention.shape}")
+                
+                # Ensure we have a valid 2D matrix
+                if len(avg_attention.shape) != 2:
+                    logger.error(f"Averaged attention is not 2D: {avg_attention.shape}")
+                    return {'error': 'Could not create 2D attention matrix'}
+                    
+            except Exception as avg_error:
+                logger.error(f"Error computing averaged attention: {avg_error}")
+                return {'error': f'Attention averaging failed: {str(avg_error)}'}
             
             # Generate custom attention heatmap
-            visualizations['attention_heatmap'] = self._generate_attention_heatmap(attention_weights, tokens)
+            logger.info("Generating custom attention heatmap...")
+            visualizations['attention_heatmap'] = self._generate_attention_heatmap_from_matrix(avg_attention, tokens)
             
-            # Generate token importance visualization
-            visualizations['token_importance'] = self._generate_token_importance_plot(attention_weights, tokens)
+            # Generate token importance visualization  
+            logger.info("Generating token importance visualization...")
+            visualizations['token_importance'] = self._generate_token_importance_from_matrix(avg_attention, tokens)
+            
+            # Log final results
+            for viz_name, viz_data in visualizations.items():
+                logger.info(f"{viz_name}: {'Generated' if viz_data else 'Empty'} (length: {len(viz_data)})")
             
         except Exception as e:
             logger.error(f"Error generating visualizations: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             visualizations['error'] = str(e)
         
         return visualizations
     
-    def _generate_attention_heatmap(self, attention_weights: Tuple, tokens: List[str]) -> str:
-        """Generate custom attention heatmap"""
+    def _generate_attention_heatmap_from_matrix(self, avg_attention: np.ndarray, tokens: List[str]) -> str:
+        """Generate custom attention heatmap from pre-averaged 2D attention matrix"""
         try:
-            # Average attention across all layers and heads
-            avg_attention = torch.stack(attention_weights).mean(dim=(0, 1)).squeeze().cpu().numpy()
+            logger.info(f"Generating attention heatmap from matrix shape: {avg_attention.shape}, tokens: {len(tokens)}")
             
-            # Create heatmap
-            plt.figure(figsize=(12, 10))
-            sns.heatmap(
-                avg_attention, 
-                xticklabels=tokens, 
-                yticklabels=tokens,
-                cmap='Blues',
-                cbar_kws={'label': 'Attention Weight'}
-            )
-            plt.title('BERT Attention Heatmap (Averaged across all layers and heads)')
-            plt.xlabel('Tokens (To)')
-            plt.ylabel('Tokens (From)')
-            plt.xticks(rotation=45, ha='right')
-            plt.yticks(rotation=0)
-            plt.tight_layout()
+            # Validate input
+            if len(avg_attention.shape) != 2:
+                logger.error(f"Expected 2D attention matrix, got shape: {avg_attention.shape}")
+                return ""
+            
+            if avg_attention.shape[0] == 0 or avg_attention.shape[1] == 0:
+                logger.error(f"Empty attention matrix: {avg_attention.shape}")
+                return ""
+            
+            # Check for invalid values (NaN, infinity)
+            if not np.isfinite(avg_attention).all():
+                logger.warning("Non-finite values in attention matrix, replacing with zeros")
+                avg_attention = np.nan_to_num(avg_attention, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            # Ensure dimensions match token count
+            seq_len = avg_attention.shape[0]
+            if seq_len != len(tokens):
+                min_len = min(seq_len, len(tokens))
+                avg_attention = avg_attention[:min_len, :min_len]
+                tokens = tokens[:min_len]
+                logger.info(f"Adjusted dimensions to {min_len}x{min_len}")
+            
+            # Limit tokens for readability (max 25 tokens - smaller for readability)
+            max_tokens = 25
+            if len(tokens) > max_tokens:
+                # Take most important tokens based on attention received
+                token_importance = avg_attention.sum(axis=0)
+                top_indices = np.argsort(token_importance)[-max_tokens:]  # Get indices of top tokens
+                top_indices.sort()  # Keep in original order for readability
+                
+                # Filter attention matrix and tokens
+                avg_attention = avg_attention[top_indices, :][:, top_indices]
+                tokens = [tokens[i] for i in top_indices]
+                logger.info(f"Selected {max_tokens} most important tokens for visualization")
+            
+            # Create heatmap with comprehensive error handling
+            try:
+                plt.figure(figsize=(12, 10))
+                
+                logger.info(f"Creating heatmap with attention shape: {avg_attention.shape}, tokens: {len(tokens)}")
+                
+                # Use matplotlib directly for more control
+                im = plt.imshow(avg_attention, cmap='Blues')
+                plt.colorbar(im, label='Attention Weight')
+                
+                # Add token labels
+                plt.xticks(range(len(tokens)), tokens, rotation=45, ha='right')
+                plt.yticks(range(len(tokens)), tokens)
+                
+                # Add grid lines for clarity
+                plt.grid(False)
+                
+                # Add title and labels
+                plt.title('BERT Attention Heatmap')
+                plt.xlabel('Tokens (To)')
+                plt.ylabel('Tokens (From)')
+                
+                plt.tight_layout()
+                
+            except Exception as heatmap_error:
+                logger.error(f"Error creating heatmap: {heatmap_error}")
+                # Try with simpler parameters - absolute minimum
+                try:
+                    logger.info("Attempting simplified heatmap...")
+                    plt.figure(figsize=(8, 6))
+                    plt.imshow(avg_attention, cmap='Blues')
+                    plt.colorbar(label='Attention')
+                    plt.title('BERT Attention Heatmap')
+                    plt.tight_layout()
+                except Exception as simple_error:
+                    logger.error(f"Even simplified heatmap failed: {simple_error}")
+                    plt.close()
+                    return ""
             
             # Convert to base64
             buffer = BytesIO()
@@ -479,49 +758,106 @@ class BertVisualizationAnalyzer:
             image_base64 = base64.b64encode(buffer.getvalue()).decode()
             plt.close()
             
+            logger.info(f"Generated attention heatmap, base64 length: {len(image_base64)}")
             return image_base64
             
         except Exception as e:
-            logger.error(f"Error generating attention heatmap: {e}")
+            logger.error(f"Error generating attention heatmap from matrix: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return ""
     
-    def _generate_token_importance_plot(self, attention_weights: Tuple, tokens: List[str]) -> str:
-        """Generate token importance bar plot"""
+    def _generate_token_importance_from_matrix(self, avg_attention: np.ndarray, tokens: List[str]) -> str:
+        """Generate token importance bar plot from pre-averaged 2D attention matrix"""
         try:
-            # Calculate token importance
-            importance_scores = self._attention_based_importance(attention_weights)
+            logger.info(f"Generating token importance from matrix shape: {avg_attention.shape}, tokens: {len(tokens)}")
+            
+            # Validate input
+            if len(avg_attention.shape) != 2:
+                logger.error(f"Expected 2D attention matrix, got shape: {avg_attention.shape}")
+                return ""
+            
+            # Calculate token importance (sum of attention received by each token)
+            importance_scores = avg_attention.sum(axis=0)  # Sum along 'from' dimension
+            logger.info(f"Importance scores shape: {importance_scores.shape}")
+            
+            # Ensure we have valid numeric data
+            if importance_scores.size == 0:
+                logger.error("Empty importance scores array")
+                return ""
+            
+            # Handle length mismatch between tokens and scores
+            if len(importance_scores) != len(tokens):
+                min_len = min(len(importance_scores), len(tokens))
+                logger.warning(f"Length mismatch: tokens={len(tokens)}, scores={len(importance_scores)}, using min={min_len}")
+                importance_scores = importance_scores[:min_len]
+                tokens = tokens[:min_len]
+            
+            # Final validation
+            if len(tokens) == 0 or len(importance_scores) == 0:
+                logger.error("Empty tokens or importance scores after processing")
+                return ""
+            
+            # Convert to basic Python types for pandas compatibility
+            tokens_list = [str(token) for token in tokens]  # Ensure strings
+            importance_list = [float(score) for score in importance_scores]  # Ensure floats
+            
+            # Validate all importance values are finite
+            if not all(np.isfinite(importance_list)):
+                logger.warning("Non-finite values in importance scores, replacing with zeros")
+                importance_list = [0.0 if not np.isfinite(x) else x for x in importance_list]
+            
+            logger.info(f"Final data: {len(tokens_list)} tokens, {len(importance_list)} scores")
             
             # Create DataFrame for plotting
             df = pd.DataFrame({
-                'Token': tokens,
-                'Importance': importance_scores,
-                'Position': range(len(tokens))
+                'Token': tokens_list,
+                'Importance': importance_list
             })
             
-            # Sort by importance and take top 20
-            df_top = df.nlargest(20, 'Importance')
+            # Sort by importance
+            df = df.sort_values('Importance', ascending=False)  # Changed to descending order
             
-            # Create bar plot
-            plt.figure(figsize=(12, 8))
-            bars = plt.bar(range(len(df_top)), df_top['Importance'])
-            plt.xticks(range(len(df_top)), df_top['Token'], rotation=45, ha='right')
-            plt.ylabel('Attention Importance Score')
-            plt.title('Top 20 Most Important Tokens (by Attention)')
+            # Limit to top 15 for readability (was 20)
+            if len(df) > 15:
+                df = df.head(15)  # Get top items instead of tail since we sort descending now
             
-            # Color bars by importance level
-            max_importance = df_top['Importance'].max()
-            for i, bar in enumerate(bars):
-                importance_ratio = df_top.iloc[i]['Importance'] / max_importance
-                if importance_ratio > 0.8:
-                    bar.set_color('red')
-                elif importance_ratio > 0.6:
-                    bar.set_color('orange')
-                elif importance_ratio > 0.4:
-                    bar.set_color('yellow')
-                else:
-                    bar.set_color('green')
+            # Create bar plot with horizontal bars for better readability
+            plt.figure(figsize=(10, max(6, len(df) * 0.4)))  # Increased vertical space per item
             
-            plt.tight_layout()
+            try:
+                # Use safer matplotlib approach instead of seaborn
+                plt.barh(range(len(df)), df['Importance'], color='steelblue')
+                plt.yticks(range(len(df)), df['Token'])
+                plt.xlabel('Attention Score')
+                plt.ylabel('Tokens')
+                plt.title('Token Importance (Based on Attention)')
+                plt.grid(axis='x', linestyle='--', alpha=0.7)
+                plt.tight_layout()
+                
+            except Exception as plot_error:
+                logger.error(f"Error creating importance plot: {plot_error}")
+                # Try even simpler version without pandas
+                try:
+                    # Sort tokens and scores together
+                    items = list(zip(tokens_list, importance_list))
+                    items.sort(key=lambda x: x[1], reverse=True)
+                    top_items = items[:10]  # Limit to top 10
+                    
+                    # Plot directly with matplotlib
+                    labels = [item[0] for item in top_items]
+                    values = [item[1] for item in top_items]
+                    
+                    plt.figure(figsize=(8, 6))
+                    plt.barh(range(len(labels)), values)
+                    plt.yticks(range(len(labels)), labels)
+                    plt.xlabel('Importance')
+                    plt.title('Token Importance')
+                    plt.tight_layout()
+                except Exception as simple_error:
+                    logger.error(f"Even simplified plot failed: {simple_error}")
+                    plt.close()
+                    return ""
             
             # Convert to base64
             buffer = BytesIO()
@@ -530,12 +866,14 @@ class BertVisualizationAnalyzer:
             image_base64 = base64.b64encode(buffer.getvalue()).decode()
             plt.close()
             
+            logger.info(f"Generated token importance plot, base64 length: {len(image_base64)}")
             return image_base64
             
         except Exception as e:
-            logger.error(f"Error generating token importance plot: {e}")
+            logger.error(f"Error generating token importance from matrix: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return ""
-    
     def _encode_html_to_base64(self, html_content: str) -> str:
         """Encode HTML content to base64"""
         try:
