@@ -69,6 +69,8 @@ const BertAnalysisInterface = React.lazy(() => import('./BertAnalysisInterface')
 }));
 
 function App() {
+  console.log('🟢 App component loaded successfully!');
+  
   return (
     <ErrorBoundary>
       <Router>

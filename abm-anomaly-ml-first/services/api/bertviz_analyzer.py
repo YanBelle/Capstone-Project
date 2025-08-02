@@ -18,6 +18,23 @@ from io import BytesIO
 import logging
 from datetime import datetime
 import pandas as pd
+import re
+
+# Import contextual labeling system
+try:
+    from ej_contextual_labeler import EJLogLabeler, EventType, TransactionPhase
+    EJ_LABELER_AVAILABLE = True
+except ImportError:
+    EJ_LABELER_AVAILABLE = False
+    logging.warning("EJ Contextual Labeler not available - using basic BERT attention")
+
+# Import expert labeling system
+try:
+    from expert_labeling_system import ExpertLabelingSystem
+    EXPERT_LABELER_AVAILABLE = True
+except ImportError:
+    EXPERT_LABELER_AVAILABLE = False
+    logging.warning("Expert Labeling System not available - using basic importance")
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +45,7 @@ class BertVisualizationAnalyzer:
     
     def __init__(self, model_name: str = 'bert-base-uncased', device: str = None):
         """
-        Initialize the BERT visualization analyzer
+        Initialize the BERT visualization analyzer with EJ contextual enhancement
         
         Args:
             model_name: BERT model name/path
@@ -40,12 +57,80 @@ class BertVisualizationAnalyzer:
         # Initialize BERT components
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
         self.model = BertModel.from_pretrained(model_name, output_attentions=True)
+        
+        # Add custom ATM/EJ domain tokens to prevent splitting
+        custom_tokens = [
+            # Core ATM events - compound terms
+            "DEVICE_ERROR", "CARD_INSERTED", "CARD_TAKEN", "PIN_ENTERED", 
+            "ATR_RECEIVED", "TRANSACTION_START", "TRANSACTION_END",
+            "CASH_DISPENSED", "BALANCE_INQUIRY", "RECEIPT_PRINTED", 
+            "CARD_RETAINED", "CARD_EJECTED", "CARD_READ",
+            
+            # Error states
+            "TIMEOUT_ERROR", "COMMUNICATION_ERROR", "NETWORK_ERROR", 
+            "CASH_DISPENSER_ERROR", "READ_ERROR", "WRITE_ERROR",
+            
+            # Account and validation
+            "ACCOUNT_VALIDATION", "PIN_VALIDATION", "INSUFFICIENT_FUNDS", 
+            "INVALID_PIN", "CARD_EXPIRED",
+            
+            # Transaction types
+            "WITHDRAWAL_TRANSACTION", "DEPOSIT_TRANSACTION", "TRANSFER_TRANSACTION",
+            
+            # Status indicators
+            "OUT_OF_SERVICE", "OUT_OF_CASH", "OUT_OF_ORDER", 
+            "SERVICE_MODE", "DIAGNOSTIC_MODE",
+            
+            # Specific patterns that appear in EJ logs
+            "CardNumber", "REF", "VAL", "ESC", "REJECTS",
+            
+            # Common combined patterns
+            "VAL_000", "ESC_000", "REF_000", "REJECTS_000",
+            "OPCODE_FI", "OPCODE_IB", "OPCODE_IC", "OPCODE_ID",
+            "ATR_RECEIVED_T_0", "ATR_RECEIVED_T_1",
+            
+            # Common Machine and R status patterns to prevent fragmentation
+            "M_00", "M_01", "M_02", "M_03", "M_04", "M_05", "M_10", "M_15", "M_20", "M_99",
+            "R_0000", "R_5005", "R_10011", "R_20001", "R_30015", "R_40000", "R_50000"
+        ]
+        
+        # Add tokens to tokenizer vocabulary
+        num_added_tokens = self.tokenizer.add_tokens(custom_tokens)
+        logger.info(f"Added {num_added_tokens} custom ATM domain tokens to tokenizer vocabulary")
+        
+        # Resize model embeddings to accommodate new tokens
+        self.model.resize_token_embeddings(len(self.tokenizer))
+        
         self.model.to(self.device)
         self.model.eval()
         
+        # Initialize EJ contextual labeler for domain-specific enhancement
+        if EJ_LABELER_AVAILABLE:
+            try:
+                self.ej_labeler = EJLogLabeler()
+                logger.info("EJ Contextual Labeler initialized successfully - domain-specific analysis enabled")
+            except Exception as e:
+                self.ej_labeler = None
+                logger.error(f"Failed to initialize EJ Contextual Labeler: {e}")
+        else:
+            self.ej_labeler = None
+            logger.warning("EJ Contextual Labeler unavailable - using basic analysis")
+        
+        if EXPERT_LABELER_AVAILABLE:
+            self.expert_labeler = ExpertLabelingSystem()
+            logger.info("Expert Labeling System initialized - expert knowledge enhanced")
+        else:
+            self.expert_labeler = None
+            logger.warning("Expert Labeling System unavailable - using basic patterns")
+        
         # Store analysis results
         self.attention_cache = {}
+        # Cache for performance
         self.token_importance_cache = {}
+        self.attention_cache = {}
+        
+        # Store original session text for EJ labeler
+        self.original_session_text = None
         
         logger.info(f"BertViz analyzer initialized with {model_name} on {self.device}")
     
@@ -61,7 +146,10 @@ class BertVisualizationAnalyzer:
             Dictionary containing all analysis results
         """
         try:
-            # Preprocess text
+            # Store original text for EJ contextual labeler (needs timestamps/patterns for feature extraction)
+            self.original_session_text = session_text
+            
+            # Preprocess text for BERT (removes noise patterns that interfere with attention)
             processed_text = self._preprocess_text(session_text)
             
             # Get BERT outputs with attention
@@ -143,8 +231,230 @@ class BertVisualizationAnalyzer:
             return {'error': str(e), 'session_id': session_id}
     
     def _preprocess_text(self, text: str) -> str:
-        """Preprocess ABM log text for BERT analysis"""
-        # Remove excessive whitespace
+        """Preprocess ABM log text for BERT analysis with enhanced pattern cleaning"""
+        # Enhanced EJ pattern cleaning with specific fixes for BERT attention optimization
+        
+        # CRITICAL FIRST: Handle ESC/VAL/REF patterns BEFORE any other cleanup removes the values
+        # Convert VAL: 000, ESC: 000, REF: 000 patterns to compound tokens
+        text = re.sub(r'\b(VAL|ESC|REF):\s*(\d+)\b', r'\1_\2', text)
+        # Handle cases like "ESC 000" (without colon), "VAL   000" (multiple spaces)
+        text = re.sub(r'\b(VAL|ESC|REF)\s+(\d+)\b', r'\1_\2', text)
+        
+        # CRITICAL SECOND: Handle ATR pattern IMMEDIATELY after ESC/VAL/REF
+        text = re.sub(r'\bATR\s+RECEIVED\s+T=(\d+)\b', r'ATR_RECEIVED_T_\1', text)
+        
+        # CRITICAL THIRD: Handle REJECTS patterns early to prevent "1" token isolation
+        # Clean up "REJECTS:000*(1" patterns that create isolated "1" tokens
+        text = re.sub(r'REJECTS:(\d+)\*\([^)]*\)', r'REJECTS_\1', text)
+        text = re.sub(r'REJECTS:(\d+)', r'REJECTS_\1', text)
+        text = re.sub(r'REJECTS\s+(\d+)', r'REJECTS_\1', text)
+        
+        # 1. Remove EJ header patterns: [020t*629*06/18/2025*00:46*
+        # Pattern: [020t*<sequence>*<mm/dd/yyyy>*<hh:mm>*
+        text = re.sub(r'\[020t\*\d+\*\d{2}/\d{2}/\d{4}\*\d{2}:\d{2}\*', '', text)
+        
+        # 1b. Remove standalone date/time patterns that don't start with [020t
+        # Pattern: *630*06/18/2025*00:46* (removes patterns like "*630*06/18/2025*00:46*")
+        text = re.sub(r'\*\d+\*\d{2}/\d{2}/\d{4}\*\d{2}:\d{2}\*', '', text)
+        
+        # 1c. ENHANCED: Remove complex transaction code patterns that cause fragmentation
+        # Pattern: *7231*1*(Iw(1*3, (removes patterns like "*7231*1*(Iw(1*3,")
+        # This is the main source of ##31, ##1, ##w noise tokens
+        # IMPROVED: More aggressive pattern to catch the full "*7231*1*(Iw(1*3," structure
+        text = re.sub(r'\*\d+\*\d+\*\([^,)]*,?\s*', '', text)
+        
+        # 1d. Remove any remaining complex patterns with asterisks and parentheses
+        # This catches patterns like "*7231*1*(Iw(1*3," more aggressively with better coverage
+        text = re.sub(r'\*\d+\*\d+\*\([^)]*\)[^,]*,?\s*', '', text)
+        
+        # 1e. AGGRESSIVE CLEANUP: Remove any remaining transaction code fragments
+        # Enhanced to catch more fragment patterns that create isolated tokens
+        text = re.sub(r'\*\d+\*', '', text)  # Remove *digits*
+        text = re.sub(r'\*\([^)]*\)', '', text)  # Remove *(content)
+        text = re.sub(r'\([^)]*\*\d+', '', text)  # Remove (content*digits
+        text = re.sub(r'\(Iw\([^)]*\)', '', text)  # Remove (Iw(content) pattern more completely
+        text = re.sub(r'\(\d+\*\d+[^)]*\)', '', text)  # Remove (digits*digits*content) patterns
+        
+        # 1f. SPECIFIC FIX: Remove the exact "*7231*1*(Iw(1*3," pattern completely
+        # This targets the specific pattern causing the isolated "1" token
+        text = re.sub(r'\*7231\*1\*\(Iw\(1\*3,?\s*', '', text)
+        
+        # 2. Remove remaining [020t patterns with any following content
+        # This catches patterns like "[020t CARD INSERTED", "[020t 00:47:13", etc.
+        text = re.sub(r'\[020t\s+', '', text)
+        
+        # 3. Remove standalone timestamps in format hh:mm:ss (before main events)
+        # Matches patterns like " 00:46:27 ", " 00:46:30 ", etc.
+        text = re.sub(r'\s*\d{2}:\d{2}:\d{2}\s+', ' ', text)
+        
+        # 3b. Remove standalone timestamps in format hh:mm (without seconds)
+        # Matches patterns like " 00:47 ", " 00:46 ", etc.
+        text = re.sub(r'\s*\d{2}:\d{2}\s+', ' ', text)
+        
+        # 3b2. Remove partial timestamps that remain after aggressive cleanup
+        # Catches patterns like "05:50:" or "00::" left behind
+        text = re.sub(r'\d{2}::\s*', '', text)  # Remove xx:: patterns
+        text = re.sub(r'\d{2}:\d{2}:\s*', '', text)  # Remove xx:xx: patterns
+        
+        # 3c. ENHANCED PATTERN: Aggressively remove isolated numeric fragments that are likely noise
+        # Uses context-aware removal - preserves meaningful amounts/counts but removes ALL isolated noise digits
+        # First, protect meaningful numeric contexts by temporarily marking them with placeholder tokens
+        text = re.sub(r'(AMOUNT)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(COUNT)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(TOTAL)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(BALANCE)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(STEP)_(\d+)', r'PROTECTED_\1_\2', text)  # Protect STEP_1 patterns
+        text = re.sub(r'(T)_(\d+)', r'PROTECTED_\1_\2', text)      # Protect T_1 patterns
+        
+        # AGGRESSIVE: Remove ALL isolated single digits that appear between words or at boundaries
+        # This will catch the isolated "1" token regardless of context
+        text = re.sub(r'\b\d\b', '', text)  # Remove any single isolated digit
+        
+        # Also remove isolated multi-digit fragments that are likely noise (2-4 digits)
+        text = re.sub(r'\b\d{2,4}\b(?=\s+(?:[A-Z][A-Z_]+|[a-z]+)|\s*$)', '', text)
+        
+        # Restore protected meaningful numbers
+        text = re.sub(r'PROTECTED_(AMOUNT|COUNT|TOTAL|BALANCE|STEP|T)_(\d+)', r'\1_\2', text)
+        
+        # 3d. CONTEXTUAL FRAGMENT REMOVAL: Remove isolated single chars/digits between meaningful terms
+        # Targets fragments like "w", "i", "1", "3" that appear isolated between proper ATM terms
+        text = re.sub(r'(?<=\s)[a-zA-Z0-9](?=\s+[A-Z_]|\s*$)', '', text)
+        
+        # 4. Remove transaction start markers
+        text = re.sub(r'\s*---START OF TRANSACTION---\s*', ' ', text)
+        
+        # 5. ENHANCED PATTERN CLEANING - Fix specific issues with punctuation and compound words
+        
+        # Replace *TRANSACTION START* with TRANSACTION START (remove asterisks)
+        text = re.sub(r'\*TRANSACTION START\*', 'TRANSACTION_START', text)
+        
+        # Replace PAN patterns with simplified CardNumber label
+        # Matches: "PAN 0004263********1897" or similar patterns
+        text = re.sub(r'PAN\s+\d{4}\d+\*+\d+', 'CardNumber', text)
+        
+        # Remove complex transaction codes like "*7231*1*(Iw(1*3," but keep meaningful parts
+        # Pattern: *digits*digits*(complex_chars*digits, -> keep what follows after comma
+        text = re.sub(r'\*\d+\*\d+\*\([^,]+,\s*', '', text)
+        
+        # Remove "A/C" as requested
+        text = re.sub(r'\bA/C\b', '', text)
+        
+        # Clean up "REJECTS:000*(1\nS" to just "REJECTS_000"
+        text = re.sub(r'REJECTS:(\d+)\*\([^)]*\)\s*S?', r'REJECTS_\1', text)
+        
+        # Additional cleanup for any remaining REJECTS fragments
+        text = re.sub(r'REJECTS:(\d+)\*\([^)]*\)[^A-Z]*', r'REJECTS_\1', text)
+        
+        # Handle remaining REJECTS:000 patterns that don't have the full pattern
+        text = re.sub(r'REJECTS:(\d+)', r'REJECTS_\1', text)
+        
+        # Remove standalone "S" that might be left from REJECTS patterns
+        text = re.sub(r'\bS\b(?=\s|$)', '', text)
+        
+        # 8. Convert specific transaction elements to single tokens (AFTER all value processing is complete)
+        # These patterns should only run after all value extraction/cleaning above
+        text = re.sub(r'\bTRACK\s+\d+\s+DATA\b', 'TRACK_DATA', text)
+        text = re.sub(r'\bT=(\d+)\b', r'T_\1', text)
+        text = re.sub(r'\bLEN=(\d+)\b', r'LEN_\1', text)
+        text = re.sub(r'\bSTEP\s+(\d+)\b', r'STEP_\1', text)
+        text = re.sub(r'\bTIME\s*=\s*(\d+)\b', r'TIME_\1', text)
+        text = re.sub(r'\bCOUNT\s*=\s*(\d+)\b', r'COUNT_\1', text)
+        text = re.sub(r'\bDATA\s+LEN\s*=\s*(\d+)\b', r'DATA_LEN_\1', text)
+        
+        # 9. Handle specific values: Convert hex patterns and structured values
+        
+        # ENHANCED: Handle REJECTS patterns with different formatting
+        text = re.sub(r'REJECTS\s+(\d+)', r'REJECTS_\1', text)
+        
+        # Convert OPCODE = <code> to OPCODE_<code>
+        text = re.sub(r'\bOPCODE\s*=\s*([A-Z]+)\b', r'OPCODE_\1', text)
+        
+        # ATR pattern was already handled above - don't repeat it here to avoid conflicts
+        
+        # Additional noise cleanup - remove isolated asterisks and punctuation fragments
+        text = re.sub(r'\*+', '', text)
+        text = re.sub(r'[()]+', '', text)
+        
+        # Clean specific EJ patterns that cause fragmentation
+        # Convert M-<digits>, R-<digits> to compound tokens to prevent BERT fragmentation
+        # Machine status: M-02, M-15, etc. -> M_02, M_15, etc.
+        text = re.sub(r'\bM-(\d+),?\s*', r'M_\1 ', text)
+        # R status: R-10011, R-5005, etc. -> R_10011, R_5005, etc.
+        text = re.sub(r'\bR-(\d+)\b', r'R_\1', text)
+        
+        # Create compound tokens for ATM events that should stay together
+        # This prevents BERT from splitting important multi-word terms
+        compound_patterns = {
+            # Core ATM events
+            r'\bDEVICE\s+ERROR\b': 'DEVICE_ERROR',
+            r'\bCARD\s+INSERTED\b': 'CARD_INSERTED', 
+            r'\bCARD\s+TAKEN\b': 'CARD_TAKEN',
+            r'\bPIN\s+ENTERED\b': 'PIN_ENTERED',
+            # REMOVED: r'\bATR\s+RECEIVED\b': 'ATR_RECEIVED',  # This would break ATR_RECEIVED_T_0!
+            r'\bTRANSACTION\s+END\b': 'TRANSACTION_END',
+            r'\bTRANSACTION\s+START\b': 'TRANSACTION_START',
+            
+            # Additional ATM operations
+            r'\bCASH\s+DISPENSED\b': 'CASH_DISPENSED',
+            r'\bBALANCE\s+INQUIRY\b': 'BALANCE_INQUIRY',
+            r'\bRECEIPT\s+PRINTED\b': 'RECEIPT_PRINTED',
+            r'\bCARD\s+RETAINED\b': 'CARD_RETAINED',
+            r'\bCARD\s+EJECTED\b': 'CARD_EJECTED',
+            r'\bCARD\s+READ\b': 'CARD_READ',
+            
+            # Error states and conditions
+            r'\bTIMEOUT\s+ERROR\b': 'TIMEOUT_ERROR',
+            r'\bCOMMUNICATION\s+ERROR\b': 'COMMUNICATION_ERROR',
+            r'\bNETWORK\s+ERROR\b': 'NETWORK_ERROR',
+            r'\bCASH\s+DISPENSER\s+ERROR\b': 'CASH_DISPENSER_ERROR',
+            r'\bREAD\s+ERROR\b': 'READ_ERROR',
+            r'\bWRITE\s+ERROR\b': 'WRITE_ERROR',
+            
+            # Account and validation
+            r'\bACCOUNT\s+VALIDATION\b': 'ACCOUNT_VALIDATION',
+            r'\bPIN\s+VALIDATION\b': 'PIN_VALIDATION',
+            r'\bINSUFFICIENT\s+FUNDS\b': 'INSUFFICIENT_FUNDS',
+            r'\bINVALID\s+PIN\b': 'INVALID_PIN',
+            r'\bCARD\s+EXPIRED\b': 'CARD_EXPIRED',
+            
+            # Transaction types
+            r'\bWITHDRAWAL\s+TRANSACTION\b': 'WITHDRAWAL_TRANSACTION',
+            r'\bDEPOSIT\s+TRANSACTION\b': 'DEPOSIT_TRANSACTION',
+            r'\bTRANSFER\s+TRANSACTION\b': 'TRANSFER_TRANSACTION',
+            
+            # Status indicators
+            r'\bOUT\s+OF\s+SERVICE\b': 'OUT_OF_SERVICE',
+            r'\bOUT\s+OF\s+CASH\b': 'OUT_OF_CASH',
+            r'\bOUT\s+OF\s+ORDER\b': 'OUT_OF_ORDER',
+            r'\bSERVICE\s+MODE\b': 'SERVICE_MODE',
+            r'\bDIAGNOSTIC\s+MODE\b': 'DIAGNOSTIC_MODE',
+        }
+        
+        for pattern, replacement in compound_patterns.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        
+        # Reduce excessive punctuation that gets high attention scores
+        # Replace multiple asterisks with single underscore
+        text = re.sub(r'\*+', '_', text)
+        
+        # Clean up excessive parentheses and commas that fragment attention
+        text = re.sub(r'[(),]+', ' ', text)
+        
+        # Additional punctuation cleaning for better BERT focus
+        # Remove excessive colons that don't add semantic value
+        text = re.sub(r':(\s*\d{3})\b', r' \1', text)  # Convert "ESC: 000" to "ESC 000"
+        
+        # Normalize numeric patterns to reduce fragmentation
+        # Keep amounts as single tokens
+        text = re.sub(r'\$(\d+)\.(\d{2})', r'AMOUNT_\1_\2', text)  # $100.00 -> AMOUNT_100_00
+        
+        # Simplify reference numbers while preserving meaning
+        text = re.sub(r'\b(REF|ESC|VAL):\s*(\d+)\b', r'\1_\2', text)  # REF: 000 -> REF_000
+        
+        # Clean up excessive whitespace around punctuation
+        text = re.sub(r'\s*[=:]\s*', ' ', text)  # Remove = and : with spaces
+        
+        # 6. Remove excessive whitespace and clean up
         text = ' '.join(text.split())
         
         # Truncate to BERT's max length (512 tokens minus special tokens)
@@ -157,12 +467,14 @@ class BertVisualizationAnalyzer:
     
     def _get_bert_outputs(self, text: str) -> Tuple[Dict, torch.Tensor, torch.Tensor]:
         """Get BERT outputs including attention weights and hidden states"""
+        # CRITICAL FIX: Tokenize WITHOUT special tokens to prevent ML pipeline contamination
         inputs = self.tokenizer(
             text, 
             return_tensors='pt', 
             padding=True, 
             truncation=True, 
-            max_length=512
+            max_length=512,
+            add_special_tokens=False  # Prevent [CLS]/[SEP] injection into ML pipeline
         )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         
@@ -243,7 +555,7 @@ class BertVisualizationAnalyzer:
             return {'error': str(e)}
     
     def _calculate_token_importance(self, attention_weights: Tuple, tokens: List[str]) -> Dict[str, Any]:
-        """Calculate importance scores for each token"""
+        """Calculate importance scores for each token with EJ contextual enhancement"""
         # Method 1: Attention-based importance
         attention_importance = self._attention_based_importance(attention_weights)
         
@@ -253,12 +565,29 @@ class BertVisualizationAnalyzer:
         # Method 3: Layer-wise importance
         layer_importance = self._layer_wise_importance(attention_weights)
         
-        # Combine importance scores
+        # Method 4: Contextual importance (EJ DOMAIN KNOWLEDGE!)
+        contextual_importance = self._contextual_importance(tokens)
+        
+        # Method 5: Expert knowledge importance
+        expert_importance = self._expert_knowledge_importance(tokens)
+        
+        # Enhanced combination with contextual weights - EJ domain knowledge gets 35% weight!
         combined_importance = (
-            0.4 * attention_importance + 
-            0.3 * gradient_importance + 
-            0.3 * layer_importance
+            0.25 * attention_importance + 
+            0.20 * gradient_importance + 
+            0.20 * layer_importance +
+            0.25 * contextual_importance +  # EJ contextual labeler
+            0.10 * expert_importance        # Expert knowledge patterns
         )
+        
+        # CRITICAL FIX: Suppress special tokens [CLS] and [SEP] that BERT automatically adds
+        for idx, token in enumerate(tokens):
+            if token in ['[CLS]', '[SEP]', '[PAD]', '[UNK]']:
+                combined_importance[idx] *= 0.01  # Reduce to 1% of original importance
+                attention_importance[idx] *= 0.01
+                gradient_importance[idx] *= 0.01
+                layer_importance[idx] *= 0.01
+                # Don't suppress contextual and expert importance as they should be zero anyway
         
         # Create token importance rankings
         token_rankings = [
@@ -268,21 +597,34 @@ class BertVisualizationAnalyzer:
                 'attention_importance': float(attention_importance[idx]),
                 'gradient_importance': float(gradient_importance[idx]),
                 'layer_importance': float(layer_importance[idx]),
-                'combined_importance': float(combined_importance[idx])
+                'contextual_importance': float(contextual_importance[idx]),
+                'expert_importance': float(expert_importance[idx]),
+                'combined_importance': float(combined_importance[idx]),
+                'is_special_token': token in ['[CLS]', '[SEP]', '[PAD]', '[UNK]']
             }
             for idx, token in enumerate(tokens)
         ]
         
-        # Sort by combined importance
+        # Sort by combined importance (special tokens should now be at the bottom)
         token_rankings.sort(key=lambda x: x['combined_importance'], reverse=True)
         
+        # Filter out special tokens from top rankings for cleaner display
+        content_token_rankings = [r for r in token_rankings if not r['is_special_token']]
+        
         return {
-            'token_rankings': token_rankings,
+            'token_rankings': content_token_rankings,  # Only content tokens for main display
+            'all_token_rankings': token_rankings,      # All tokens including special ones
             'importance_statistics': {
                 'mean_importance': float(np.mean(combined_importance)),
                 'std_importance': float(np.std(combined_importance)),
                 'max_importance': float(np.max(combined_importance)),
                 'min_importance': float(np.min(combined_importance))
+            },
+            'contextual_enhancement': {
+                'ej_labeler_used': self.ej_labeler is not None,
+                'expert_labeler_used': self.expert_labeler is not None,
+                'enhancement_impact': float(np.mean(contextual_importance + expert_importance)),
+                'special_tokens_suppressed': True
             }
         }
     
@@ -699,18 +1041,38 @@ class BertVisualizationAnalyzer:
                 tokens = tokens[:min_len]
                 logger.info(f"Adjusted dimensions to {min_len}x{min_len}")
             
-            # Limit tokens for readability (max 25 tokens - smaller for readability)
+            # CRITICAL FIX: Filter out special tokens from visualization like [CLS], [SEP], etc.
+            special_tokens = ['[CLS]', '[SEP]', '[PAD]', '[UNK]', '[', ']', '=']
+            
+            # Create filtered indices (exclude special tokens)
+            filtered_indices = []
+            for i, token in enumerate(tokens):
+                if token not in special_tokens and not any(st in token for st in special_tokens):
+                    filtered_indices.append(i)
+            
+            logger.info(f"Filtered out special tokens: {len(tokens) - len(filtered_indices)} removed")
+            
+            # Limit tokens for readability (max 25 tokens - smaller for readability) 
             max_tokens = 25
-            if len(tokens) > max_tokens:
-                # Take most important tokens based on attention received
+            if len(filtered_indices) > max_tokens:
+                # Take most important content tokens based on attention received
                 token_importance = avg_attention.sum(axis=0)
-                top_indices = np.argsort(token_importance)[-max_tokens:]  # Get indices of top tokens
+                
+                # Get importance scores for filtered indices only
+                filtered_importance = [(i, token_importance[i]) for i in filtered_indices]
+                # Sort by importance and take top max_tokens
+                filtered_importance.sort(key=lambda x: x[1], reverse=True)
+                top_indices = [x[0] for x in filtered_importance[:max_tokens]]
                 top_indices.sort()  # Keep in original order for readability
                 
-                # Filter attention matrix and tokens
-                avg_attention = avg_attention[top_indices, :][:, top_indices]
-                tokens = [tokens[i] for i in top_indices]
-                logger.info(f"Selected {max_tokens} most important tokens for visualization")
+                logger.info(f"Selected {max_tokens} most important content tokens for visualization")
+            else:
+                top_indices = filtered_indices
+                logger.info(f"Using all {len(top_indices)} content tokens for visualization")
+            
+            # Filter attention matrix and tokens
+            avg_attention = avg_attention[top_indices, :][:, top_indices]
+            tokens = [tokens[i] for i in top_indices]
             
             # Create heatmap with comprehensive error handling
             try:
@@ -793,14 +1155,27 @@ class BertVisualizationAnalyzer:
                 importance_scores = importance_scores[:min_len]
                 tokens = tokens[:min_len]
             
+            # CRITICAL FIX: Filter out special tokens from token importance visualization
+            special_tokens = ['[CLS]', '[SEP]', '[PAD]', '[UNK]', '[', ']', '=']
+            
+            # Create filtered lists excluding special tokens
+            filtered_tokens = []
+            filtered_scores = []
+            for i, token in enumerate(tokens):
+                if token not in special_tokens and not any(st in token for st in special_tokens):
+                    filtered_tokens.append(token)
+                    filtered_scores.append(importance_scores[i])
+            
+            logger.info(f"Filtered token importance: {len(filtered_tokens)} tokens after removing {len(tokens) - len(filtered_tokens)} special tokens")
+            
             # Final validation
-            if len(tokens) == 0 or len(importance_scores) == 0:
-                logger.error("Empty tokens or importance scores after processing")
+            if len(filtered_tokens) == 0 or len(filtered_scores) == 0:
+                logger.error("No content tokens remaining after filtering special tokens")
                 return ""
             
             # Convert to basic Python types for pandas compatibility
-            tokens_list = [str(token) for token in tokens]  # Ensure strings
-            importance_list = [float(score) for score in importance_scores]  # Ensure floats
+            tokens_list = [str(token) for token in filtered_tokens]  # Ensure strings
+            importance_list = [float(score) for score in filtered_scores]  # Ensure floats
             
             # Validate all importance values are finite
             if not all(np.isfinite(importance_list)):
@@ -955,3 +1330,142 @@ class BertVisualizationAnalyzer:
             insights['recommendations'].append('Low attention concentration - model may benefit from focused training')
         
         return insights
+    
+    def _contextual_importance(self, tokens: List[str]) -> np.ndarray:
+        """Calculate importance based on EJ contextual labels - THIS IS THE KEY METHOD!"""
+        logger.info(f"_contextual_importance called with tokens: {tokens}")
+        logger.info(f"EJ labeler available: {self.ej_labeler is not None}")
+        
+        if not self.ej_labeler:
+            # Fallback: basic keyword-based importance
+            logger.warning("Using keyword-based importance fallback - EJ labeler not available")
+            return self._keyword_based_importance(tokens)
+        
+        # CRITICAL: Use original text for EJ labeler, not the cleaned tokens
+        # The EJ labeler needs original timestamps and patterns for proper feature extraction
+        text = ' '.join(tokens)
+        
+        try:
+            # Get contextual labels from EJ labeler using ORIGINAL session text
+            # This ensures the EJ labeler can extract event times and other features properly
+            logger.info(f"Calling EJ labeler with ORIGINAL text for feature extraction")
+            labels = self.ej_labeler.label_log(self.original_session_text)  # Use original text!
+            logger.info(f"EJ labeler returned {len(labels)} labels: {labels}")
+            
+            # Create importance array
+            importance = np.zeros(len(tokens))
+            logger.info(f"Initialized importance array with {len(tokens)} tokens")
+            
+            # Boost importance for tokens associated with important events
+            for i, token in enumerate(tokens):
+                for label in labels:
+                    # HIGH IMPORTANCE for anomaly-related events - DEVICE ERROR, REJECTS, etc.
+                    if label['event_type'] in [EventType.ERROR, EventType.WARNING, 
+                                             EventType.DEVICE_RECOVERY, EventType.SUPERVISOR_ENTRY]:
+                        if any(keyword in token.lower() for keyword in 
+                              ['error', 'device', 'supervisor', 'malfunction', 'timeout', 'fail', 'reject']):
+                            importance[i] += 2.0
+                            logger.info(f"HIGH IMPORTANCE boost for token '{token}': {importance[i]}")
+                    
+                    # Medium importance for transaction events
+                    elif label['event_type'] in [EventType.CASH_DISPENSE, EventType.PIN_ENTRY,
+                                                EventType.CARD_INSERT, EventType.CARD_REMOVE]:
+                        if any(keyword in token.lower() for keyword in 
+                              ['card', 'pin', 'cash', 'notes', 'dispense', 'taken', 'inserted']):
+                            importance[i] += 1.0
+                            logger.info(f"MEDIUM IMPORTANCE boost for token '{token}': {importance[i]}")
+                    
+                    # Transaction phase importance
+                    if hasattr(label, 'transaction_phase'):
+                        if label['transaction_phase'] in [TransactionPhase.ERROR_HANDLING, 
+                                                        TransactionPhase.EXCEPTION]:
+                            if any(keyword in token.lower() for keyword in 
+                                  ['reject', 'timeout', 'cancel', 'abort']):
+                                importance[i] += 1.5
+                                logger.info(f"PHASE IMPORTANCE boost for token '{token}': {importance[i]}")
+            
+            # Normalize
+            if importance.max() > 0:
+                importance = importance / importance.max()
+                logger.info(f"Normalized importance scores: {dict(zip(tokens, importance))}")
+            else:
+                logger.warning("No importance scores assigned by EJ contextual labeler")
+            
+            return importance
+            
+        except Exception as e:
+            logger.warning(f"Contextual labeling failed: {e}, falling back to keyword-based")
+            return self._keyword_based_importance(tokens)
+    
+    def _expert_knowledge_importance(self, tokens: List[str]) -> np.ndarray:
+        """Calculate importance based on expert knowledge patterns"""
+        if not self.expert_labeler:
+            return np.zeros(len(tokens))
+        
+        text = ' '.join(tokens)
+        importance = np.zeros(len(tokens))
+        
+        try:
+            # Get expert labels for the text
+            expert_labels = self.expert_labeler.expert_labels
+            
+            # Check for patterns in expert knowledge
+            for label_type, label_info in expert_labels.items():
+                patterns = label_info.get('patterns', [])
+                confidence = label_info.get('confidence', 0.5)
+                action_required = label_info.get('action_required', False)
+                
+                # Boost importance for tokens matching expert patterns
+                for pattern in patterns:
+                    if isinstance(pattern, list):
+                        for pattern_term in pattern:
+                            for i, token in enumerate(tokens):
+                                if pattern_term.lower() in token.lower():
+                                    # Higher importance for action-required patterns
+                                    boost = confidence * (2.0 if action_required else 1.0)
+                                    importance[i] += boost
+            
+            # Special boost for known anomaly indicators
+            anomaly_keywords = [
+                'device', 'error', 'malfunction', 'timeout', 'fail', 'reject',
+                'supervisor', 'intervention', 'manual', 'override', 'exception'
+            ]
+            
+            for i, token in enumerate(tokens):
+                if any(keyword in token.lower() for keyword in anomaly_keywords):
+                    importance[i] += 1.0
+            
+            # Normalize
+            if importance.max() > 0:
+                importance = importance / importance.max()
+            
+            return importance
+            
+        except Exception as e:
+            logger.warning(f"Expert knowledge importance calculation failed: {e}")
+            return np.zeros(len(tokens))
+    
+    def _keyword_based_importance(self, tokens: List[str]) -> np.ndarray:
+        """Fallback keyword-based importance when contextual labeler unavailable"""
+        importance = np.zeros(len(tokens))
+        
+        # Define keyword categories with different importance weights
+        high_importance_keywords = [
+            'device', 'error', 'reject', 'fail', 'timeout', 'malfunction',
+            'supervisor', 'intervention', 'manual', 'exception', 'abort'
+        ]
+        
+        medium_importance_keywords = [
+            'card', 'pin', 'cash', 'dispense', 'notes', 'taken', 'inserted',
+            'transaction', 'journal', 'voucher'
+        ]
+        
+        # Apply importance weights
+        for i, token in enumerate(tokens):
+            token_lower = token.lower()
+            if any(keyword in token_lower for keyword in high_importance_keywords):
+                importance[i] = 1.0
+            elif any(keyword in token_lower for keyword in medium_importance_keywords):
+                importance[i] = 0.5
+        
+        return importance

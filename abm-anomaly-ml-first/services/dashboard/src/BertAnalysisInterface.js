@@ -3,6 +3,9 @@ import Layout from './Layout';
 import apiConfig from './config/api';
 
 const BertAnalysisInterface = () => {
+  console.log('🚀 BertAnalysisInterface component loaded!');
+  //alert('🚀 BERT Component Loaded!');
+  
   const [textInput, setTextInput] = useState(`2025-01-06 14:30:15 ERROR Transaction failed: Card read timeout after 30 seconds
 2025-01-06 14:30:16 INFO Attempting card read retry
 2025-01-06 14:30:17 ERROR Card read failed again: Hardware malfunction detected
@@ -40,6 +43,14 @@ const BertAnalysisInterface = () => {
       }
 
       const data = await response.json();
+      console.log('BERT API Response:', data);
+      console.log('Response keys:', Object.keys(data));
+      if (data.results) {
+        console.log('Results keys:', Object.keys(data.results));
+        console.log('Token importance data:', data.results.token_importance);
+        console.log('Token importance type:', typeof data.results.token_importance);
+        console.log('Token importance is array:', Array.isArray(data.results.token_importance));
+      }
       setResults(data);
     } catch (error) {
       setError(`Analysis failed: ${error.message}`);
@@ -49,11 +60,15 @@ const BertAnalysisInterface = () => {
   };
 
   const createVisualization = async () => {
+    console.log('🔥 CREATE VISUALIZATION BUTTON CLICKED!');
+    
     if (!textInput.trim()) {
+      console.log('❌ No text input provided');
       setError('Please enter some text to visualize.');
       return;
     }
 
+    console.log('✅ Text input provided:', textInput.substring(0, 100) + '...');
     setLoading(true);
     setError(null);
 
@@ -73,9 +88,17 @@ const BertAnalysisInterface = () => {
       }
 
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Visualization failed');
+      console.log('VISUALIZATION API Response:', data);
+      console.log('Visualization keys:', Object.keys(data));
+      if (data.visualizations) {
+        console.log('Visualizations available:', Object.keys(data.visualizations));
+        console.log('Sample visualization structure:', data.visualizations);
+        console.log('Visualizations data length:', JSON.stringify(data.visualizations).length);
+        
+        // Log each visualization type in detail
+        Object.entries(data.visualizations).forEach(([key, value]) => {
+          console.log(`Visualization ${key}:`, typeof value, value ? value.substring ? value.substring(0, 100) + '...' : value : 'null');
+        });
       }
 
       setResults(data);
@@ -142,7 +165,7 @@ const BertAnalysisInterface = () => {
   };
 
   const renderTokenImportance = (tokenImportance) => {
-    if (!tokenImportance) return null;
+    if (!tokenImportance || !Array.isArray(tokenImportance)) return null;
 
     return (
       <div className="bg-white rounded-lg p-6 shadow-sm border">
@@ -170,7 +193,7 @@ const BertAnalysisInterface = () => {
   };
 
   const renderPatterns = (patterns) => {
-    if (!patterns || patterns.length === 0) return null;
+    if (!patterns || !Array.isArray(patterns) || patterns.length === 0) return null;
 
     return (
       <div className="bg-white rounded-lg p-6 shadow-sm border">
@@ -197,7 +220,7 @@ const BertAnalysisInterface = () => {
   };
 
   const renderOptimizationSuggestions = (suggestions) => {
-    if (!suggestions || suggestions.length === 0) {
+    if (!suggestions || !Array.isArray(suggestions) || suggestions.length === 0) {
       return (
         <div className="bg-white rounded-lg p-6 shadow-sm border">
           <h3 className="text-lg font-semibold mb-4 flex items-center">
@@ -236,31 +259,82 @@ const BertAnalysisInterface = () => {
   };
 
   const renderVisualizations = (visualizations) => {
-    if (!visualizations) return null;
+    console.log('renderVisualizations called with:', visualizations);
+    if (!visualizations) {
+      console.log('No visualizations provided');
+      return null;
+    }
+
+    console.log('Processing visualizations:', Object.keys(visualizations));
 
     return (
       <div className="space-y-6">
         {Object.entries(visualizations).map(([type, visualization]) => {
-          if (visualization.base64_image) {
+          console.log(`Processing visualization type: ${type}`, visualization);
+          console.log(`Visualization type: ${typeof visualization}`, visualization);
+          
+          // Handle different possible formats
+          let base64Data = null;
+          let description = null;
+          
+          if (visualization && typeof visualization === 'object' && visualization.base64_image) {
+            // Format: { base64_image: "...", description: "..." }
+            console.log(`Found object with base64_image for ${type}`);
+            base64Data = visualization.base64_image;
+            description = visualization.description;
+          } else if (visualization && typeof visualization === 'string' && visualization.length > 100) {
+            // Format: direct base64 string
+            console.log(`Found direct base64 string for ${type}`);
+            base64Data = visualization;
+          } else if (visualization && typeof visualization === 'object') {
+            // Look for any property that might contain base64 data
+            console.log(`Checking object properties for ${type}:`, Object.keys(visualization));
+            for (const [key, value] of Object.entries(visualization)) {
+              if (typeof value === 'string' && value.length > 100) {
+                console.log(`Found potential base64 data in property ${key}`);
+                base64Data = value;
+                break;
+              }
+            }
+          }
+          
+          if (base64Data) {
+            console.log(`Rendering visualization for ${type} with data length: ${base64Data.length}`);
             return (
               <div key={type} className="bg-white rounded-lg p-6 shadow-sm border">
                 <h3 className="text-lg font-semibold mb-4">
-                  {type.replace('_', ' ').toUpperCase()}
+                  🎨 {type.replace(/_/g, ' ').toUpperCase()}
                 </h3>
                 <div className="text-center">
                   <img 
-                    src={`data:image/png;base64,${visualization.base64_image}`}
+                    src={`data:image/png;base64,${base64Data}`}
                     alt={`${type} visualization`}
-                    className="max-w-full h-auto rounded border"
+                    className="max-w-full h-auto rounded border shadow-lg"
+                    onError={(e) => {
+                      console.error(`Failed to load image for ${type}`);
+                      e.target.style.display = 'none';
+                    }}
                   />
                 </div>
-                {visualization.description && (
-                  <p className="text-sm text-gray-600 mt-3">{visualization.description}</p>
+                {description && (
+                  <p className="text-sm text-gray-600 mt-3">{description}</p>
                 )}
               </div>
             );
+          } else {
+            console.log(`No valid image data found for ${type}:`, visualization);
+            return (
+              <div key={type} className="bg-white rounded-lg p-6 shadow-sm border">
+                <h3 className="text-lg font-semibold mb-4">
+                  ⚠️ {type.replace(/_/g, ' ').toUpperCase()}
+                </h3>
+                <p className="text-gray-600">Visualization data format not recognized. Check console for details.</p>
+                <pre className="text-xs bg-gray-100 p-2 mt-2 rounded overflow-auto">
+                  {JSON.stringify(visualization, null, 2)}
+                </pre>
+              </div>
+            );
           }
-          return null;
         })}
       </div>
     );
@@ -360,6 +434,14 @@ const BertAnalysisInterface = () => {
         {/* Results */}
         {results && !loading && (
           <div className="space-y-6">
+            {/* DEBUG: Log the results structure */}
+            {console.log('Rendering results:', results)}
+            {console.log('Results keys:', Object.keys(results))}
+            {console.log('Has results.visualizations:', !!results.visualizations)}
+            {console.log('Has results.results:', !!results.results)}
+            {results.results && console.log('Results.results keys:', Object.keys(results.results))}
+            {results.results && console.log('Has results.results.visualizations:', !!results.results.visualizations)}
+            
             {/* Success Header */}
             <div className="bg-green-50 border-l-4 border-green-400 p-4 rounded-r">
               <h3 className="text-lg font-semibold text-green-800 mb-2">
@@ -397,7 +479,8 @@ const BertAnalysisInterface = () => {
             )}
 
             {/* Visualizations */}
-            {results.visualizations && renderVisualizations(results.visualizations)}
+            {(results.visualizations || (results.results && results.results.visualizations)) && 
+              renderVisualizations(results.visualizations || results.results.visualizations)}
 
             {/* Optimization Suggestions */}
             {results.optimization_suggestions && renderOptimizationSuggestions(results.optimization_suggestions)}
