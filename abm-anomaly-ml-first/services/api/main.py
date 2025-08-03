@@ -13,7 +13,12 @@ import json
 import asyncio
 import base64
 from io import BytesIO
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    plt = None
 import torch
 from loguru import logger
 from dotenv import load_dotenv

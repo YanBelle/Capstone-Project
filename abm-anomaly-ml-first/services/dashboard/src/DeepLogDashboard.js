@@ -164,45 +164,47 @@ const DeepLogDashboard = () => {
     }
   };
 
-  const handleLoadSampleData = () => {
-    // Load sample EJ session data for testing
-    const sampleSessions = [
-      {
-        session_id: 'sample_normal_1',
-        raw_text: 'CARD INSERTED PIN ENTERED OPCODE FI CASH DISPENSED NOTES TAKEN CARD TAKEN TRANSACTION END',
-        is_anomaly: false
-      },
-      {
-        session_id: 'sample_normal_2', 
-        raw_text: 'CARD INSERTED PIN ENTERED BALANCE INQUIRY RECEIPT PRINTED CARD TAKEN',
-        is_anomaly: false
-      },
-      {
-        session_id: 'sample_anomaly_1',
-        raw_text: 'CARD INSERTED DEVICE ERROR M_02 SUPERVISOR ENTRY CARD TAKEN',
-        is_anomaly: true
-      },
-      {
-        session_id: 'sample_anomaly_2',
-        raw_text: 'CARD INSERTED PIN ENTERED TIMEOUT ERROR CARD RETAINED',
-        is_anomaly: true
+  const handleLoadEJSessions = async () => {
+    try {
+      setLoading(true);
+      
+      // Load processed EJ sessions from the EJ Rule-Based Processor
+      const response = await fetch('/api/v1/bert-deeplog/load-ej-sessions?include_errors=true&limit=100');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to load EJ sessions: ${response.status}`);
       }
-    ];
-    
-    // Generate more sample data
-    const extendedSamples = [];
-    for (let i = 0; i < 15; i++) {
-      const baseSession = sampleSessions[i % sampleSessions.length];
-      extendedSamples.push({
-        ...baseSession,
-        session_id: `${baseSession.session_id}_${i}`,
-        raw_text: baseSession.raw_text + (i % 3 === 0 ? ' ATR_RECEIVED_T_0' : ''),
-        is_anomaly: baseSession.is_anomaly || (i % 7 === 0) // Add some randomness
-      });
+      
+      const data = await response.json();
+      
+      if (data.success && data.sessions) {
+        setTrainingData(data.sessions);
+        
+        // Show detailed information about loaded data
+        const stats = data.data_sources;
+        const preprocessing = data.preprocessing_stats;
+        
+        alert(`✅ Loaded ${data.sessions.length} real EJ sessions!
+        
+📊 Data Sources:
+• Normal sessions: ${stats.total_normal}
+• Error sessions: ${stats.total_errors}
+• Files: ${stats.normal_file}${stats.error_file ? `, ${stats.error_file}` : ''}
+
+🚀 BERT Preprocessing:
+• Sessions with preprocessing: ${preprocessing.sessions_with_bert_preprocessing}
+• Average compression: ${(preprocessing.average_compression_ratio * 100).toFixed(1)}%
+
+Ready for BERT-DeepLog training with real ATM transaction data!`);
+      } else {
+        throw new Error(data.message || 'Failed to load sessions');
+      }
+    } catch (error) {
+      console.error('Error loading EJ sessions:', error);
+      alert(`Failed to load EJ sessions: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
-    
-    setTrainingData(extendedSamples);
-    alert(`Loaded ${extendedSamples.length} sample sessions for training`);
   };
 
   const ModelOverview = () => (
@@ -532,10 +534,11 @@ const DeepLogDashboard = () => {
           <h3 className="text-lg font-semibold">Training Data</h3>
           <div className="space-x-2">
             <button
-              onClick={handleLoadSampleData}
-              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+              onClick={handleLoadEJSessions}
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
             >
-              Load Sample Data
+              {loading ? 'Loading...' : 'Load EJ Sessions'}
             </button>
             <button
               onClick={handleTrain}

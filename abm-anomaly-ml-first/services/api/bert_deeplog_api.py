@@ -433,3 +433,114 @@ async def load_model():
     except Exception as e:
         logger.error(f"Error loading model: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+
+
+@router.get("/load-ej-sessions")
+async def load_ej_sessions(include_errors: bool = False, limit: Optional[int] = None):
+    """Load processed EJ sessions from the EJ Rule-Based Processor output"""
+    
+    try:
+        import glob
+        import base64
+        
+        # Find the latest processed session files
+        data_dir = "/app/data/processed"
+        
+        # Look for normal sessions
+        normal_pattern = os.path.join(data_dir, "normal_sessions_full_*.json")
+        normal_files = glob.glob(normal_pattern)
+        
+        if not normal_files:
+            raise HTTPException(status_code=404, detail="No processed EJ sessions found")
+        
+        # Get the latest file
+        latest_normal_file = max(normal_files, key=os.path.getctime)
+        
+        # Load normal sessions
+        with open(latest_normal_file, 'r', encoding='utf-8') as f:
+            normal_sessions = json.load(f)
+        
+        # Convert to the format expected by BERT-DeepLog
+        training_sessions = []
+        
+        for session in normal_sessions:
+            # Use BERT preprocessed text if available, otherwise decode raw text
+            if session.get('bert_preprocessed_text'):
+                session_text = session['bert_preprocessed_text']
+            else:
+                # Decode base64 raw text
+                raw_text_b64 = session.get('raw_text_base64', '')
+                if raw_text_b64:
+                    session_text = base64.b64decode(raw_text_b64).decode('utf-8')
+                else:
+                    continue  # Skip sessions without text
+            
+            training_sessions.append({
+                'session_id': session['session_id'],
+                'raw_text': session_text,  # Use preprocessed or decoded text
+                'text': session_text,  # Alias for compatibility
+                'is_anomaly': session.get('has_errors', False),
+                'source': 'ej_rule_processor',
+                'file_source': session.get('file_source', 'unknown'),
+                'transaction_type': session.get('transaction_type'),
+                'preprocessing_info': session.get('preprocessing_info', {}),
+                'error_types': session.get('error_types', [])
+            })
+        
+        # Optionally include error sessions
+        if include_errors:
+            error_pattern = os.path.join(data_dir, "error_sessions_full_*.json")
+            error_files = glob.glob(error_pattern)
+            
+            if error_files:
+                latest_error_file = max(error_files, key=os.path.getctime)
+                
+                with open(latest_error_file, 'r', encoding='utf-8') as f:
+                    error_sessions = json.load(f)
+                
+                for session in error_sessions:
+                    if session.get('bert_preprocessed_text'):
+                        session_text = session['bert_preprocessed_text']
+                    else:
+                        raw_text_b64 = session.get('raw_text_base64', '')
+                        if raw_text_b64:
+                            session_text = base64.b64decode(raw_text_b64).decode('utf-8')
+                        else:
+                            continue
+                    
+                    training_sessions.append({
+                        'session_id': session['session_id'],
+                        'raw_text': session_text,
+                        'text': session_text,
+                        'is_anomaly': True,  # Error sessions are anomalies
+                        'source': 'ej_rule_processor',
+                        'file_source': session.get('file_source', 'unknown'),
+                        'transaction_type': session.get('transaction_type'),
+                        'preprocessing_info': session.get('preprocessing_info', {}),
+                        'error_types': session.get('error_types', [])
+                    })
+        
+        # Apply limit if specified
+        if limit and limit > 0:
+            training_sessions = training_sessions[:limit]
+        
+        return {
+            'success': True,
+            'message': f'Loaded {len(training_sessions)} EJ sessions from processor output',
+            'sessions': training_sessions,
+            'data_sources': {
+                'normal_file': os.path.basename(latest_normal_file),
+                'error_file': os.path.basename(max(error_files, key=os.path.getctime)) if include_errors and error_files else None,
+                'total_normal': len(normal_sessions),
+                'total_errors': len(error_sessions) if include_errors and 'error_sessions' in locals() else 0,
+                'returned_sessions': len(training_sessions)
+            },
+            'preprocessing_stats': {
+                'sessions_with_bert_preprocessing': sum(1 for s in training_sessions if s['preprocessing_info']),
+                'average_compression_ratio': sum(s['preprocessing_info'].get('compression_ratio', 0) for s in training_sessions if s['preprocessing_info']) / len(training_sessions) if training_sessions else 0
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error loading EJ sessions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load EJ sessions: {str(e)}")
