@@ -55,6 +55,7 @@ services:
     volumes:
       - ./data/models:/app/models
       - ./data/input:/app/input
+      - ./data/processed:/app/data/processed
       - ./data/sessions:/app/data/sessions
     depends_on:
       - postgres
