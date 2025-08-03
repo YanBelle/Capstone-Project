@@ -18,12 +18,11 @@ services:
       - TRANSFORMERS_CACHE=/app/cache
     volumes:
       - ./data/models:/app/models
-      - ./data/logs:/app/logs
       - ./data/input:/app/input
       - ./data/output:/app/output
       - ./data/sessions:/app/data/sessions
       - transformer-cache:/app/cache
-      - /var/log/abm-ml-anomaly-detector:/app/logs  # Host-persisted logs (optional but recommended)
+      - /var/log/abm-ml-anomaly-detector:/app/logs  # Host-persisted logs
     depends_on:
       - postgres
       - redis

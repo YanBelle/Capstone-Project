@@ -1904,6 +1904,16 @@ except ImportError:
 except Exception as e:
     logger.error(f"Error loading SVM Debug API: {str(e)}")
 
+# Include BERT DeepLog API routes
+try:
+    from bert_deeplog_api import router as bert_deeplog_router
+    app.include_router(bert_deeplog_router, tags=["bert-deeplog"])
+    logger.info("BERT DeepLog API routes loaded successfully")
+except ImportError:
+    logger.warning("BERT DeepLog API not available - install required dependencies")
+except Exception as e:
+    logger.error(f"Error loading BERT DeepLog API: {str(e)}")
+
 @app.get("/api/v1/models/training-results")
 async def get_model_training_results():
     """Get supervised model training results and performance metrics"""

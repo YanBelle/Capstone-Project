@@ -68,6 +68,11 @@ const BertAnalysisInterface = React.lazy(() => import('./BertAnalysisInterface')
   return { default: () => <div>Error loading BertAnalysisInterface component</div> };
 }));
 
+const DeepLogDashboard = React.lazy(() => import('./DeepLogDashboard').catch(err => {
+  console.error('Error loading DeepLogDashboard:', err);
+  return { default: () => <div>Error loading DeepLogDashboard component</div> };
+}));
+
 function App() {
   console.log('🟢 App component loaded successfully!');
   
@@ -87,6 +92,8 @@ function App() {
             <Route path="/dashboard/continuous-learning" element={<ContinuousLearningInterface />} />
             <Route path="/dashboard/data-viewer" element={<DataViewer />} />
             <Route path="/dashboard/bert-analysis" element={<BertAnalysisInterface />} />
+            <Route path="/dashboard/deeplog" element={<DeepLogDashboard />} />
+            <Route path="/" element={<Dashboard />} />
           </Routes>
         </React.Suspense>
       </Router>
