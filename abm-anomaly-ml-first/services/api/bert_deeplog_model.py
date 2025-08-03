@@ -20,7 +20,12 @@ import re
 
 # Import BERT components
 from transformers import BertTokenizer, BertModel
-from bertviz_analyzer import BertVisualizationAnalyzer
+try:
+    from bertviz_analyzer import BertVisualizationAnalyzer
+    BERTVIZ_AVAILABLE = True
+except ImportError:
+    BertVisualizationAnalyzer = None
+    BERTVIZ_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +130,64 @@ class BertDeepLogAnalyzer:
         os.makedirs(model_dir, exist_ok=True)
         
         # Initialize BERT components
-        self.bert_analyzer = BertVisualizationAnalyzer(model_name=bert_model_name)
+        if BERTVIZ_AVAILABLE:
+            self.bert_analyzer = BertVisualizationAnalyzer(model_name=bert_model_name)
+        else:
+            # Fallback: use basic BERT tokenization without BertVisualizationAnalyzer
+            from transformers import BertTokenizer, BertModel
+            self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+            self.bert_model = BertModel.from_pretrained(bert_model_name)
+            self.bert_analyzer = None
+            logger.warning("BertVisualizationAnalyzer not available, using basic BERT tokenizer")
+            
+            # Add custom ATM/EJ domain tokens to prevent splitting (same as bertviz_analyzer.py)
+            custom_tokens = [
+                # Core ATM events - compound terms
+                "DEVICE_ERROR", "CARD_INSERTED", "CARD_TAKEN", "PIN_ENTERED", 
+                "ATR_RECEIVED", "TRANSACTION_START", "TRANSACTION_END",
+                "CASH_DISPENSED", "BALANCE_INQUIRY", "RECEIPT_PRINTED", 
+                "CARD_RETAINED", "CARD_EJECTED", "CARD_READ",
+                
+                # Error states
+                "TIMEOUT_ERROR", "COMMUNICATION_ERROR", "NETWORK_ERROR", 
+                "CASH_DISPENSER_ERROR", "READ_ERROR", "WRITE_ERROR",
+                
+                # Account and validation
+                "ACCOUNT_VALIDATION", "PIN_VALIDATION", "INSUFFICIENT_FUNDS", 
+                "INVALID_PIN", "CARD_EXPIRED",
+                
+                # Transaction types
+                "WITHDRAWAL_TRANSACTION", "DEPOSIT_TRANSACTION", "TRANSFER_TRANSACTION",
+                
+                # Status indicators
+                "OUT_OF_SERVICE", "OUT_OF_CASH", "OUT_OF_ORDER", 
+                "SERVICE_MODE", "DIAGNOSTIC_MODE",
+                
+                # Specific patterns that appear in EJ logs
+                "CardNumber", "REF", "VAL", "ESC", "REJECTS",
+                
+                # Common combined patterns
+                "VAL_000", "ESC_000", "REF_000", "REJECTS_000",
+                "OPCODE_FI", "OPCODE_IB", "OPCODE_IC", "OPCODE_ID", "OPCODE_BBC",
+                "ATR_RECEIVED_T_0", "ATR_RECEIVED_T_1",
+                
+                # Cash handling events that should remain as single tokens
+                "NOTES_STACKED", "NOTES_PRESENTED", "NOTES_TAKEN",
+                "CASH_DISPENSED_SUMMARY", "PRIMARY_CARD_READER_ACTIVATED",
+                
+                # Common Machine and R status patterns to prevent fragmentation
+                "M_00", "M_01", "M_02", "M_03", "M_04", "M_05", "M_10", "M_15", "M_20", "M_99",
+                "R_0000", "R_5005", "R_10011", "R_20001", "R_30015", "R_40000", "R_50000"
+            ]
+            
+            # Add tokens to tokenizer vocabulary
+            num_added_tokens = self.bert_tokenizer.add_tokens(custom_tokens)
+            logger.info(f"Added {num_added_tokens} custom ATM domain tokens to BERT tokenizer")
+            
+            # Resize model embeddings to accommodate new tokens
+            self.bert_model.resize_token_embeddings(len(self.bert_tokenizer))
+            self.bert_model.to(self.device)
+            self.bert_model.eval()
         
         # Initialize DeepLog model
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -158,6 +220,286 @@ class BertDeepLogAnalyzer:
         
         logger.info(f"BertDeepLogAnalyzer initialized with device: {self.device}")
     
+    def _preprocess_text(self, text: str) -> str:
+        """
+        Preprocess ABM log text for BERT analysis with enhanced pattern cleaning
+        Uses the same methodology as bertviz_analyzer.py for consistency
+        """
+        # Enhanced EJ pattern cleaning with specific fixes for BERT attention optimization
+        
+        # NEW: NOISE REDUCTION - Replace verbose sections with concise event labels
+        # 1. Replace Cash Dispensing Summary with concise event
+        # Enhanced pattern to match various cash dispensing table formats
+        cash_summary_pattern = r'CASH\s+TOTAL\s+TYPE\d+.*?REMAINING\s+\d+(?:\s+\d+)*'
+        text = re.sub(cash_summary_pattern, 'CASH_DISPENSED_SUMMARY', text, flags=re.DOTALL)
+        
+        # 2. Replace Receipt section with concise event - ENHANCED for NCB format
+        # Pattern 1: NCB MIDAS format - Bank name + branch + detailed receipt ending with THANK YOU
+        receipt_pattern1 = r'N\.C\.B\.\s+MIDAS\s+NCB\s+[A-Z\s\.]+BRANCH.*?THANK YOU'
+        text = re.sub(receipt_pattern1, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
+        # Pattern 2: General bank name + receipt content ending with THANK YOU (with proper spacing)
+        receipt_pattern2 = r'([A-Z][A-Z\s\.]+(?:BANK|CREDIT UNION|ATM)[^\n]*\n(?:.*?\n)*?.*?THANK YOU)'
+        text = re.sub(receipt_pattern2, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
+        # Pattern 3: DATE/TIME/MACHINE format receipts  
+        receipt_pattern3 = r'(DATE:\s*[^\n]*\n(?:.*?\n)*?.*?THANK YOU)'
+        text = re.sub(receipt_pattern3, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
+        # Pattern 4: Simple receipt format with institution names
+        receipt_pattern4 = r'(\s+[A-Z][A-Z\s]+\n\s*(?:ATM|RECEIPT)[^\n]*\n(?:.*?\n)*?.*?THANK YOU)'
+        text = re.sub(receipt_pattern4, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
+        # CRITICAL FIRST: Handle ESC/VAL/REF patterns BEFORE any other cleanup removes the values
+        # Convert VAL: 000, ESC: 000, REF: 000 patterns to compound tokens
+        text = re.sub(r'\b(VAL|ESC|REF):\s*(\d+)\b', r'\1_\2', text)
+        # Handle cases like "ESC 000" (without colon), "VAL   000" (multiple spaces)
+        text = re.sub(r'\b(VAL|ESC|REF)\s+(\d+)\b', r'\1_\2', text)
+        
+        # CRITICAL SECOND: Handle ATR pattern IMMEDIATELY after ESC/VAL/REF
+        text = re.sub(r'\bATR\s+RECEIVED\s+T=(\d+)\b', r'ATR_RECEIVED_T_\1', text)
+        
+        # CRITICAL THIRD: Handle REJECTS patterns early to prevent "1" token isolation
+        # Clean up "REJECTS:000*(1" patterns that create isolated "1" tokens
+        text = re.sub(r'REJECTS:(\d+)\*\([^)]*\)', r'REJECTS_\1', text)
+        text = re.sub(r'REJECTS:(\d+)', r'REJECTS_\1', text)
+        text = re.sub(r'REJECTS\s+(\d+)', r'REJECTS_\1', text)
+        
+        # NEW: Handle specific patterns from current EJ sample
+        # 1. Remove asterisks around PRIMARY CARD READER ACTIVATED
+        text = re.sub(r'\*PRIMARY CARD READER ACTIVATED\*', 'PRIMARY_CARD_READER_ACTIVATED', text)
+        
+        # 2. Handle NOTES patterns - convert to compound tokens and remove comma-separated numbers
+        # NOTES PRESENTED followed by comma-separated numbers -> NOTES_PRESENTED
+        text = re.sub(r'\bNOTES\s+PRESENTED\s+[\d,\s]+', 'NOTES_PRESENTED', text)
+        # NOTES STACKED -> NOTES_STACKED
+        text = re.sub(r'\bNOTES\s+STACKED\b', 'NOTES_STACKED', text)
+        # NOTES TAKEN -> NOTES_TAKEN  
+        text = re.sub(r'\bNOTES\s+TAKEN\b', 'NOTES_TAKEN', text)
+        
+        # 3. Handle additional OPCODE patterns
+        text = re.sub(r'\bOPCODE\s*=\s*(BBC)\b', r'OPCODE_\1', text)
+        
+        # 1. Remove EJ header patterns: [020t*629*06/18/2025*00:46*
+        # Pattern: [020t*<sequence>*<mm/dd/yyyy>*<hh:mm>*
+        text = re.sub(r'\[020t\*\d+\*\d{2}/\d{2}/\d{4}\*\d{2}:\d{2}\*', '', text)
+        
+        # 1b. Remove standalone date/time patterns that don't start with [020t
+        # Pattern: *630*06/18/2025*00:46* (removes patterns like "*630*06/18/2025*00:46*")
+        text = re.sub(r'\*\d+\*\d{2}/\d{2}/\d{4}\*\d{2}:\d{2}\*', '', text)
+        
+        # 1c. ENHANCED: Remove complex transaction code patterns that cause fragmentation
+        # Pattern: *7231*1*(Iw(1*3, (removes patterns like "*7231*1*(Iw(1*3,")
+        # This is the main source of ##31, ##1, ##w noise tokens
+        # IMPROVED: More aggressive pattern to catch the full "*7231*1*(Iw(1*3," structure
+        text = re.sub(r'\*\d+\*\d+\*\([^,)]*,?\s*', '', text)
+        
+        # 1d. Remove any remaining complex patterns with asterisks and parentheses
+        # This catches patterns like "*7231*1*(Iw(1*3," more aggressively with better coverage
+        text = re.sub(r'\*\d+\*\d+\*\([^)]*\)[^,]*,?\s*', '', text)
+        
+        # 1e. AGGRESSIVE CLEANUP: Remove any remaining transaction code fragments
+        # Enhanced to catch more fragment patterns that create isolated tokens
+        text = re.sub(r'\*\d+\*', '', text)  # Remove *digits*
+        text = re.sub(r'\*\([^)]*\)', '', text)  # Remove *(content)
+        text = re.sub(r'\([^)]*\*\d+', '', text)  # Remove (content*digits
+        text = re.sub(r'\(Iw\([^)]*\)', '', text)  # Remove (Iw(content) pattern more completely
+        text = re.sub(r'\(\d+\*\d+[^)]*\)', '', text)  # Remove (digits*digits*content) patterns
+        
+        # 1f. SPECIFIC FIX: Remove the exact "*7231*1*(Iw(1*3," pattern completely
+        # This targets the specific pattern causing the isolated "1" token
+        text = re.sub(r'\*7231\*1\*\(Iw\(1\*3,?\s*', '', text)
+        
+        # 2. Remove remaining [020t patterns with any following content
+        # This catches patterns like "[020t CARD INSERTED", "[020t 00:47:13", etc.
+        text = re.sub(r'\[020t\s+', '', text)
+        
+        # 3. Remove standalone timestamps in format hh:mm:ss (before main events)
+        # Matches patterns like " 00:46:27 ", " 00:46:30 ", etc.
+        text = re.sub(r'\s*\d{2}:\d{2}:\d{2}\s+', ' ', text)
+        
+        # 3b. Remove standalone timestamps in format hh:mm (without seconds)
+        # Matches patterns like " 00:47 ", " 00:46 ", etc.
+        text = re.sub(r'\s*\d{2}:\d{2}\s+', ' ', text)
+        
+        # 3b2. Remove partial timestamps that remain after aggressive cleanup
+        # Catches patterns like "05:50:" or "00::" left behind
+        text = re.sub(r'\d{2}::\s*', '', text)  # Remove xx:: patterns
+        text = re.sub(r'\d{2}:\d{2}:\s*', '', text)  # Remove xx:xx: patterns
+        
+        # 3c. ENHANCED PATTERN: Aggressively remove isolated numeric fragments that are likely noise
+        # Uses context-aware removal - preserves meaningful amounts/counts but removes ALL isolated noise digits
+        # First, protect meaningful numeric contexts by temporarily marking them with placeholder tokens
+        text = re.sub(r'(AMOUNT)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(COUNT)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(TOTAL)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(BALANCE)\s+(\d+)', r'PROTECTED_\1_\2', text)
+        text = re.sub(r'(STEP)_(\d+)', r'PROTECTED_\1_\2', text)  # Protect STEP_1 patterns
+        text = re.sub(r'(T)_(\d+)', r'PROTECTED_\1_\2', text)      # Protect T_1 patterns
+        
+        # AGGRESSIVE: Remove ALL isolated single digits that appear between words or at boundaries
+        # This will catch the isolated "1" token regardless of context
+        text = re.sub(r'\b\d\b', '', text)  # Remove any single isolated digit
+        
+        # Also remove isolated multi-digit fragments that are likely noise (2-4 digits)
+        text = re.sub(r'\b\d{2,4}\b(?=\s+(?:[A-Z][A-Z_]+|[a-z]+)|\s*$)', '', text)
+        
+        # Restore protected meaningful numbers
+        text = re.sub(r'PROTECTED_(AMOUNT|COUNT|TOTAL|BALANCE|STEP|T)_(\d+)', r'\1_\2', text)
+        
+        # 3d. CONTEXTUAL FRAGMENT REMOVAL: Remove isolated single chars/digits between meaningful terms
+        # Targets fragments like "w", "i", "1", "3" that appear isolated between proper ATM terms
+        text = re.sub(r'(?<=\s)[a-zA-Z0-9](?=\s+[A-Z_]|\s*$)', '', text)
+        
+        # 4. Remove transaction start markers
+        text = re.sub(r'\s*---START OF TRANSACTION---\s*', ' ', text)
+        
+        # 5. ENHANCED PATTERN CLEANING - Fix specific issues with punctuation and compound words
+        
+        # Replace *TRANSACTION START* with TRANSACTION START (remove asterisks)
+        text = re.sub(r'\*TRANSACTION START\*', 'TRANSACTION_START', text)
+        
+        # Replace PAN patterns with simplified CardNumber label
+        # Matches: "PAN 0004263********1897" or similar patterns
+        text = re.sub(r'PAN\s+\d{4}\d+\*+\d+', 'CardNumber', text)
+        
+        # Remove complex transaction codes like "*7231*1*(Iw(1*3," but keep meaningful parts
+        # Pattern: *digits*digits*(complex_chars*digits, -> keep what follows after comma
+        text = re.sub(r'\*\d+\*\d+\*\([^,]+,\s*', '', text)
+        
+        # Remove "A/C" as requested
+        text = re.sub(r'\bA/C\b', '', text)
+        
+        # Clean up "REJECTS:000*(1\nS" to just "REJECTS_000"
+        text = re.sub(r'REJECTS:(\d+)\*\([^)]*\)\s*S?', r'REJECTS_\1', text)
+        
+        # Additional cleanup for any remaining REJECTS fragments
+        text = re.sub(r'REJECTS:(\d+)\*\([^)]*\)[^A-Z]*', r'REJECTS_\1', text)
+        
+        # Handle remaining REJECTS:000 patterns that don't have the full pattern
+        text = re.sub(r'REJECTS:(\d+)', r'REJECTS_\1', text)
+        
+        # Remove standalone "S" that might be left from REJECTS patterns
+        text = re.sub(r'\bS\b(?=\s|$)', '', text)
+        
+        # 8. Convert specific transaction elements to single tokens (AFTER all value processing is complete)
+        # These patterns should only run after all value extraction/cleaning above
+        text = re.sub(r'\bTRACK\s+\d+\s+DATA\b', 'TRACK_DATA', text)
+        text = re.sub(r'\bT=(\d+)\b', r'T_\1', text)
+        text = re.sub(r'\bLEN=(\d+)\b', r'LEN_\1', text)
+        text = re.sub(r'\bSTEP\s+(\d+)\b', r'STEP_\1', text)
+        text = re.sub(r'\bTIME\s*=\s*(\d+)\b', r'TIME_\1', text)
+        text = re.sub(r'\bCOUNT\s*=\s*(\d+)\b', r'COUNT_\1', text)
+        text = re.sub(r'\bDATA\s+LEN\s*=\s*(\d+)\b', r'DATA_LEN_\1', text)
+        
+        # 9. Handle specific values: Convert hex patterns and structured values
+        
+        # ENHANCED: Handle REJECTS patterns with different formatting
+        text = re.sub(r'REJECTS\s+(\d+)', r'REJECTS_\1', text)
+        
+        # Convert OPCODE = <code> to OPCODE_<code>
+        text = re.sub(r'\bOPCODE\s*=\s*([A-Z]+)\b', r'OPCODE_\1', text)
+        
+        # Additional noise cleanup - remove isolated asterisks and punctuation fragments
+        text = re.sub(r'\*+', '', text)
+        text = re.sub(r'[()]+', '', text)
+        
+        # Clean specific EJ patterns that cause fragmentation
+        # Convert M-<digits>, R-<digits> to compound tokens to prevent BERT fragmentation
+        # Machine status: M-02, M-15, etc. -> M_02, M_15, etc.
+        text = re.sub(r'\bM-(\d+),?\s*', r'M_\1 ', text)
+        # R status: R-10011, R-5005, etc. -> R_10011, R_5005, etc.
+        text = re.sub(r'\bR-(\d+)\b', r'R_\1', text)
+        
+        # Create compound tokens for ATM events that should stay together
+        # This prevents BERT from splitting important multi-word terms
+        compound_patterns = {
+            # Core ATM events
+            r'\bDEVICE\s+ERROR\b': 'DEVICE_ERROR',
+            r'\bCARD\s+INSERTED\b': 'CARD_INSERTED', 
+            r'\bCARD\s+TAKEN\b': 'CARD_TAKEN',
+            r'\bPIN\s+ENTERED\b': 'PIN_ENTERED',
+            r'\bTRANSACTION\s+END\b': 'TRANSACTION_END',
+            r'\bTRANSACTION\s+START\b': 'TRANSACTION_START',
+            
+            # Additional ATM operations
+            r'\bCASH\s+DISPENSED\b': 'CASH_DISPENSED',
+            r'\bBALANCE\s+INQUIRY\b': 'BALANCE_INQUIRY',
+            r'\bRECEIPT\s+PRINTED\b': 'RECEIPT_PRINTED',
+            r'\bCARD\s+RETAINED\b': 'CARD_RETAINED',
+            r'\bCARD\s+EJECTED\b': 'CARD_EJECTED',
+            r'\bCARD\s+read\b': 'CARD_READ',
+            
+            # NEW: Cash handling events (these were handled earlier but ensure consistency)
+            r'\bNOTES\s+STACKED\b': 'NOTES_STACKED',
+            r'\bNOTES\s+PRESENTED\b': 'NOTES_PRESENTED', 
+            r'\bNOTES\s+TAKEN\b': 'NOTES_TAKEN',
+            r'\bPRIMARY\s+CARD\s+READER\s+ACTIVATED\b': 'PRIMARY_CARD_READER_ACTIVATED',
+            
+            # Error states and conditions
+            r'\bTIMEOUT\s+ERROR\b': 'TIMEOUT_ERROR',
+            r'\bCOMMUNICATION\s+ERROR\b': 'COMMUNICATION_ERROR',
+            r'\bNETWORK\s+ERROR\b': 'NETWORK_ERROR',
+            r'\bCASH\s+DISPENSER\s+ERROR\b': 'CASH_DISPENSER_ERROR',
+            r'\bREAD\s+ERROR\b': 'READ_ERROR',
+            r'\bWRITE\s+ERROR\b': 'WRITE_ERROR',
+            
+            # Account and validation
+            r'\bACCOUNT\s+VALIDATION\b': 'ACCOUNT_VALIDATION',
+            r'\bPIN\s+VALIDATION\b': 'PIN_VALIDATION',
+            r'\bINSUFFICIENT\s+FUNDS\b': 'INSUFFICIENT_FUNDS',
+            r'\bINVALID\s+PIN\b': 'INVALID_PIN',
+            r'\bCARD\s+EXPIRED\b': 'CARD_EXPIRED',
+            
+            # Transaction types
+            r'\bWITHDRAWAL\s+TRANSACTION\b': 'WITHDRAWAL_TRANSACTION',
+            r'\bDEPOSIT\s+TRANSACTION\b': 'DEPOSIT_TRANSACTION',
+            r'\bTRANSFER\s+TRANSACTION\b': 'TRANSFER_TRANSACTION',
+            
+            # Status indicators
+            r'\bOUT\s+OF\s+SERVICE\b': 'OUT_OF_SERVICE',
+            r'\bOUT\s+OF\s+CASH\b': 'OUT_OF_CASH',
+            r'\bOUT\s+OF\s+ORDER\b': 'OUT_OF_ORDER',
+            r'\bSERVICE\s+MODE\b': 'SERVICE_MODE',
+            r'\bDIAGNOSTIC\s+MODE\b': 'DIAGNOSTIC_MODE',
+        }
+        
+        for pattern, replacement in compound_patterns.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        
+        # Reduce excessive punctuation that gets high attention scores
+        # Replace multiple asterisks with single underscore
+        text = re.sub(r'\*+', '_', text)
+        
+        # Clean up excessive parentheses and commas that fragment attention
+        text = re.sub(r'[(),]+', ' ', text)
+        
+        # Additional punctuation cleaning for better BERT focus
+        # Remove excessive colons that don't add semantic value
+        text = re.sub(r':(\s*\d{3})\b', r' \1', text)  # Convert "ESC: 000" to "ESC 000"
+        
+        # Normalize numeric patterns to reduce fragmentation
+        # Keep amounts as single tokens
+        text = re.sub(r'\$(\d+)\.(\d{2})', r'AMOUNT_\1_\2', text)  # $100.00 -> AMOUNT_100_00
+        
+        # Simplify reference numbers while preserving meaning
+        text = re.sub(r'\b(REF|ESC|VAL):\s*(\d+)\b', r'\1_\2', text)  # REF: 000 -> REF_000
+        
+        # Clean up excessive whitespace around punctuation
+        text = re.sub(r'\s*[=:]\s*', ' ', text)  # Remove = and : with spaces
+        
+        # 6. Remove excessive whitespace and clean up
+        text = ' '.join(text.split())
+        
+        # Truncate to BERT's max length (512 tokens minus special tokens)
+        if hasattr(self, 'bert_tokenizer'):
+            tokens = self.bert_tokenizer.tokenize(text)
+            if len(tokens) > 510:  # Leave room for [CLS] and [SEP]
+                tokens = tokens[:510]
+                text = self.bert_tokenizer.convert_tokens_to_string(tokens)
+        
+        return text
+    
     def prepare_training_data(self, ej_sessions: List[Dict], normal_sessions_only=True):
         """
         Prepare training data from EJ sessions using BERT embeddings
@@ -183,18 +525,33 @@ class BertDeepLogAnalyzer:
                 continue
             
             try:
-                # Use BERT analyzer to get cleaned text and embeddings
-                analysis_result = self.bert_analyzer.analyze_session_text(
-                    session_text, 
-                    session_id=session.get('session_id', f'session_{len(sequences)}')
-                )
+                # Use our preprocessed text if available, otherwise preprocess it now
+                if 'bert_preprocessed_text' in session and session['bert_preprocessed_text']:
+                    cleaned_text = session['bert_preprocessed_text']
+                else:
+                    # Apply the same preprocessing methodology as bertviz_analyzer
+                    cleaned_text = self._preprocess_text(session_text)
                 
-                if 'error' in analysis_result:
-                    logger.warning(f"Failed to analyze session: {analysis_result['error']}")
-                    continue
-                
-                # Extract event embeddings from token importance
-                token_rankings = analysis_result['token_importance']['token_rankings']
+                # Get BERT embeddings using our integrated preprocessing
+                if self.bert_analyzer is not None:
+                    analysis_result = self.bert_analyzer.analyze_session_text(
+                        session_text, 
+                        session_id=session.get('session_id', f'session_{len(sequences)}')
+                    )
+                    
+                    if 'error' in analysis_result:
+                        logger.warning(f"Failed to analyze session: {analysis_result['error']}")
+                        continue
+                    
+                    # Extract event embeddings from token importance
+                    token_rankings = analysis_result['token_importance']['token_rankings']
+                else:
+                    # Fallback: basic preprocessing without BERT analysis
+                    # Use the preprocessed text if available, otherwise raw text
+                    cleaned_text = session.get('bert_preprocessed_text', session_text)
+                    # Create simple token rankings for basic operation
+                    tokens = cleaned_text.split()[:50]  # Limit tokens
+                    token_rankings = [{'token': token, 'importance': 0.5} for token in tokens]
                 
                 # Create sequence of important event embeddings
                 event_sequence = []
@@ -244,23 +601,35 @@ class BertDeepLogAnalyzer:
         """
         # Use BERT to get token embedding
         try:
-            inputs = self.bert_analyzer.tokenizer(
-                token, 
-                return_tensors='pt', 
-                padding=True, 
-                truncation=True, 
-                max_length=8
-            )
+            if self.bert_analyzer is not None:
+                inputs = self.bert_analyzer.tokenizer(
+                    token, 
+                    return_tensors='pt', 
+                    padding=True, 
+                    truncation=True, 
+                    max_length=8
+                )
+                
+                with torch.no_grad():
+                    outputs = self.bert_analyzer.model(**inputs)
+                    # Use [CLS] token embedding
+                    embedding = outputs.last_hidden_state[0, 0, :].numpy()
+            else:
+                # Fallback: use basic tokenizer with random embedding
+                inputs = self.bert_tokenizer(
+                    token, 
+                    return_tensors='pt', 
+                    padding=True, 
+                    truncation=True, 
+                    max_length=8
+                )
+                # Create a simple random embedding (768 dimensions for BERT)
+                embedding = np.random.normal(0, 0.1, (768,)).astype(np.float32)
+                
+            # Weight by importance
+            embedding = embedding * importance
             
-            with torch.no_grad():
-                outputs = self.bert_analyzer.model(**inputs)
-                # Use [CLS] token embedding
-                embedding = outputs.last_hidden_state[0, 0, :].numpy()
-                
-                # Weight by importance
-                embedding = embedding * importance
-                
-                return embedding
+            return embedding
         except:
             # Fallback to random embedding
             return np.random.normal(0, 0.1, 768)
@@ -390,14 +759,46 @@ class BertDeepLogAnalyzer:
                 raise ValueError("Model not trained. Call train_model() first or ensure saved model exists.")
         
         try:
-            # Analyze session with BERT
-            analysis_result = self.bert_analyzer.analyze_session_text(session_text, session_id)
+            # Apply the same preprocessing methodology as bertviz_analyzer
+            cleaned_text = self._preprocess_text(session_text)
             
-            if 'error' in analysis_result:
-                return {'error': analysis_result['error'], 'session_id': session_id}
-            
-            # Extract event sequence
-            token_rankings = analysis_result['token_importance']['token_rankings']
+            # Analyze session with BERT using preprocessed text
+            if self.bert_analyzer is not None:
+                analysis_result = self.bert_analyzer.analyze_session_text(cleaned_text, session_id)
+                
+                if 'error' in analysis_result:
+                    return {'error': analysis_result['error'], 'session_id': session_id}
+                
+                # Extract event sequence
+                token_rankings = analysis_result['token_importance']['token_rankings']
+            else:
+                # Fallback: Use integrated preprocessing and basic BERT tokenization
+                if hasattr(self, 'bert_tokenizer'):
+                    tokens = self.bert_tokenizer.tokenize(cleaned_text)
+                    # Create token rankings with uniform importance for fallback
+                    token_rankings = []
+                    for i, token in enumerate(tokens[:50]):  # Limit tokens
+                        token_rankings.append({
+                            'token': token,
+                            'importance': 0.5,
+                            'combined_importance': 0.5,
+                            'position': i,
+                            'attention_importance': 0.5,
+                            'contextual_importance': 0.5
+                        })
+                else:
+                    # Ultimate fallback: basic text processing on cleaned text
+                    tokens = cleaned_text.split()[:50]  # Limit tokens
+                    token_rankings = []
+                    for i, token in enumerate(tokens):
+                        token_rankings.append({
+                            'token': token,
+                            'importance': 0.5,
+                            'combined_importance': 0.5,
+                            'position': i,
+                            'attention_importance': 0.5,
+                            'contextual_importance': 0.5
+                        })
             
             event_sequence = []
             important_events = []
