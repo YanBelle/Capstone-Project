@@ -199,3 +199,6 @@ PRIMARY CARD READER ACTIVATED
  [020t*210*06/18/2025*14:24*
       *PRIMARY CARD READER ACTIVATED*
  </txn2>
+
+
+provide a solution for training on deeplog, where it accepts BERT token and store the trained model to predict anomalies.    
