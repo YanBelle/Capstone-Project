@@ -1,0 +1,118 @@
+{
+  "error_detection_rules": {
+    "critical_errors": {
+      "supervisor_mode_entry": {
+        "pattern": "SUPERVISOR MODE ENTRY",
+        "severity": "critical",
+        "description": "Supervisor intervention required"
+      },
+      "power_reset": {
+        "pattern": "Power-Up/Reset",
+        "severity": "critical", 
+        "description": "System power reset during operation"
+      },
+      "unable_to_dispense": {
+        "pattern": "UNABLE TO DISPENSE",
+        "severity": "critical",
+        "description": "Cash dispensing failure"
+      },
+      "cash_retract_bna": {
+        "pattern": "INIT BNA STARTED - RETRACT BIN",
+        "severity": "critical",
+        "description": "BNA retract - customer cash retained"
+      },
+      "cash_retract_cashin": {
+        "pattern": "CASHIN RETRACT STARTED - RETRACT BIN",
+        "severity": "critical",
+        "description": "Cash-in retract - customer cash retained"
+      },
+      "cash_retract_cim": {
+        "pattern": "CIM-RESET CALLED - RETRACT BIN",
+        "severity": "critical",
+        "description": "CIM reset retract - customer cash retained"
+      },
+      "notes_presented_not_taken": {
+        "pattern_logic": "has_notes_presented_without_taken",
+        "severity": "critical",
+        "description": "Cash presented but not taken by customer"
+      },
+      "card_inserted_not_taken": {
+        "pattern_logic": "has_card_inserted_without_taken",
+        "severity": "high",
+        "description": "Card inserted but not retrieved"
+      }
+    },
+    "high_errors": {
+      "deposit_error": {
+        "pattern": "DEPOSIT ERROR",
+        "severity": "high",
+        "description": "Cash deposit processing error"
+      },
+      "device_error": {
+        "pattern": "DEVICE ERROR",
+        "severity": "high",
+        "description": "General device malfunction"
+      },
+      "communication_error": {
+        "pattern": "COMMUNICATION ERROR",
+        "severity": "high",
+        "description": "Communication system failure"
+      },
+      "hardware_fault": {
+        "pattern": "HARDWARE FAULT",
+        "severity": "high",
+        "description": "Hardware component failure"
+      }
+    },
+    "medium_errors": {
+      "error_codes": {
+        "pattern": "(ESC|VAL|REF|REJECTS):\\s*[1-9]\\d*",
+        "severity": "medium",
+        "description": "Error codes detected"
+      },
+      "timeout_error": {
+        "pattern": "TIMEOUT",
+        "severity": "medium",
+        "description": "Operation timeout"
+      }
+    }
+  },
+  "normal_patterns": {
+    "card_init_attempts": {
+      "pattern": "CARD INITIALISE ATTEMPT = [123]",
+      "description": "Normal card initialization attempts (up to 3 for magstrip)"
+    },
+    "customer_cancelled": {
+      "pattern": "CUSTOMER CANCELLED",
+      "description": "Customer-initiated cancellation"
+    },
+    "successful_completion": {
+      "pattern": "NOTES PRESENTED.*NOTES TAKEN",
+      "description": "Successful transaction completion"
+    }
+  },
+  "transaction_types": {
+    "withdrawal": "WITHDRAWAL|NOTES PRESENTED",
+    "deposit": "DEPOSIT|CIM.*OPERATION", 
+    "balance_inquiry": "BALANCE.*INQUIRY|OPCODE.*=.*FI",
+    "pin_change": "PIN.*CHANGE"
+  },
+  "session_settings": {
+    "minimum_session_length": 50,
+    "session_boundary_patterns": [
+      "(\\*(?:TRANSACTION|CARDLESS TRANSACTION)\\s+START\\*)",
+      "\\*(\\d+)\\*(\\d{2}/\\d{2}/\\d{4})\\*(\\d{2}:\\d{2})\\*"
+    ],
+    "session_length_categories": {
+      "short": {"max_lines": 10},
+      "normal": {"min_lines": 11, "max_lines": 50},
+      "long": {"min_lines": 51}
+    }
+  },
+  "output_settings": {
+    "include_raw_text_in_csv": false,
+    "create_summary_files": true,
+    "create_error_analysis": true,
+    "timestamp_format": "%Y%m%d_%H%M%S"
+  }
+}
