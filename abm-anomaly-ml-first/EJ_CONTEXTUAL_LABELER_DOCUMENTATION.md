@@ -53,6 +53,7 @@ The labeler recognizes 35 distinct event types across ATM operations:
 - `cashin_retract_started` - Cash retraction begun
 - `device_init` - Device initialization
 - `communication_reset` - Communication restart
+- `cash_deposit_retract` - Cash deposit failed, money retained ⭐
 
 #### **Note Quality Analysis Events**
 - `failed_serial_read` - Serial number read failure
@@ -107,6 +108,7 @@ Enhanced recovery operation classification:
 - **retract_bin_init** - Retract bin initialization ⭐
 - **retract_bin_cashin** - Retract bin cash handling ⭐
 - **retract_bin_cim_reset** - Retract bin CIM reset ⭐
+- **cash_deposit_retract** - Cash deposit failed, money retained by ATM ⭐
 
 ### 5. Error Categories (8 Categories)
 Comprehensive error classification:
@@ -185,6 +187,7 @@ Multi-format receipt detection and parsing:
    - High rejection rates (>30% critical, >10% warning)
    - Unusual deposit amounts
    - Currency mismatches
+   - Cash deposit retracts (customer money retained) ⭐
 
 2. **Operational Anomalies**
    - Invalid phase transitions
@@ -198,16 +201,17 @@ Multi-format receipt detection and parsing:
 
 ## 📊 Pattern Recognition
 
-### 45 Active Patterns
+### 45+ Active Patterns
 The labeler uses 45+ regex patterns for:
 
 - **7 CIM Deposit Operations** - Complete deposit flow
 - **10 Cash Operations** - Withdrawal and handling
-- **7 Recovery Operations** - System recovery
+- **8 Recovery Operations** - System recovery (including retract bins) ⭐
 - **6 Transaction Lifecycle** - Customer journey
 - **3 Note Quality Analysis** - Note assessment
 - **3 Receipt Printing** - Receipt handling
 - **3 Error Patterns** - Error detection
+- **3 Cash Retract Patterns** - Deposit failure detection ⭐
 - **2 Supervisor Mode** - Administrative access
 - **2 ATM Operations** - System state
 - **1 Authentication** - Security events
@@ -227,6 +231,7 @@ The labeler uses 45+ regex patterns for:
 | E-12 | Software exception | ERROR | software |
 | W-05 | Low cash warning | WARNING | cash_handling |
 | W-18 | Maintenance required | WARNING | hardware |
+| **RETRACT** | **Cash deposit retract failure** | **CRITICAL** | **cash_handling** ⭐ |
 
 ## 🏗️ Data Structure
 
@@ -289,6 +294,7 @@ completion → initialization
 - Detect supervisor mode anomalies
 - Track note quality degradation
 - Identify authentication failures
+- Detect cash deposit retract failures ⭐
 
 ### 2. Financial Transaction Analysis
 - CIM deposit flow tracking
