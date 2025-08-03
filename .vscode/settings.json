@@ -1,0 +1,18 @@
+{
+    "files.watcherExclude": {
+        "**/data/**": true,
+        "**/logs/**": true,
+        "**/node_modules/**": true,
+        "**/.git/**": true,
+        "**/output/**": true
+    },
+    "files.exclude": {
+        "**/data/**": false,
+        "**/logs/**": false
+    },
+    "search.exclude": {
+        "**/data/**": true,
+        "**/logs/**": true,
+        "**/output/**": true
+    }
+}

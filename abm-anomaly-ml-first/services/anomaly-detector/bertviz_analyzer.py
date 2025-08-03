@@ -86,8 +86,12 @@ class BertVisualizationAnalyzer:
             
             # Common combined patterns
             "VAL_000", "ESC_000", "REF_000", "REJECTS_000",
-            "OPCODE_FI", "OPCODE_IB", "OPCODE_IC", "OPCODE_ID",
+            "OPCODE_FI", "OPCODE_IB", "OPCODE_IC", "OPCODE_ID", "OPCODE_BBC",
             "ATR_RECEIVED_T_0", "ATR_RECEIVED_T_1",
+            
+            # NEW: Cash handling events that should remain as single tokens
+            "NOTES_STACKED", "NOTES_PRESENTED", "NOTES_TAKEN",
+            "CASH_DISPENSED_SUMMARY", "PRIMARY_CARD_READER_ACTIVATED",
             
             # Common Machine and R status patterns to prevent fragmentation
             "M_00", "M_01", "M_02", "M_03", "M_04", "M_05", "M_10", "M_15", "M_20", "M_99",
@@ -168,6 +172,29 @@ class BertVisualizationAnalyzer:
         """Preprocess ABM log text for BERT analysis with enhanced pattern cleaning"""
         # Enhanced EJ pattern cleaning with specific fixes for BERT attention optimization
         
+        # NEW: NOISE REDUCTION - Replace verbose sections with concise event labels
+        # 1. Replace Cash Dispensing Summary with concise event
+        # Enhanced pattern to match various cash dispensing table formats
+        cash_summary_pattern = r'CASH\s+TOTAL\s+TYPE\d+.*?REMAINING\s+\d+(?:\s+\d+)*'
+        text = re.sub(cash_summary_pattern, 'CASH_DISPENSED_SUMMARY', text, flags=re.DOTALL)
+        
+        # 2. Replace Receipt section with concise event - ENHANCED for NCB format
+        # Pattern 1: NCB MIDAS format - Bank name + branch + detailed receipt ending with THANK YOU
+        receipt_pattern1 = r'N\.C\.B\.\s+MIDAS\s+NCB\s+[A-Z\s\.]+BRANCH.*?THANK YOU'
+        text = re.sub(receipt_pattern1, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
+        # Pattern 2: General bank name + receipt content ending with THANK YOU (with proper spacing)
+        receipt_pattern2 = r'([A-Z][A-Z\s\.]+(?:BANK|CREDIT UNION|ATM)[^\n]*\n(?:.*?\n)*?.*?THANK YOU)'
+        text = re.sub(receipt_pattern2, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
+        # Pattern 3: DATE/TIME/MACHINE format receipts  
+        receipt_pattern3 = r'(DATE:\s*[^\n]*\n(?:.*?\n)*?.*?THANK YOU)'
+        text = re.sub(receipt_pattern3, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
+        # Pattern 4: Simple receipt format with institution names
+        receipt_pattern4 = r'(\s+[A-Z][A-Z\s]+\n\s*(?:ATM|RECEIPT)[^\n]*\n(?:.*?\n)*?.*?THANK YOU)'
+        text = re.sub(receipt_pattern4, ' RECEIPT_PRINTED ', text, flags=re.DOTALL)
+        
         # CRITICAL FIRST: Handle ESC/VAL/REF patterns BEFORE any other cleanup removes the values
         # Convert VAL: 000, ESC: 000, REF: 000 patterns to compound tokens
         text = re.sub(r'\b(VAL|ESC|REF):\s*(\d+)\b', r'\1_\2', text)
@@ -182,6 +209,21 @@ class BertVisualizationAnalyzer:
         text = re.sub(r'REJECTS:(\d+)\*\([^)]*\)', r'REJECTS_\1', text)
         text = re.sub(r'REJECTS:(\d+)', r'REJECTS_\1', text)
         text = re.sub(r'REJECTS\s+(\d+)', r'REJECTS_\1', text)
+        
+        # NEW: Handle specific patterns from current EJ sample
+        # 1. Remove asterisks around PRIMARY CARD READER ACTIVATED
+        text = re.sub(r'\*PRIMARY CARD READER ACTIVATED\*', 'PRIMARY_CARD_READER_ACTIVATED', text)
+        
+        # 2. Handle NOTES patterns - convert to compound tokens and remove comma-separated numbers
+        # NOTES PRESENTED followed by comma-separated numbers -> NOTES_PRESENTED
+        text = re.sub(r'\bNOTES\s+PRESENTED\s+[\d,\s]+', 'NOTES_PRESENTED', text)
+        # NOTES STACKED -> NOTES_STACKED
+        text = re.sub(r'\bNOTES\s+STACKED\b', 'NOTES_STACKED', text)
+        # NOTES TAKEN -> NOTES_TAKEN  
+        text = re.sub(r'\bNOTES\s+TAKEN\b', 'NOTES_TAKEN', text)
+        
+        # 3. Handle additional OPCODE patterns
+        text = re.sub(r'\bOPCODE\s*=\s*(BBC)\b', r'OPCODE_\1', text)
         
         # 1. Remove EJ header patterns: [020t*629*06/18/2025*00:46*
         # Pattern: [020t*<sequence>*<mm/dd/yyyy>*<hh:mm>*
@@ -333,6 +375,12 @@ class BertVisualizationAnalyzer:
             r'\bCARD\s+RETAINED\b': 'CARD_RETAINED',
             r'\bCARD\s+EJECTED\b': 'CARD_EJECTED',
             r'\bCARD\s+READ\b': 'CARD_READ',
+            
+            # NEW: Cash handling events (these were handled earlier but ensure consistency)
+            r'\bNOTES\s+STACKED\b': 'NOTES_STACKED',
+            r'\bNOTES\s+PRESENTED\b': 'NOTES_PRESENTED', 
+            r'\bNOTES\s+TAKEN\b': 'NOTES_TAKEN',
+            r'\bPRIMARY\s+CARD\s+READER\s+ACTIVATED\b': 'PRIMARY_CARD_READER_ACTIVATED',
             
             # Error states and conditions
             r'\bTIMEOUT\s+ERROR\b': 'TIMEOUT_ERROR',
