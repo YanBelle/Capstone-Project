@@ -1,7 +1,7 @@
 // Simple API configuration for local development
 class ApiConfig {
   constructor() {
-    // Force localhost for development  
+    // Use localhost for development (will be proxied through nginx)
     this.baseUrl = 'http://localhost';
   }
 
@@ -11,15 +11,16 @@ class ApiConfig {
 
   // Utility method to construct API endpoints
   endpoint(path = '') {
-    // Remove leading slash and /api prefix if present to avoid duplication
-    const cleanPath = path.replace(/^\/+/, '').replace(/^api\/+/, '');
-    
-    if (!cleanPath) {
+    // Simply append the path to baseUrl, ensuring proper format
+    if (!path) {
       return `${this.baseUrl}/api`;
     }
     
-    // Always ensure we use the correct format: http://localhost/api/v1/...
-    return `${this.baseUrl}/api/${cleanPath}`;
+    // Remove leading slashes from path
+    const cleanPath = path.replace(/^\/+/, '');
+    
+    // Return the full URL
+    return `${this.baseUrl}/${cleanPath}`;
   }
 }
 

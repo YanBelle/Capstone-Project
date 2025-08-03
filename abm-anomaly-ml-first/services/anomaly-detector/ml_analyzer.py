@@ -618,20 +618,23 @@ class MLFirstAnomalyDetector:
                 # Instead of truncating, let's extract key patterns and summarize
                 text = self.prepare_text_for_embedding(session.raw_text)
                 
-                # Tokenize
+                # CRITICAL FIX: Tokenize WITHOUT special tokens to prevent contamination
                 inputs = self.tokenizer(
                     text,
                     return_tensors="pt",
                     truncation=True,
                     padding=True,
-                    max_length=512
+                    max_length=512,
+                    add_special_tokens=False  # Prevent [CLS]/[SEP] contamination
                 )
                 
                 # Get BERT embeddings
                 outputs = self.bert_model(**inputs)
                 
-                # Use [CLS] token embedding
-                embedding = outputs.last_hidden_state[0, 0, :].numpy()
+                # Use MEAN POOLING instead of [CLS] token to avoid special token contamination
+                # This gives better representation of actual content tokens
+                token_embeddings = outputs.last_hidden_state[0]  # Shape: [seq_len, hidden_size]
+                embedding = torch.mean(token_embeddings, dim=0).numpy()  # Mean of all tokens
                 
                 session.embedding = embedding
                 embeddings.append(embedding)

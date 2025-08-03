@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BERT Attention Analysis - ABM Anomaly Detection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 30px;
+        }
+
+        .input-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        textarea:focus {
+            border-color: #4CAF50;
+            outline: none;
+        }
+
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            color: white;
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
+            color: white;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .results-section {
+            margin-top: 30px;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            border-left: 4px solid #4CAF50;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .result-card h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-top: 2px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #ffebee;
+            border-left-color: #f44336;
+            color: #c62828;
+        }
+
+        .success {
+            background: #e8f5e8;
+            border-left-color: #4CAF50;
+            color: #2e7d32;
+        }
+
+        .attention-visualization {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            text-align: center;
+        }
+
+        .attention-visualization img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+
+        .token-importance {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin: 10px 0;
+        }
+
+        .token {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            border: 1px solid #ddd;
+        }
+
+        .patterns-list {
+            list-style: none;
+        }
+
+        .patterns-list li {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 5px 0;
+        }
+
+        .pattern-type {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .suggestions-list {
+            list-style: none;
+        }
+
+        .suggestions-list li {
+            background: #fff3e0;
+            border-left: 3px solid #FF9800;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .suggestion-type {
+            font-weight: bold;
+            color: #e65100;
+        }
+
+        .confidence {
+            float: right;
+            background: #4CAF50;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                border-radius: 8px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .main-content {
+                padding: 20px;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            button {
+                flex: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 BERT Attention Analysis</h1>
+            <p>Understand how BERT processes ABM transaction logs for anomaly detection</p>
+        </div>
+
+        <div class="main-content">
+            <div class="input-section">
+                <div class="input-group">
+                    <label for="textInput">ABM Transaction Log Text:</label>
+                    <textarea 
+                        id="textInput" 
+                        placeholder="Enter ABM transaction log text to analyze...
+
+Example:
+2025-01-06 14:30:15 ERROR Transaction failed: Card read timeout after 30 seconds
+2025-01-06 14:30:16 INFO Attempting card read retry
+2025-01-06 14:30:17 ERROR Card read failed again: Hardware malfunction detected"
+                    ></textarea>
+                </div>
+
+                <div class="input-group">
+                    <label for="analysisType">Analysis Type:</label>
+                    <select id="analysisType">
+                        <option value="full">Full Analysis (All Components)</option>
+                        <option value="attention">Attention Patterns Only</option>
+                        <option value="importance">Token Importance Only</option>
+                        <option value="patterns">Pattern Detection Only</option>
+                    </select>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn-primary" onclick="analyzeText()">
+                        🔍 Analyze Attention
+                    </button>
+                    <button class="btn-secondary" onclick="createVisualization()">
+                        📊 Create Visualizations
+                    </button>
+                    <button class="btn-info" onclick="getPatterns()">
+                        🔎 Detect Patterns
+                    </button>
+                    <button class="btn-success" onclick="optimizeBert()">
+                        ⚡ Optimize BERT
+                    </button>
+                </div>
+            </div>
+
+            <div id="results" class="results-section"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/v1';
+
+        function showLoading(message = 'Processing...') {
+            document.getElementById('results').innerHTML = `
+                <div class="result-card loading">
+                    ${message}
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            document.getElementById('results').innerHTML = `
+                <div class="result-card error">
+                    <h3>❌ Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        function showSuccess(content) {
+            document.getElementById('results').innerHTML = content;
+        }
+
+        async function analyzeText() {
+            const text = document.getElementById('textInput').value.trim();
+            const analysisType = document.getElementById('analysisType').value;
+
+            if (!text) {
+                showError('Please enter some text to analyze.');
+                return;
+            }
+
+            showLoading('Analyzing BERT attention patterns...');
+
+            try {
+                const response = await fetch(`${API_BASE}/bert/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        analysis_type: analysisType
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Analysis failed');
+                }
+
+                displayAnalysisResults(data);
+            } catch (error) {
+                showError(`Analysis failed: ${error.message}`);
+            }
+        }
+
+        async function createVisualization() {
+            const text = document.getElementById('textInput').value.trim();
+
+            if (!text) {
+                showError('Please enter some text to visualize.');
+                return;
+            }
+
+            showLoading('Creating BERT attention visualizations...');
+
+            try {
+                const response = await fetch(`${API_BASE}/bert/visualize`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Visualization failed');
+                }
+
+                displayVisualizationResults(data);
+            } catch (error) {
+                showError(`Visualization failed: ${error.message}`);
+            }
+        }
+
+        async function getPatterns() {
+            showLoading('Detecting BERT attention patterns...');
+
+            try {
+                const response = await fetch(`${API_BASE}/bert/patterns`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Pattern detection failed');
+                }
+
+                displayPatternsResults(data);
+            } catch (error) {
+                showError(`Pattern detection failed: ${error.message}`);
+            }
+        }
+
+        async function optimizeBert() {
+            const text = document.getElementById('textInput').value.trim();
+
+            if (!text) {
+                showError('Please enter some text to optimize.');
+                return;
+            }
+
+            showLoading('Analyzing BERT performance and generating optimization suggestions...');
+
+            try {
+                const response = await fetch(`${API_BASE}/bert/optimize`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Optimization analysis failed');
+                }
+
+                displayOptimizationResults(data);
+            } catch (error) {
+                showError(`Optimization analysis failed: ${error.message}`);
+            }
+        }
+
+        function displayAnalysisResults(data) {
+            const results = data.results;
+            let html = `
+                <div class="result-card success">
+                    <h3>✅ BERT Analysis Complete</h3>
+                    <p><strong>Text analyzed:</strong> "${data.text.substring(0, 100)}${data.text.length > 100 ? '...' : ''}"</p>
+                    <p><strong>Analysis type:</strong> ${data.analysis_type}</p>
+                </div>
+            `;
+
+            if (results.token_importance) {
+                html += `
+                    <div class="result-card">
+                        <h3>🎯 Token Importance</h3>
+                        <div class="token-importance">
+                `;
+                
+                results.token_importance.forEach(token => {
+                    const intensity = Math.min(255, Math.max(0, token.importance * 255));
+                    const color = `rgb(${255-intensity}, 255, ${255-intensity})`;
+                    html += `
+                        <span class="token" style="background-color: ${color}">
+                            ${token.token} (${token.importance.toFixed(3)})
+                        </span>
+                    `;
+                });
+
+                html += `
+                        </div>
+                        <p><strong>Average importance:</strong> ${results.average_importance?.toFixed(3) || 'N/A'}</p>
+                    </div>
+                `;
+            }
+
+            if (results.detected_patterns) {
+                html += `
+                    <div class="result-card">
+                        <h3>🔍 Detected Patterns</h3>
+                        <ul class="patterns-list">
+                `;
+                
+                results.detected_patterns.forEach(pattern => {
+                    html += `
+                        <li>
+                            <span class="pattern-type">${pattern.type}</span>
+                            <span class="confidence">${(pattern.confidence * 100).toFixed(1)}%</span>
+                            <br>
+                            <small>${pattern.description || 'No description'}</small>
+                        </li>
+                    `;
+                });
+
+                html += `
+                        </ul>
+                    </div>
+                `;
+            }
+
+            if (results.attention_analysis) {
+                html += `
+                    <div class="result-card">
+                        <h3>🧠 Attention Analysis</h3>
+                        <p><strong>Dominant layers:</strong> ${JSON.stringify(results.attention_analysis.dominant_layers || [])}</p>
+                        <p><strong>Key attention heads:</strong> ${JSON.stringify(results.attention_analysis.key_heads || [])}</p>
+                        <p><strong>Attention distribution:</strong> ${results.attention_analysis.attention_distribution || 'Not available'}</p>
+                    </div>
+                `;
+            }
+
+            showSuccess(html);
+        }
+
+        function displayVisualizationResults(data) {
+            let html = `
+                <div class="result-card success">
+                    <h3>📊 BERT Visualizations Created</h3>
+                    <p><strong>Text visualized:</strong> "${data.text.substring(0, 100)}${data.text.length > 100 ? '...' : ''}"</p>
+                </div>
+            `;
+
+            if (data.visualizations) {
+                Object.entries(data.visualizations).forEach(([type, visualization]) => {
+                    if (visualization.base64_image) {
+                        html += `
+                            <div class="result-card">
+                                <h3>${type.replace('_', ' ').toUpperCase()}</h3>
+                                <div class="attention-visualization">
+                                    <img src="data:image/png;base64,${visualization.base64_image}" alt="${type} visualization">
+                                </div>
+                                ${visualization.description ? `<p>${visualization.description}</p>` : ''}
+                            </div>
+                        `;
+                    }
+                });
+            }
+
+            showSuccess(html);
+        }
+
+        function displayPatternsResults(data) {
+            let html = `
+                <div class="result-card success">
+                    <h3>🔎 Pattern Detection Results</h3>
+                    <p><strong>Sample count:</strong> ${data.sample_count}</p>
+                    <p><strong>Total patterns found:</strong> ${data.patterns?.length || 0}</p>
+                </div>
+            `;
+
+            if (data.pattern_summary) {
+                html += `
+                    <div class="result-card">
+                        <h3>📈 Pattern Summary</h3>
+                `;
+                
+                Object.entries(data.pattern_summary).forEach(([type, summary]) => {
+                    html += `
+                        <div style="margin: 10px 0; padding: 10px; background: white; border-radius: 4px;">
+                            <strong>${type}:</strong> ${summary.count} occurrences 
+                            (avg confidence: ${(summary.avg_confidence * 100).toFixed(1)}%)
+                        </div>
+                    `;
+                });
+
+                html += `</div>`;
+            }
+
+            if (data.patterns && data.patterns.length > 0) {
+                html += `
+                    <div class="result-card">
+                        <h3>🔍 Individual Patterns</h3>
+                        <ul class="patterns-list">
+                `;
+                
+                data.patterns.slice(0, 10).forEach(pattern => {
+                    html += `
+                        <li>
+                            <span class="pattern-type">${pattern.type}</span>
+                            <span class="confidence">${(pattern.confidence * 100).toFixed(1)}%</span>
+                            <br>
+                            <small>${pattern.description || pattern.pattern || 'No description'}</small>
+                        </li>
+                    `;
+                });
+
+                html += `
+                        </ul>
+                    </div>
+                `;
+            }
+
+            showSuccess(html);
+        }
+
+        function displayOptimizationResults(data) {
+            let html = `
+                <div class="result-card success">
+                    <h3>⚡ BERT Optimization Analysis</h3>
+                    <p><strong>Text analyzed:</strong> "${data.text.substring(0, 100)}${data.text.length > 100 ? '...' : ''}"</p>
+                    <p><strong>Suggestions generated:</strong> ${data.suggestion_count}</p>
+                </div>
+            `;
+
+            if (data.optimization_suggestions && data.optimization_suggestions.length > 0) {
+                html += `
+                    <div class="result-card">
+                        <h3>💡 Optimization Suggestions</h3>
+                        <ul class="suggestions-list">
+                `;
+                
+                data.optimization_suggestions.forEach(suggestion => {
+                    html += `
+                        <li>
+                            <span class="suggestion-type">${suggestion.type}</span>
+                            <span class="confidence">${(suggestion.confidence * 100).toFixed(1)}%</span>
+                            <br>
+                            <strong>Issue:</strong> ${suggestion.issue}
+                            <br>
+                            <strong>Suggestion:</strong> ${suggestion.suggestion}
+                        </li>
+                    `;
+                });
+
+                html += `
+                        </ul>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="result-card">
+                        <h3>✅ BERT Performance</h3>
+                        <p>No optimization issues detected. Your BERT model appears to be performing well for this text!</p>
+                    </div>
+                `;
+            }
+
+            // Include analysis details if available
+            if (data.analysis) {
+                if (data.analysis.token_importance) {
+                    html += `
+                        <div class="result-card">
+                            <h3>🎯 Token Importance (for optimization)</h3>
+                            <div class="token-importance">
+                    `;
+                    
+                    data.analysis.token_importance.forEach(token => {
+                        const intensity = Math.min(255, Math.max(0, token.importance * 255));
+                        const color = `rgb(${255-intensity}, 255, ${255-intensity})`;
+                        html += `
+                            <span class="token" style="background-color: ${color}">
+                                ${token.token} (${token.importance.toFixed(3)})
+                            </span>
+                        `;
+                    });
+
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            showSuccess(html);
+        }
+
+        // Add sample text on page load
+        window.addEventListener('load', () => {
+            const sampleText = `2025-01-06 14:30:15 ERROR Transaction failed: Card read timeout after 30 seconds
+2025-01-06 14:30:16 INFO Attempting card read retry
+2025-01-06 14:30:17 ERROR Card read failed again: Hardware malfunction detected
+2025-01-06 14:30:18 WARN Dispensing mechanism blocked
+2025-01-06 14:30:19 ERROR Critical system failure: Unable to complete transaction`;
+            
+            document.getElementById('textInput').value = sampleText;
+        });
+    </script>
+</body>
+</html>

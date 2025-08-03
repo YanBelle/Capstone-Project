@@ -13,6 +13,11 @@
     "recharts": "^2.7.2",
     "serve": "^14.2.0"
   },
+  "devDependencies": {
+    "tailwindcss": "^3.3.0",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "CI=false react-scripts build",
