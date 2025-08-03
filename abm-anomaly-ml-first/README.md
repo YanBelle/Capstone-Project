@@ -202,3 +202,6 @@ PRIMARY CARD READER ACTIVATED
 
 
 provide a solution for training on deeplog, where it accepts BERT token and store the trained model to predict anomalies.    
+
+COMMAND TO MERGE CHANGES WITH GIT
+git fetch origin && git merge origin/main
