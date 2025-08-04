@@ -22,6 +22,22 @@ except ImportError:
 
 def convert_numpy_types(obj):
     """Convert numpy types to native Python types for JSON serialization"""
+    import numpy as np
+    
+    # Handle None
+    if obj is None:
+        return None
+    
+    # Handle numpy scalars and arrays first
+    if hasattr(obj, 'dtype'):  # All numpy types have dtype
+        if hasattr(obj, 'item'):  # numpy scalars
+            return obj.item()
+        elif hasattr(obj, 'tolist'):  # numpy arrays
+            return obj.tolist()
+        else:
+            return str(obj)
+    
+    # Handle basic numpy types explicitly
     if isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, np.floating):
@@ -30,27 +46,44 @@ def convert_numpy_types(obj):
         return bool(obj)
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
+    elif isinstance(obj, np.str_):
+        return str(obj)
+    
+    # Handle collections
     elif isinstance(obj, dict):
-        return {key: convert_numpy_types(value) for key, value in obj.items()}
+        return {str(key): convert_numpy_types(value) for key, value in obj.items()}
     elif isinstance(obj, list):
         return [convert_numpy_types(item) for item in obj]
     elif isinstance(obj, tuple):
         return tuple(convert_numpy_types(item) for item in obj)
-    elif hasattr(obj, '__dict__'):  # Handle objects with attributes
+    elif isinstance(obj, set):
+        return [convert_numpy_types(item) for item in obj]
+    
+    # Handle objects with __dict__ (but avoid complex objects that might cause issues)
+    elif hasattr(obj, '__dict__') and not hasattr(obj, '__call__'):
         try:
             return {key: convert_numpy_types(value) for key, value in obj.__dict__.items()}
         except (AttributeError, TypeError):
             return str(obj)
-    else:
+    
+    # Handle basic Python types
+    elif isinstance(obj, (int, float, str, bool)):
         return obj
+    
+    # Default fallback
+    else:
+        try:
+            return str(obj)
+        except:
+            return f"<unserializable: {type(obj).__name__}>"
     print("Using Standard Ensemble Detector")
 
 app = FastAPI(title="Ensemble Anomaly Detection Dashboard API")
 
-# Configure CORS
+# Configure CORS - More permissive for debugging
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3333"],
+    allow_origins=["*"],  # Allow all origins for debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -90,12 +123,31 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "model_loaded": ensemble_model.is_trained,
-        "timestamp": datetime.now().isoformat()
-    }
+    """Enhanced health check endpoint with detailed model status"""
+    try:
+        model_status = {
+            "model_exists": ensemble_model is not None,
+            "is_trained": getattr(ensemble_model, 'is_trained', False),
+            "has_training_stats": hasattr(ensemble_model, 'training_stats'),
+            "training_stats_type": type(getattr(ensemble_model, 'training_stats', None)).__name__,
+            "has_cluster_profiles": hasattr(ensemble_model, 'cluster_profiles'),
+            "has_get_cluster_insights": hasattr(ensemble_model, 'get_cluster_insights'),
+            "model_type": type(ensemble_model).__name__
+        }
+        
+        return {
+            "status": "healthy",
+            "model_loaded": ensemble_model.is_trained if ensemble_model else False,
+            "timestamp": datetime.now().isoformat(),
+            "detailed_status": model_status
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "model_loaded": False,
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/api/model_info")
 async def get_model_info():
@@ -321,7 +373,7 @@ async def predict_session(text: str = Form(...)):
         
         return {
             "success": True,
-            "prediction": result
+            "prediction": convert_numpy_types(result)
         }
         
     except Exception as e:
@@ -381,8 +433,8 @@ async def batch_predict(file: UploadFile = File(...)):
         
         return {
             "success": True,
-            "predictions": predictions,
-            "metrics": metrics,
+            "predictions": convert_numpy_types(predictions),
+            "metrics": convert_numpy_types(metrics) if metrics else None,
             "total_sessions": len(predictions)
         }
         
@@ -413,18 +465,39 @@ async def sessionize_ej_log(text: str = Form(...)):
 async def get_training_stats():
     """Get training statistics and model performance"""
     try:
+        print("Training stats endpoint called")
+        
         if not ensemble_model.is_trained:
+            print("Model not trained")
             return {
                 "success": False,
                 "message": "Model not trained"
             }
         
+        print("Getting training stats from model...")
+        raw_stats = ensemble_model.training_stats
+        print(f"Raw stats type: {type(raw_stats)}")
+        
+        if raw_stats is None:
+            print("Training stats is None")
+            return {
+                "success": False,
+                "message": "Training stats not available"
+            }
+        
+        print("Converting numpy types...")
+        converted_stats = convert_numpy_types(raw_stats)
+        print("Conversion successful")
+        
         return {
             "success": True,
-            "stats": ensemble_model.training_stats
+            "stats": converted_stats
         }
         
     except Exception as e:
+        print(f"Error in training_stats endpoint: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to get training stats: {str(e)}")
 
 @app.post("/api/update_config")
@@ -463,36 +536,56 @@ async def update_config(
 async def get_cluster_insights():
     """Get DBSCAN cluster insights and analysis"""
     try:
+        print("cluster_insights endpoint called")
+        
         if not ensemble_model.is_trained:
+            print("Model not trained")
             raise HTTPException(status_code=400, detail="Model not trained")
         
         if hasattr(ensemble_model, 'get_cluster_insights'):
+            print("Getting cluster insights from model...")
             insights = ensemble_model.get_cluster_insights()
+            print(f"Insights type: {type(insights)}")
+            
+            converted_insights = convert_numpy_types(insights)
+            print("Insights converted successfully")
+            
             return {
                 "success": True,
-                "insights": convert_numpy_types(insights)
+                "insights": converted_insights
             }
         else:
+            print("Enhanced DBSCAN features not available")
             return {
                 "success": False,
                 "message": "Enhanced DBSCAN features not available in current model"
             }
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error in cluster_insights: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to get cluster insights: {str(e)}")
 
 @app.post("/api/cluster_visualization_data")
 async def get_cluster_visualization_data():
     """Get data for DBSCAN cluster visualization"""
     try:
+        print("cluster_visualization_data endpoint called")
+        
         if not ensemble_model.is_trained:
+            print("Model not trained")
             raise HTTPException(status_code=400, detail="Model not trained")
         
         if not hasattr(ensemble_model, 'cluster_profiles'):
+            print("No cluster_profiles attribute")
             return {
                 "success": False,
                 "message": "DBSCAN clustering not available in current model"
             }
         
+        print("Generating visualization data...")
         # Generate visualization data from cluster profiles
         viz_data = {
             "text_clusters": [],
@@ -504,6 +597,7 @@ async def get_cluster_visualization_data():
         for cluster_type in ['text', 'numerical', 'combined']:
             cluster_key = f'{cluster_type}_clusters'
             if cluster_key in ensemble_model.cluster_profiles:
+                print(f"Processing {cluster_type} clusters...")
                 analysis = ensemble_model.cluster_profiles[cluster_key]
                 
                 # Extract cluster centers and sizes for visualization
@@ -533,24 +627,43 @@ async def get_cluster_visualization_data():
                     'total_points': sum(analysis.get('cluster_sizes', {}).values())
                 }
         
+        print("Converting visualization data...")
+        converted_data = convert_numpy_types(viz_data)
+        print("Conversion successful")
+        
         return {
             "success": True,
-            "visualization_data": convert_numpy_types(viz_data)
+            "visualization_data": converted_data
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error in cluster_visualization_data: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to get visualization data: {str(e)}")
 
 @app.post("/api/performance_comparison")
 async def get_performance_comparison():
     """Get performance comparison between traditional and DBSCAN-enhanced ensemble"""
     try:
+        print("performance_comparison endpoint called")
+        
         if not ensemble_model.is_trained:
+            print("Model not trained")
             raise HTTPException(status_code=400, detail="Model not trained")
         
+        print("Getting training statistics...")
         # Get training statistics
         stats = ensemble_model.training_stats
+        print(f"Stats type: {type(stats)}")
         
+        if stats is None:
+            print("Training stats is None")
+            raise HTTPException(status_code=500, detail="Training statistics not available")
+        
+        print("Preparing comparison data...")
         # Prepare comparison data
         comparison_data = {
             "model_type": "Enhanced with DBSCAN" if hasattr(ensemble_model, 'density_weight') else "Traditional",
@@ -573,13 +686,244 @@ async def get_performance_comparison():
             "dbscan_parameters": stats.get('dbscan_params', {}) if hasattr(ensemble_model, 'density_weight') else None
         }
         
+        print("Converting numpy types...")
+        converted_data = convert_numpy_types(comparison_data)
+        print("Conversion successful")
+        
         return {
             "success": True,
-            "comparison_data": convert_numpy_types(comparison_data)
+            "comparison_data": converted_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in performance_comparison: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to get performance comparison: {str(e)}")
+
+# Cluster interaction endpoints for expert labeling
+class ClusterSessionsRequest(BaseModel):
+    cluster_id: int
+    feature_type: Optional[str] = 'combined'
+
+class LabelClusterRequest(BaseModel):
+    cluster_id: int
+    label: str
+    feature_type: Optional[str] = 'combined'
+    label_name: Optional[str] = None
+    label_description: Optional[str] = None
+    confidence: Optional[float] = 0.8
+
+class SupervisedTrainingRequest(BaseModel):
+    force_retrain: Optional[bool] = False
+
+class SupervisedPredictionRequest(BaseModel):
+    session_text: str
+
+@app.post("/api/cluster_sessions")
+async def get_cluster_sessions(request: ClusterSessionsRequest):
+    """Get EJ sessions belonging to a specific cluster"""
+    try:
+        print(f"cluster_sessions called with cluster_id={request.cluster_id}, feature_type={request.feature_type}")
+        
+        if not ensemble_model.is_trained:
+            raise HTTPException(status_code=400, detail="Model not trained")
+        
+        if not hasattr(ensemble_model, 'get_cluster_sessions'):
+            raise HTTPException(status_code=400, detail="Enhanced DBSCAN features not available")
+        
+        # Get sessions from the model
+        try:
+            print("Calling ensemble_model.get_cluster_sessions...")
+            raw_sessions = ensemble_model.get_cluster_sessions(request.cluster_id, request.feature_type)
+            print(f"Raw sessions received: {type(raw_sessions)}, length: {len(raw_sessions) if raw_sessions else 0}")
+        except Exception as e:
+            print(f"Error from get_cluster_sessions: {type(e).__name__}: {str(e)}")
+            # Handle cluster not found errors as 400 status
+            error_message = str(e)
+            if "not found" in error_message.lower() and "cluster" in error_message.lower():
+                raise HTTPException(status_code=400, detail=error_message)
+            else:
+                raise
+        
+        # Convert to properly structured JSON objects
+        print("Converting sessions to structured format...")
+        sessions = []
+        if raw_sessions:
+            for i, session in enumerate(raw_sessions):
+                try:
+                    # Check if session is a dictionary-like object
+                    if hasattr(session, 'keys') or isinstance(session, dict):
+                        # Convert to a proper dictionary
+                        session_dict = {}
+                        if hasattr(session, 'items'):
+                            for key, value in session.items():
+                                session_dict[str(key)] = convert_numpy_types(value)
+                        else:
+                            # If it's not iterable, convert to string
+                            session_dict = {
+                                "session_text": str(session),
+                                "session_id": f"session_{request.cluster_id}_{i}",
+                                "cluster_id": request.cluster_id,
+                                "feature_type": request.feature_type
+                            }
+                        sessions.append(session_dict)
+                    else:
+                        # For simple string sessions
+                        sessions.append({
+                            "session_text": str(session),
+                            "session_id": f"session_{request.cluster_id}_{i}",
+                            "cluster_id": request.cluster_id,
+                            "feature_type": request.feature_type
+                        })
+                    if i == 0:  # Debug first session
+                        print(f"First session converted: {type(session)} -> structured dict")
+                except Exception as e:
+                    print(f"Warning: Could not convert session {i}: {e}")
+                    sessions.append({
+                        "session_text": f"<session conversion error: {str(e)}>",
+                        "session_id": f"session_{request.cluster_id}_{i}",
+                        "cluster_id": request.cluster_id,
+                        "feature_type": request.feature_type,
+                        "error": True
+                    })
+        
+        print(f"Converted {len(sessions)} sessions to structured objects")
+        
+        # Build response with only basic Python types
+        response_data = {
+            "success": True,
+            "cluster_id": int(request.cluster_id),
+            "feature_type": str(request.feature_type),
+            "sessions": sessions,
+            "count": len(sessions)
+        }
+        
+        print("Response data built, attempting JSON round-trip...")
+        
+        # Use JSON round-trip to ensure everything is serializable
+        import json
+        try:
+            json_str = json.dumps(response_data)
+            final_response = json.loads(json_str)
+            print("JSON round-trip successful!")
+            return final_response
+        except Exception as json_error:
+            print(f"JSON serialization error: {json_error}")
+            # Return a safe fallback response
+            fallback_response = {
+                "success": True,
+                "cluster_id": int(request.cluster_id),
+                "feature_type": str(request.feature_type),
+                "sessions": [f"<{len(sessions)} sessions - serialization error>"],
+                "count": len(sessions),
+                "error": f"Serialization issue: {str(json_error)}"
+            }
+            print("Returning fallback response")
+            return fallback_response
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        print("Re-raising HTTPException")
+        raise
+    except Exception as e:
+        # Log the full error for debugging
+        print(f"Exception in cluster_sessions: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to get cluster sessions: {str(e)}")
+
+@app.post("/api/label_cluster")
+async def label_cluster(request: LabelClusterRequest):
+    """Label a cluster with expert knowledge"""
+    try:
+        if not ensemble_model.is_trained:
+            raise HTTPException(status_code=400, detail="Model not trained")
+        
+        if not hasattr(ensemble_model, 'label_cluster'):
+            raise HTTPException(status_code=400, detail="Enhanced DBSCAN features not available")
+        
+        # Use label_name if provided, otherwise fall back to label
+        label_to_use = request.label_name if request.label_name else request.label
+        feature_type_to_use = request.feature_type if request.feature_type else 'combined'
+        
+        result = ensemble_model.label_cluster(request.cluster_id, label_to_use, feature_type_to_use)
+        
+        return {
+            "success": True,
+            "message": f"Cluster {request.cluster_id} labeled as '{label_to_use}'",
+            "cluster_id": request.cluster_id,
+            "label": label_to_use,
+            "feature_type": feature_type_to_use
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get performance comparison: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to label cluster: {str(e)}")
+
+@app.get("/api/cluster_labels")
+async def get_cluster_labels():
+    """Get all cluster labels"""
+    try:
+        if not ensemble_model.is_trained:
+            raise HTTPException(status_code=400, detail="Model not trained")
+        
+        if not hasattr(ensemble_model, 'cluster_labels'):
+            return {"success": True, "labels": {}}
+        
+        labels = getattr(ensemble_model, 'cluster_labels', {})
+        
+        return convert_numpy_types({
+            "success": True,
+            "labels": labels,
+            "count": len(labels)
+        })
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get cluster labels: {str(e)}")
+
+@app.post("/api/train_supervised_classifier")
+async def train_supervised_classifier(request: SupervisedTrainingRequest):
+    """Train supervised classifier using labeled clusters"""
+    try:
+        if not ensemble_model.is_trained:
+            raise HTTPException(status_code=400, detail="Model not trained")
+        
+        if not hasattr(ensemble_model, 'train_supervised_classifier'):
+            raise HTTPException(status_code=400, detail="Enhanced DBSCAN features not available")
+        
+        result = ensemble_model.train_supervised_classifier(force_retrain=request.force_retrain)
+        
+        return {
+            "success": True,
+            "message": "Supervised classifier trained successfully",
+            "training_stats": convert_numpy_types(result)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to train supervised classifier: {str(e)}")
+
+@app.post("/api/predict_with_supervised")
+async def predict_with_supervised(request: SupervisedPredictionRequest):
+    """Predict cluster label for new session using supervised classifier"""
+    try:
+        if not ensemble_model.is_trained:
+            raise HTTPException(status_code=400, detail="Model not trained")
+        
+        if not hasattr(ensemble_model, 'predict_supervised'):
+            raise HTTPException(status_code=400, detail="Enhanced DBSCAN features not available")
+        
+        prediction = ensemble_model.predict_supervised(request.session_text)
+        
+        return {
+            "success": True,
+            "session_text": request.session_text,
+            "prediction": convert_numpy_types(prediction)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to predict with supervised classifier: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

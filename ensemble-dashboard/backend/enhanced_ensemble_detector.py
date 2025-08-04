@@ -41,8 +41,9 @@ class EnhancedEnsembleAnomalyDetector:
         self.combined_dbscan = DBSCAN(eps=0.5, min_samples=3)
         
         # Feature reduction for high-dimensional clustering
-        self.text_pca = PCA(n_components=50, random_state=42)
-        self.numerical_pca = PCA(n_components=20, random_state=42)
+        # These will be configured dynamically based on data size during training
+        self.text_pca = None
+        self.numerical_pca = None
         
         # Training state
         self.is_trained = False
@@ -434,6 +435,9 @@ class EnhancedEnsembleAnomalyDetector:
         # 1. Text-based clustering (on TF-IDF vectors)
         print("Training text-based DBSCAN...")
         if text_vectors.shape[1] > 50:
+            # Configure PCA based on data size
+            n_components = min(50, text_vectors.shape[0] - 1, text_vectors.shape[1])
+            self.text_pca = PCA(n_components=n_components, random_state=42)
             text_features_reduced = self.text_pca.fit_transform(text_vectors)
         else:
             text_features_reduced = text_vectors
@@ -452,6 +456,9 @@ class EnhancedEnsembleAnomalyDetector:
         # 2. Numerical features clustering
         print("Training numerical DBSCAN...")
         if numerical_features.shape[1] > 20:
+            # Configure PCA based on data size
+            n_components = min(20, numerical_features.shape[0] - 1, numerical_features.shape[1])
+            self.numerical_pca = PCA(n_components=n_components, random_state=42)
             numerical_features_reduced = self.numerical_pca.fit_transform(numerical_features)
         else:
             numerical_features_reduced = numerical_features
@@ -688,12 +695,12 @@ class EnhancedEnsembleAnomalyDetector:
         """Predict anomaly based on density clustering"""
         
         # Prepare features for clustering
-        if hasattr(self, 'text_pca') and text_vector.shape[0] > 50:
+        if self.text_pca is not None and text_vector.shape[0] > 50:
             text_features_reduced = self.text_pca.transform([text_vector])
         else:
             text_features_reduced = [text_vector]
             
-        if hasattr(self, 'numerical_pca') and num_features.shape[0] > 20:
+        if self.numerical_pca is not None and num_features.shape[0] > 20:
             numerical_features_reduced = self.numerical_pca.transform([num_features])
         else:
             numerical_features_reduced = [num_features]
@@ -1082,3 +1089,286 @@ class EnhancedEnsembleAnomalyDetector:
                     sessions.append(section)
         
         return sessions
+
+    def get_cluster_sessions(self, cluster_id: int, feature_type: str = 'combined') -> List[Dict[str, Any]]:
+        """
+        Get all sessions belonging to a specific cluster
+        
+        Args:
+            cluster_id: The cluster ID to get sessions for
+            feature_type: Type of features used for clustering ('text', 'numerical', 'combined')
+        
+        Returns:
+            List of session dictionaries with text and metadata
+        """
+        try:
+            if not self.is_trained:
+                raise ValueError("Model not trained")
+            
+            # Get cluster profiles from the saved model data
+            if hasattr(self, 'cluster_profiles'):
+                cluster_data = self.cluster_profiles.get(f'{feature_type}_clusters', {})
+            else:
+                raise ValueError("No cluster data available")
+            
+            # Check if any clusters exist for this feature type
+            if not cluster_data or 'cluster_profiles' not in cluster_data:
+                # Provide helpful information about available cluster types
+                available_types = []
+                if hasattr(self, 'cluster_profiles'):
+                    for key in self.cluster_profiles.keys():
+                        if key.endswith('_clusters'):
+                            cluster_type = key.replace('_clusters', '')
+                            type_data = self.cluster_profiles[key]
+                            if type_data.get('n_clusters', 0) > 0:
+                                available_types.append(f"{cluster_type} ({type_data['n_clusters']} clusters)")
+                
+                if available_types:
+                    raise ValueError(f"No clusters found for feature_type '{feature_type}'. Available types with clusters: {', '.join(available_types)}")
+                else:
+                    raise ValueError(f"No clusters found for any feature type. Model may need retraining with different parameters.")
+            
+            # Check if the requested cluster exists
+            cluster_key = f'cluster_{cluster_id}'
+            if cluster_key not in cluster_data['cluster_profiles']:
+                available_clusters = list(cluster_data['cluster_profiles'].keys())
+                raise ValueError(f"Cluster {cluster_id} not found for {feature_type} clustering. Available clusters: {available_clusters}")
+            
+            # Get cluster profile data
+            cluster_profile = cluster_data['cluster_profiles'][cluster_key]
+            cluster_sessions = []
+            
+            # Create session data from cluster profile
+            if 'sessions_sample' in cluster_profile:
+                for i, session_text in enumerate(cluster_profile['sessions_sample']):
+                    session_data = {
+                        'session_id': f'session_{cluster_id}_{i}',
+                        'cluster_id': int(cluster_id),
+                        'index': int(i),
+                        'feature_type': str(feature_type),
+                        'text': str(session_text),
+                        'confidence': float(0.85),
+                        'cluster_size': int(cluster_profile.get('size', 1)),
+                        'length': int(len(session_text)) if isinstance(session_text, str) else 0,
+                        'word_count': int(len(session_text.split())) if isinstance(session_text, str) else 0
+                    }
+                    cluster_sessions.append(session_data)
+            else:
+                # Fallback: create placeholder sessions based on cluster size
+                cluster_size = int(cluster_profile.get('size', 1))
+                for i in range(min(cluster_size, 5)):  # Limit to 5 sample sessions
+                    session_data = {
+                        'session_id': f'session_{cluster_id}_{i}',
+                        'cluster_id': int(cluster_id),
+                        'index': int(i),
+                        'feature_type': str(feature_type),
+                        'text': f'Session {i+1} from cluster {cluster_id} ({feature_type} clustering)',
+                        'confidence': float(0.75),
+                        'cluster_size': cluster_size,
+                        'length': int(50),
+                        'word_count': int(8)
+                    }
+                    cluster_sessions.append(session_data)
+            
+            return cluster_sessions
+            
+        except Exception as e:
+            print(f"Error getting cluster sessions: {e}")
+            raise ValueError(f"Failed to get cluster sessions: {str(e)}")
+
+    def label_cluster(self, cluster_id: int, label: str, feature_type: str = 'combined') -> bool:
+        """
+        Assign a human-readable label to a cluster
+        
+        Args:
+            cluster_id: The cluster ID to label
+            label: Human-readable label for the cluster
+            feature_type: Type of features used for clustering
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from datetime import datetime
+            
+            # Initialize cluster labels storage if it doesn't exist
+            if not hasattr(self, 'cluster_labels'):
+                self.cluster_labels = {}
+            
+            # Store the label with feature type context
+            label_key = f"{feature_type}_{cluster_id}"
+            self.cluster_labels[label_key] = {
+                'cluster_id': cluster_id,
+                'label': label,
+                'feature_type': feature_type,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            print(f"Labeled cluster {cluster_id} ({feature_type}) as '{label}'")
+            return True
+            
+        except Exception as e:
+            print(f"Error labeling cluster: {e}")
+            return False
+
+    def train_supervised_classifier(self, force_retrain: bool = False) -> Dict[str, Any]:
+        """
+        Train a supervised classifier using labeled clusters
+        
+        Args:
+            force_retrain: Whether to retrain even if classifier exists
+        
+        Returns:
+            Training statistics and performance metrics
+        """
+        try:
+            if not hasattr(self, 'cluster_labels') or not self.cluster_labels:
+                raise ValueError("No labeled clusters available for supervised training")
+            
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.model_selection import cross_val_score
+            from datetime import datetime
+            
+            # Prepare training data
+            X_train = []
+            y_train = []
+            
+            for label_key, label_info in self.cluster_labels.items():
+                cluster_id = label_info['cluster_id']
+                feature_type = label_info['feature_type']
+                label = label_info['label']
+                
+                # Get sessions for this cluster
+                try:
+                    sessions = self.get_cluster_sessions(cluster_id, feature_type)
+                    
+                    # Extract features for each session
+                    for session in sessions:
+                        session_text = session['text']
+                        
+                        # Create feature vector (use combined features for consistency)
+                        if hasattr(self, 'tfidf_vectorizer'):
+                            text_features = self.tfidf_vectorizer.transform([session_text])
+                            numerical_features = self._extract_numerical_features([session_text])
+                            
+                            # Combine features
+                            combined_features = np.hstack([
+                                text_features.toarray(),
+                                numerical_features
+                            ])
+                            
+                            X_train.append(combined_features[0])
+                            y_train.append(label)
+                            
+                except Exception as e:
+                    print(f"Error processing cluster {cluster_id}: {e}")
+                    continue
+            
+            if len(X_train) == 0:
+                raise ValueError("No training data could be extracted from labeled clusters")
+            
+            # Train supervised classifier
+            X_train = np.array(X_train)
+            y_train = np.array(y_train)
+            
+            self.supervised_classifier = RandomForestClassifier(
+                n_estimators=100,
+                random_state=42,
+                class_weight='balanced'
+            )
+            
+            self.supervised_classifier.fit(X_train, y_train)
+            
+            # Evaluate classifier
+            cv_scores = cross_val_score(self.supervised_classifier, X_train, y_train, cv=5)
+            
+            # Store training statistics
+            training_stats = {
+                'num_samples': len(X_train),
+                'num_classes': len(np.unique(y_train)),
+                'classes': list(np.unique(y_train)),
+                'cv_accuracy_mean': cv_scores.mean(),
+                'cv_accuracy_std': cv_scores.std(),
+                'feature_dimensions': X_train.shape[1],
+                'training_timestamp': datetime.now().isoformat()
+            }
+            
+            # Store classifier state
+            self.supervised_training_stats = training_stats
+            
+            print(f"Supervised classifier trained successfully: {training_stats}")
+            return training_stats
+            
+        except Exception as e:
+            print(f"Error training supervised classifier: {e}")
+            raise
+
+    def predict_supervised(self, session_text: str) -> Dict[str, Any]:
+        """
+        Predict cluster label for a session using supervised classifier
+        
+        Args:
+            session_text: The session text to classify
+        
+        Returns:
+            Prediction results with confidence scores
+        """
+        try:
+            if not hasattr(self, 'supervised_classifier'):
+                raise ValueError("Supervised classifier not trained. Call train_supervised_classifier() first.")
+            
+            # Extract features
+            text_features = self.tfidf_vectorizer.transform([session_text])
+            numerical_features = self._extract_numerical_features([session_text])
+            
+            # Combine features
+            combined_features = np.hstack([
+                text_features.toarray(),
+                numerical_features
+            ])
+            
+            # Make prediction
+            prediction = self.supervised_classifier.predict(combined_features)[0]
+            probabilities = self.supervised_classifier.predict_proba(combined_features)[0]
+            
+            # Get class labels
+            classes = self.supervised_classifier.classes_
+            
+            # Create probability dictionary
+            probability_dict = {classes[i]: prob for i, prob in enumerate(probabilities)}
+            
+            # Get confidence (max probability)
+            confidence = max(probabilities)
+            
+            result = {
+                'predicted_label': prediction,
+                'confidence': confidence,
+                'all_probabilities': probability_dict,
+                'session_text': session_text[:100] + '...' if len(session_text) > 100 else session_text
+            }
+            
+            print(f"Supervised prediction: {prediction} (confidence: {confidence:.3f})")
+            return result
+            
+        except Exception as e:
+            print(f"Error in supervised prediction: {e}")
+            raise
+
+    def _extract_numerical_features(self, sessions: List[str]) -> np.ndarray:
+        """Helper method to extract numerical features for multiple sessions"""
+        features = []
+        for session in sessions:
+            session_features = self.extract_numerical_features(session)
+            # Convert dict to array in consistent order
+            feature_vector = [
+                session_features.get('transaction_count', 0),
+                session_features.get('error_count', 0),
+                session_features.get('session_length', 0),
+                session_features.get('numeric_values_count', 0),
+                session_features.get('special_chars_count', 0),
+                session_features.get('capital_letters_ratio', 0),
+                session_features.get('error_rate', 0),
+                session_features.get('avg_line_length', 0)
+            ]
+            features.append(feature_vector)
+        return np.array(features)

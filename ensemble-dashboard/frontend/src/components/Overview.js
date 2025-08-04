@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
+// Cache buster comment - updated to force reload
 const Overview = ({ modelInfo, onRefresh }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -11,16 +12,37 @@ const Overview = ({ modelInfo, onRefresh }) => {
   }, [modelInfo]);
 
   const fetchTrainingStats = async () => {
+    console.log('[Overview] fetchTrainingStats called');
     setLoading(true);
     try {
+      console.log('[Overview] Making request to training_stats endpoint...');
       const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8001'}/api/training_stats`);
+      
+      console.log('[Overview] Response status:', response.status);
+      console.log('[Overview] Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      if (!response.ok) {
+        console.error('[Overview] HTTP error:', response.status, response.statusText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
+      console.log('[Overview] Response data:', data);
+      
       if (data.success) {
+        console.log('[Overview] Setting stats:', data.stats);
         setStats(data.stats);
+      } else {
+        console.warn('[Overview] Training stats request unsuccessful:', data.message || 'Unknown error');
+        setStats(null);
       }
     } catch (error) {
-      console.error('Failed to fetch training stats:', error);
+      console.error('[Overview] Failed to fetch training stats:', error);
+      console.error('[Overview] Error type:', error.constructor.name);
+      console.error('[Overview] Error message:', error.message);
+      setStats(null);
     } finally {
+      console.log('[Overview] fetchTrainingStats finished');
       setLoading(false);
     }
   };
@@ -62,31 +84,50 @@ const Overview = ({ modelInfo, onRefresh }) => {
   };
 
   const renderTrainingStats = () => {
-    if (!stats) return null;
+    if (loading) {
+      return (
+        <div className="stats-loading">
+          <p>Loading training statistics...</p>
+        </div>
+      );
+    }
+
+    if (!stats) {
+      return (
+        <div className="stats-error">
+          <p>⚠️ Training statistics unavailable</p>
+          <p>This may be due to model not being trained or a temporary server issue.</p>
+        </div>
+      );
+    }
 
     return (
       <div className="stats-grid">
         <div className="stat-card">
           <h3>📁 Training Data</h3>
-          <div className="stat-value">{stats.num_training_sessions}</div>
+          <div className="stat-value">{stats.num_training_sessions || 'N/A'}</div>
           <div className="stat-label">Normal Sessions</div>
         </div>
 
         <div className="stat-card">
           <h3>📝 Text Features</h3>
-          <div className="stat-value">{stats.text_feature_dims}</div>
+          <div className="stat-value">{stats.text_feature_dims || 'N/A'}</div>
           <div className="stat-label">Dimensions</div>
         </div>
 
         <div className="stat-card">
           <h3>📊 Statistical Features</h3>
-          <div className="stat-value">{stats.numerical_feature_dims}</div>
+          <div className="stat-value">{stats.numerical_feature_dims || 'N/A'}</div>
           <div className="stat-label">Features</div>
         </div>
 
         <div className="stat-card">
           <h3>🎯 Ensemble Score</h3>
-          <div className="stat-value">{(stats.avg_ensemble_score * 100).toFixed(1)}%</div>
+          <div className="stat-value">
+            {stats.avg_ensemble_score !== undefined && stats.avg_ensemble_score !== null && typeof stats.avg_ensemble_score === 'number' && !isNaN(stats.avg_ensemble_score)
+              ? (stats.avg_ensemble_score * 100).toFixed(1) + '%'
+              : 'N/A'}
+          </div>
           <div className="stat-label">Avg Normal Score</div>
         </div>
       </div>

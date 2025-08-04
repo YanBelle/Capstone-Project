@@ -340,15 +340,49 @@ class EnhancedEnsembleDetector:
         Train the enhanced ensemble detector
         
         Args:
-            sessions: List of training sessions
+            sessions: List of training sessions (can be strings or dicts)
             
         Returns:
             Training results dictionary
         """
         logger.info(f"Training enhanced ensemble detector with {len(sessions)} sessions")
         
+        # Convert string sessions to dictionary format if needed
+        processed_sessions = []
+        for i, session in enumerate(sessions):
+            if isinstance(session, str):
+                # Convert string to expected dictionary format
+                session_dict = {
+                    'session_id': f'session_{i}',
+                    'raw_text': session,
+                    'ej_logs': [session],  # Feature extraction expects this
+                    'anomaly_score': 0.0,
+                    'anomaly_type': 'unknown',
+                    'timestamp': None,
+                    'has_errors': False,
+                    'error_types': [],
+                    'transaction_type': 'unknown'
+                }
+                processed_sessions.append(session_dict)
+            elif isinstance(session, dict):
+                # Ensure dictionary has required fields
+                session_dict = {
+                    'session_id': session.get('session_id', f'session_{i}'),
+                    'raw_text': session.get('raw_text', ''),
+                    'ej_logs': session.get('ej_logs', [session.get('raw_text', '')]),
+                    'anomaly_score': session.get('anomaly_score', 0.0),
+                    'anomaly_type': session.get('anomaly_type', 'unknown'),
+                    'timestamp': session.get('timestamp', None),
+                    'has_errors': session.get('has_errors', False),
+                    'error_types': session.get('error_types', []),
+                    'transaction_type': session.get('transaction_type', 'unknown')
+                }
+                processed_sessions.append(session_dict)
+            else:
+                raise ValueError(f"Invalid session format at index {i}: expected string or dict")
+        
         # Extract features
-        text_features, numerical_features = self.extract_features(sessions)
+        text_features, numerical_features = self.extract_features(processed_sessions)
         
         # Scale features
         text_features_scaled = self.text_scaler.fit_transform(text_features)
@@ -392,7 +426,7 @@ class EnhancedEnsembleDetector:
         self.text_features_scaled = text_features_scaled
         self.numerical_features_scaled = numerical_features_scaled  
         self.combined_features_scaled = combined_features_scaled
-        self.training_sessions = sessions
+        self.training_sessions = processed_sessions
         
         # Store clustering results
         self.cluster_results = {
@@ -403,7 +437,7 @@ class EnhancedEnsembleDetector:
         
         # Calculate training statistics
         self.training_stats = {
-            'n_sessions': len(sessions),
+            'n_sessions': len(processed_sessions),
             'text_features_shape': text_features.shape,
             'numerical_features_shape': numerical_features.shape,
             'combined_features_shape': combined_features_scaled.shape,
@@ -768,28 +802,51 @@ class EnhancedEnsembleDetector:
         Returns:
             List of session dictionaries with detailed information
         """
+        logger.info(f"get_cluster_sessions called with cluster_id={cluster_id}, feature_type={feature_type}")
+        
         if not self.is_trained:
+            logger.error("Model is not trained")
             raise ValueError("Model must be trained before getting cluster sessions")
+        
+        logger.info(f"Model is trained. Available attributes:")
+        logger.info(f"  hasattr text_cluster_labels: {hasattr(self, 'text_cluster_labels')}")
+        logger.info(f"  hasattr numerical_cluster_labels: {hasattr(self, 'numerical_cluster_labels')}")
+        logger.info(f"  hasattr combined_cluster_labels: {hasattr(self, 'combined_cluster_labels')}")
         
         # Get the appropriate cluster labels
         if feature_type == 'text' and hasattr(self, 'text_cluster_labels'):
             labels = self.text_cluster_labels
+            logger.info(f"Using text_cluster_labels: {len(labels) if labels else 0} labels")
         elif feature_type == 'numerical' and hasattr(self, 'numerical_cluster_labels'):
             labels = self.numerical_cluster_labels
+            logger.info(f"Using numerical_cluster_labels: {len(labels) if labels else 0} labels")
         elif feature_type == 'combined' and hasattr(self, 'combined_cluster_labels'):
             labels = self.combined_cluster_labels
+            logger.info(f"Using combined_cluster_labels: {len(labels) if labels else 0} labels")
         else:
+            logger.error(f"No cluster labels found for feature type: {feature_type}")
             raise ValueError(f"No cluster labels found for feature type: {feature_type}")
+        
+        if labels is None:
+            logger.error(f"Cluster labels for {feature_type} is None")
+            raise ValueError(f"Cluster labels for {feature_type} is None")
         
         # Find sessions in the specified cluster
         cluster_sessions = []
         cluster_indices = np.where(np.array(labels) == cluster_id)[0]
         
         logger.info(f"Found {len(cluster_indices)} sessions in cluster {cluster_id} for {feature_type} features")
+        logger.info(f"training_sessions available: {hasattr(self, 'training_sessions')}")
+        if hasattr(self, 'training_sessions'):
+            logger.info(f"training_sessions length: {len(self.training_sessions) if self.training_sessions else 0}")
         
         for idx in cluster_indices:
+            logger.info(f"Processing session index {idx}")
             if idx < len(self.training_sessions):
                 session = self.training_sessions[idx]
+                logger.info(f"Session type: {type(session)}")
+                if isinstance(session, dict):
+                    logger.info(f"Session keys: {list(session.keys())}")
                 
                 # Create detailed session info
                 session_info = {
@@ -810,7 +867,11 @@ class EnhancedEnsembleDetector:
                 }
                 
                 cluster_sessions.append(session_info)
+                logger.info(f"Added session {idx} to cluster_sessions")
+            else:
+                logger.warning(f"Session index {idx} out of range (training_sessions length: {len(self.training_sessions)})")
         
+        logger.info(f"Returning {len(cluster_sessions)} cluster sessions")
         return cluster_sessions
     
     def label_cluster(self, cluster_id: int, feature_type: str, label_name: str, 

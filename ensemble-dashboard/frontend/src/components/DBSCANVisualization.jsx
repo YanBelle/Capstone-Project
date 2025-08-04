@@ -1,7 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import './DBSCANVisualization.css';
 
+// Utility function to safely format numbers
+const safeToFixed = (value, decimals = 2) => {
+  console.log(`[safeToFixed] Called with value: ${value}, type: ${typeof value}, decimals: ${decimals}`);
+  
+  if (value === null || value === undefined || isNaN(value) || !isFinite(value)) {
+    console.log(`[safeToFixed] Returning 'N/A' for invalid value: ${value}`);
+    return 'N/A';
+  }
+  if (typeof value !== 'number') {
+    const num = parseFloat(value);
+    if (isNaN(num) || !isFinite(num)) {
+      console.log(`[safeToFixed] Returning 'N/A' for unparseable value: ${value}`);
+      return 'N/A';
+    }
+    console.log(`[safeToFixed] Converted string to number: ${value} -> ${num}`);
+    return num.toFixed(decimals);
+  }
+  console.log(`[safeToFixed] Valid number, returning: ${value.toFixed(decimals)}`);
+  return value.toFixed(decimals);
+};
+
 const DBSCANVisualization = () => {
+  console.log('[DBSCANVisualization] Component loaded with enhanced error handling and logging - Version 2.0');
+  console.log('[DBSCANVisualization] safeToFixed function available:', typeof safeToFixed === 'function');
+  
   const [clusterInsights, setClusterInsights] = useState(null);
   const [visualizationData, setVisualizationData] = useState(null);
   const [performanceData, setPerformanceData] = useState(null);
@@ -33,40 +57,62 @@ const DBSCANVisualization = () => {
 
   const fetchDBSCANData = async () => {
     try {
+      console.log('[fetchDBSCANData] Starting to fetch DBSCAN data...');
       setLoading(true);
       setError(null);
 
       // Fetch cluster insights
+      console.log('[fetchDBSCANData] Fetching cluster insights...');
       const insightsResponse = await fetch('http://localhost:8001/api/cluster_insights');
+      console.log('[fetchDBSCANData] Insights response status:', insightsResponse.status);
+      console.log('[fetchDBSCANData] Insights response headers:', Object.fromEntries(insightsResponse.headers.entries()));
+      
       if (insightsResponse.ok) {
         const insightsData = await insightsResponse.json();
+        console.log('[fetchDBSCANData] Insights data received:', insightsData);
         setClusterInsights(insightsData.insights);
+      } else {
+        console.error('[fetchDBSCANData] Insights request failed:', insightsResponse.status, insightsResponse.statusText);
       }
 
       // Fetch visualization data
+      console.log('[fetchDBSCANData] Fetching visualization data...');
       const vizResponse = await fetch('http://localhost:8001/api/cluster_visualization_data', { method: 'POST' });
+      console.log('[fetchDBSCANData] Viz response status:', vizResponse.status);
+      
       if (vizResponse.ok) {
         const vizData = await vizResponse.json();
+        console.log('[fetchDBSCANData] Viz data received:', vizData);
         setVisualizationData(vizData.visualization_data);
+      } else {
+        console.error('[fetchDBSCANData] Viz request failed:', vizResponse.status, vizResponse.statusText);
       }
 
       // Fetch performance comparison
+      console.log('[fetchDBSCANData] Fetching performance comparison...');
       const perfResponse = await fetch('http://localhost:8001/api/performance_comparison', { method: 'POST' });
+      console.log('[fetchDBSCANData] Perf response status:', perfResponse.status);
+      
       if (perfResponse.ok) {
         const perfData = await perfResponse.json();
+        console.log('[fetchDBSCANData] Perf data received:', perfData);
         setPerformanceData(perfData.comparison_data);
+      } else {
+        console.error('[fetchDBSCANData] Perf request failed:', perfResponse.status, perfResponse.statusText);
       }
 
     } catch (err) {
+      console.error('[fetchDBSCANData] Error occurred:', err);
       setError(err.message);
     } finally {
+      console.log('[fetchDBSCANData] Finished fetching data');
       setLoading(false);
     }
   };
 
   const fetchClusterLabels = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/cluster_labels');
+      const response = await fetch('http://localhost:8001/api/cluster_labels');
       if (response.ok) {
         const data = await response.json();
         setClusterLabels(data.labels || {});
@@ -78,8 +124,9 @@ const DBSCANVisualization = () => {
 
   const fetchClusterSessions = async (clusterId, featureType) => {
     try {
+      console.log(`[fetchClusterSessions] Starting to fetch sessions for cluster ${clusterId}, type ${featureType}`);
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/cluster_sessions', {
+      const response = await fetch('http://localhost:8001/api/cluster_sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -88,17 +135,25 @@ const DBSCANVisualization = () => {
         })
       });
 
+      console.log(`[fetchClusterSessions] Response status: ${response.status}`);
+      console.log(`[fetchClusterSessions] Response headers:`, Object.fromEntries(response.headers.entries()));
+
       if (response.ok) {
         const data = await response.json();
+        console.log(`[fetchClusterSessions] Received ${data.sessions?.length || 0} sessions:`, data);
         setClusterSessions(data.sessions || []);
         setSelectedCluster({ id: clusterId, type: featureType });
         setShowSessionModal(true);
       } else {
+        const errorText = await response.text();
+        console.error(`[fetchClusterSessions] Request failed: ${response.status} ${response.statusText}`, errorText);
         throw new Error('Failed to fetch cluster sessions');
       }
     } catch (err) {
+      console.error(`[fetchClusterSessions] Error occurred:`, err);
       setError(err.message);
     } finally {
+      console.log('[fetchClusterSessions] Finished');
       setLoading(false);
     }
   };
@@ -106,7 +161,7 @@ const DBSCANVisualization = () => {
   const trainSupervisedClassifier = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/train_supervised_classifier', {
+      const response = await fetch('http://localhost:8001/api/train_supervised_classifier', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -128,7 +183,7 @@ const DBSCANVisualization = () => {
   const predictWithSupervised = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/predict_with_supervised', {
+      const response = await fetch('http://localhost:8001/api/predict_with_supervised', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_text: testSession })
@@ -152,7 +207,7 @@ const DBSCANVisualization = () => {
     try {
       setSubmittingLabel(true);
       
-      const response = await fetch('http://localhost:8000/api/label_cluster', {
+      const response = await fetch('http://localhost:8001/api/label_cluster', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -361,7 +416,9 @@ const DBSCANVisualization = () => {
                 </div>
                 <div className="stat">
                   <span className="stat-label">Noise Ratio:</span>
-                  <span className="stat-value">{(summary.noise_ratio * 100).toFixed(1)}%</span>
+                  <span className="stat-value">
+                    {safeToFixed(summary.noise_ratio * 100, 1)}%
+                  </span>
                 </div>
                 <div className="stat">
                   <span className="stat-label">Largest Cluster:</span>
@@ -430,7 +487,7 @@ const DBSCANVisualization = () => {
                   <h5>{type.charAt(0).toUpperCase() + type.slice(1)}</h5>
                   <div className="stat-list">
                     <div>Clusters: {stats.n_clusters}</div>
-                    <div>Noise Ratio: {(stats.noise_ratio * 100).toFixed(1)}%</div>
+                    <div>Noise Ratio: {safeToFixed(stats.noise_ratio * 100, 1)}%</div>
                     <div>Total Points: {stats.total_points}</div>
                   </div>
                 </div>
@@ -594,42 +651,73 @@ const DBSCANVisualization = () => {
               </div>
               
               <div className="sessions-list">
-                {clusterSessions.map((session, index) => (
-                  <div key={index} className="session-item">
-                    <div className="session-header">
-                      <span className="session-id">📄 {session.session_id}</span>
-                      {session.expert_label && (
-                        <span className="expert-label">🏷️ {session.expert_label}</span>
-                      )}
-                    </div>
-                    
-                    <div className="session-details">
-                      <div className="detail-row">
-                        <span>Anomaly Score:</span>
-                        <span className={session.anomaly_score > 0.5 ? 'high-score' : 'low-score'}>
-                          {session.anomaly_score.toFixed(3)}
-                        </span>
+                {clusterSessions.map((session, index) => {
+                  console.log(`[Session Render] Session ${index}:`, session);
+                  console.log(`[Session Render] anomaly_score:`, session?.anomaly_score, `type:`, typeof session?.anomaly_score);
+                  
+                  return (
+                    <div key={index} className="session-item">
+                      <div className="session-header">
+                        <span className="session-id">📄 {session.session_id}</span>
+                        {session.expert_label && (
+                          <span className="expert-label">🏷️ {session.expert_label}</span>
+                        )}
                       </div>
                       
-                      {session.has_errors && (
+                      <div className="session-details">
+                      {/* ULTRA SAFE VERSION - Using utility function to prevent any toFixed() errors */}
+                      {session && session.anomaly_score !== undefined && (
+                        <div className="detail-row">
+                          <span>Anomaly Score:</span>
+                          <span className={session.anomaly_score > 0.5 ? 'high-score' : 'low-score'}>
+                            {(() => {
+                              console.log(`[Session Render] About to call safeToFixed for session ${index}`);
+                              const result = safeToFixed(session.anomaly_score, 3);
+                              console.log(`[Session Render] safeToFixed result: ${result}`);
+                              return result;
+                            })()}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {session.cluster_id !== undefined && (
+                        <div className="detail-row">
+                          <span>Cluster ID:</span>
+                          <span>{session.cluster_id}</span>
+                        </div>
+                      )}
+                      
+                      {session.feature_type && (
+                        <div className="detail-row">
+                          <span>Feature Type:</span>
+                          <span>{session.feature_type}</span>
+                        </div>
+                      )}
+                      
+                      {session.has_errors && session.error_types && (
                         <div className="detail-row">
                           <span>Error Types:</span>
                           <span className="error-types">{session.error_types.join(', ')}</span>
                         </div>
                       )}
                       
-                      <div className="detail-row">
-                        <span>Transaction Type:</span>
-                        <span>{session.transaction_type}</span>
+                      {session.transaction_type && (
+                        <div className="detail-row">
+                          <span>Transaction Type:</span>
+                          <span>{session.transaction_type}</span>
+                        </div>
+                      )}
+                      </div>
+                      
+                      <div className="session-preview">
+                        <strong>Session Preview:</strong>
+                        <pre className="session-text">
+                          {session.raw_text_preview || session.session_text || 'No text available'}
+                        </pre>
                       </div>
                     </div>
-                    
-                    <div className="session-preview">
-                      <strong>Session Preview:</strong>
-                      <pre className="session-text">{session.raw_text_preview}</pre>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               
               <div className="modal-actions">
