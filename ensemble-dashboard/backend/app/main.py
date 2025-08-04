@@ -235,7 +235,16 @@ async def load_ej_sessions(
                         raw_text_b64 = session.get('raw_text_base64', '')
                         if raw_text_b64:
                             session_text = base64.b64decode(raw_text_b64).decode('utf-8')
-                            sessions.append(session_text)
+                            
+                            # Enhanced: Use preprocessed text for better clustering if available
+                            # This provides cleaner feature extraction for DBSCAN
+                            preprocessed_text = session.get('bert_preprocessed_text', '')
+                            if preprocessed_text and len(preprocessed_text.strip()) > 50:
+                                # Use cleaned text for clustering (better results)
+                                sessions.append(preprocessed_text)
+                            else:
+                                # Fallback to raw text
+                                sessions.append(session_text)
                     
                     # Optionally include error sessions
                     if include_errors:
