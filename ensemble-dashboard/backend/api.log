@@ -1,0 +1,2 @@
+INFO:     Will watch for changes in these directories: ['/Users/christopherpearson/Projects/abm_ej_exporter_docker_cleaned/EJAnomalyDetectionV3/ensemble-dashboard/backend']
+ERROR:    [Errno 48] Address already in use

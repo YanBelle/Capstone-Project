@@ -35,6 +35,20 @@ import threading
 # Add the anomaly-detector directory to the path
 anomaly_detector_path = os.path.join(os.path.dirname(__file__), '..', 'anomaly-detector')
 
+# Add the parent directory to the path for enhanced_ensemble_detector
+parent_dir = os.path.dirname(os.path.dirname(__file__))
+sys.path.append(parent_dir)
+
+# Import enhanced ensemble detector
+try:
+    from enhanced_ensemble_detector import EnhancedEnsembleDetector
+    ENHANCED_DETECTOR_AVAILABLE = True
+    logger.info("Enhanced ensemble detector imported successfully")
+except ImportError as e:
+    logger.warning(f"Enhanced detector not available: {e}")
+    ENHANCED_DETECTOR_AVAILABLE = False
+    EnhancedEnsembleDetector = None
+
 def transform_bert_analysis_for_frontend(analysis_results):
     """Transform BERT analysis results to match frontend expectations"""
     if 'error' in analysis_results:
@@ -218,6 +232,37 @@ redis_client = redis.Redis(
     decode_responses=True
 )
 
+# Enhanced ensemble detector instance
+enhanced_detector = None
+if ENHANCED_DETECTOR_AVAILABLE:
+    enhanced_detector = EnhancedEnsembleDetector(models_dir="/app/models")
+    # Try to load existing models
+    enhanced_detector.load_models()
+
+def convert_numpy_types(obj):
+    """Convert numpy types to JSON-serializable types"""
+    import numpy as np
+    
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif hasattr(obj, '__dict__'):
+        # Handle objects with attributes by converting their __dict__
+        try:
+            return {key: convert_numpy_types(value) for key, value in obj.__dict__.items() 
+                    if not key.startswith('_') and not callable(value)}
+        except:
+            return str(obj)
+    else:
+        return obj
+
 # Pydantic models
 class LabelData(BaseModel):
     session_id: str
@@ -346,6 +391,28 @@ async def root():
         "status": "operational",
         "version": "1.0.0"
     }
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        model_loaded = False
+        if ENHANCED_DETECTOR_AVAILABLE and enhanced_detector is not None:
+            model_loaded = enhanced_detector.is_trained
+        
+        return {
+            "status": "healthy",
+            "model_loaded": model_loaded,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return {
+            "status": "unhealthy",
+            "model_loaded": False,
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 @app.get("/api/v1/health")
 async def health_check():
@@ -2557,6 +2624,337 @@ async def extract_contextual_labels(request: BertAnalysisRequest):
         
     except Exception as e:
         logger.error(f"Error extracting contextual labels: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Enhanced DBSCAN Ensemble Endpoints
+@app.post("/api/train_enhanced_ensemble")
+async def train_enhanced_ensemble(request: dict):
+    """Train the enhanced ensemble detector with DBSCAN"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        # Extract sessions from request
+        sessions = request.get('sessions', [])
+        if not sessions:
+            raise HTTPException(status_code=400, detail="No training sessions provided")
+        
+        logger.info(f"Training enhanced ensemble with {len(sessions)} sessions")
+        
+        # Train the model
+        result = enhanced_detector.train(sessions)
+        
+        logger.info("Enhanced ensemble training completed successfully")
+        return convert_numpy_types(result)
+        
+    except Exception as e:
+        logger.error(f"Error training enhanced ensemble: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/model_info")
+async def get_model_info():
+    """Get comprehensive model information"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            return {
+                'is_trained': False,
+                'message': 'Enhanced detector not available'
+            }
+        
+        model_info = enhanced_detector.get_model_info()
+        return convert_numpy_types(model_info)
+        
+    except Exception as e:
+        logger.error(f"Error getting model info: {str(e)}")
+        return {
+            'is_trained': False,
+            'error': str(e)
+        }
+
+@app.get("/api/dbscan_analysis")
+async def get_dbscan_analysis():
+    """Get detailed DBSCAN analysis for visualization"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before getting DBSCAN analysis")
+        
+        analysis = enhanced_detector.get_dbscan_analysis()
+        return convert_numpy_types(analysis)
+        
+    except Exception as e:
+        logger.error(f"Error getting DBSCAN analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/predict_enhanced")
+async def predict_enhanced(request: dict):
+    """Predict anomalies using enhanced ensemble"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before making predictions")
+        
+        sessions = request.get('sessions', [])
+        if not sessions:
+            raise HTTPException(status_code=400, detail="No sessions provided for prediction")
+        
+        predictions = enhanced_detector.predict(sessions)
+        return convert_numpy_types(predictions)
+        
+    except Exception as e:
+        logger.error(f"Error making enhanced predictions: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Enhanced Cluster Interaction Endpoints
+@app.post("/api/cluster_sessions")
+async def get_cluster_sessions(cluster_data: dict):
+    """Get EJ sessions belonging to a specific cluster"""
+    try:
+        logger.info(f"get_cluster_sessions API called with data: {cluster_data}")
+        
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            logger.error("Enhanced detector not available")
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        logger.info(f"Enhanced detector available: {enhanced_detector is not None}")
+        logger.info(f"Enhanced detector is_trained: {enhanced_detector.is_trained}")
+        
+        if not enhanced_detector.is_trained:
+            logger.error("Model not trained")
+            raise HTTPException(status_code=400, detail="Model must be trained before getting cluster sessions")
+        
+        cluster_id = cluster_data.get('cluster_id')
+        feature_type = cluster_data.get('feature_type', 'combined')  # text, numerical, combined
+        
+        logger.info(f"Parsed cluster_id: {cluster_id}, feature_type: {feature_type}")
+        
+        if cluster_id is None:
+            logger.error("cluster_id is None")
+            raise HTTPException(status_code=400, detail="cluster_id is required")
+        
+        logger.info("About to call enhanced_detector.get_cluster_sessions")
+        
+        # Get cluster sessions
+        sessions = enhanced_detector.get_cluster_sessions(cluster_id, feature_type)
+        
+        logger.info(f"get_cluster_sessions returned {len(sessions) if sessions else 0} sessions")
+        
+        result = {"sessions": convert_numpy_types(sessions)}
+        logger.info("Successfully converted sessions with convert_numpy_types")
+        
+        return result
+    
+    except HTTPException as e:
+        logger.error(f"HTTPException in get_cluster_sessions: {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error getting cluster sessions: {e}")
+        logger.error(f"Exception type: {type(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to get cluster sessions: {str(e)}")
+
+@app.post("/api/label_cluster")
+async def label_cluster(label_data: dict):
+    """Expert labeling of a cluster"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before labeling clusters")
+        
+        cluster_id = label_data.get('cluster_id')
+        feature_type = label_data.get('feature_type', 'combined')
+        label_name = label_data.get('label_name')
+        label_description = label_data.get('label_description', '')
+        expert_confidence = label_data.get('confidence', 0.8)
+        
+        if not cluster_id or not label_name:
+            raise HTTPException(status_code=400, detail="cluster_id and label_name are required")
+        
+        # Apply expert label to cluster
+        result = enhanced_detector.label_cluster(
+            cluster_id=cluster_id, 
+            feature_type=feature_type,
+            label_name=label_name,
+            label_description=label_description,
+            expert_confidence=expert_confidence
+        )
+        
+        return {"result": convert_numpy_types(result)}
+    
+    except Exception as e:
+        logger.error(f"Error labeling cluster: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/train_supervised_classifier")
+async def train_supervised_classifier():
+    """Train supervised classifier from expert-labeled clusters"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before training supervised classifier")
+        
+        # Train supervised model
+        result = enhanced_detector.train_supervised_classifier()
+        
+        return {"training_result": convert_numpy_types(result)}
+    
+    except Exception as e:
+        logger.error(f"Error training supervised classifier: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/predict_with_supervised")
+async def predict_with_supervised(session_data: dict):
+    """Predict cluster label for new session using supervised model"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before supervised prediction")
+        
+        session_text = session_data.get('session_text')
+        if not session_text:
+            raise HTTPException(status_code=400, detail="session_text is required")
+        
+        # Predict using supervised model
+        prediction = enhanced_detector.predict_supervised(session_text)
+        
+        return {"prediction": convert_numpy_types(prediction)}
+    
+    except Exception as e:
+        logger.error(f"Error in supervised prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cluster_labels")
+async def get_cluster_labels():
+    """Get all expert-applied cluster labels"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        # Get cluster labels
+        labels = enhanced_detector.get_cluster_labels()
+        
+        return {"labels": convert_numpy_types(labels)}
+    
+    except Exception as e:
+        logger.error(f"Error getting cluster labels: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cluster_insights")
+async def get_cluster_insights():
+    """Get cluster insights and analysis"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained to get insights")
+        
+        # Generate cluster insights
+        insights = {
+            "total_clusters": {
+                "text": len(enhanced_detector.text_cluster_labels_) if hasattr(enhanced_detector, 'text_cluster_labels_') else 0,
+                "numerical": len(enhanced_detector.numerical_cluster_labels_) if hasattr(enhanced_detector, 'numerical_cluster_labels_') else 0,
+                "combined": len(enhanced_detector.combined_cluster_labels_) if hasattr(enhanced_detector, 'combined_cluster_labels_') else 0
+            },
+            "cluster_distribution": {
+                "text_clusters": enhanced_detector.text_cluster_labels_.tolist() if hasattr(enhanced_detector, 'text_cluster_labels_') else [],
+                "numerical_clusters": enhanced_detector.numerical_cluster_labels_.tolist() if hasattr(enhanced_detector, 'numerical_cluster_labels_') else [],
+                "combined_clusters": enhanced_detector.combined_cluster_labels_.tolist() if hasattr(enhanced_detector, 'combined_cluster_labels_') else []
+            },
+            "cluster_quality": {
+                "text_silhouette": getattr(enhanced_detector, 'text_silhouette_score', 0.0),
+                "numerical_silhouette": getattr(enhanced_detector, 'numerical_silhouette_score', 0.0),
+                "combined_silhouette": getattr(enhanced_detector, 'combined_silhouette_score', 0.0)
+            }
+        }
+        
+        return {"insights": convert_numpy_types(insights)}
+    
+    except Exception as e:
+        logger.error(f"Error getting cluster insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/cluster_visualization_data")
+async def get_cluster_visualization_data(request_data: dict):
+    """Get cluster visualization data for plotting"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained to get visualization data")
+        
+        feature_type = request_data.get('feature_type', 'combined')
+        
+        # Get visualization data
+        viz_data = {
+            "coordinates": [],
+            "cluster_labels": [],
+            "session_ids": [],
+            "anomaly_scores": []
+        }
+        
+        # Use PCA or t-SNE for dimensionality reduction to 2D
+        if hasattr(enhanced_detector, 'visualization_coordinates'):
+            coords = getattr(enhanced_detector, f'{feature_type}_visualization_coordinates', [])
+            labels = getattr(enhanced_detector, f'{feature_type}_cluster_labels_', [])
+            
+            if len(coords) > 0:
+                viz_data["coordinates"] = coords.tolist() if hasattr(coords, 'tolist') else coords
+                viz_data["cluster_labels"] = labels.tolist() if hasattr(labels, 'tolist') else labels
+                viz_data["session_ids"] = getattr(enhanced_detector, 'session_ids', [])[:len(coords)]
+                viz_data["anomaly_scores"] = getattr(enhanced_detector, 'anomaly_scores', [])[:len(coords)]
+        
+        return {"visualization_data": convert_numpy_types(viz_data)}
+    
+    except Exception as e:
+        logger.error(f"Error getting cluster visualization data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/performance_comparison")
+async def get_performance_comparison(request_data: dict):
+    """Get performance comparison between different clustering approaches"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained to get performance comparison")
+        
+        # Generate performance comparison
+        comparison = {
+            "text_clustering": {
+                "silhouette_score": getattr(enhanced_detector, 'text_silhouette_score', 0.0),
+                "n_clusters": len(set(enhanced_detector.text_cluster_labels_)) if hasattr(enhanced_detector, 'text_cluster_labels_') else 0,
+                "n_noise": sum(1 for label in enhanced_detector.text_cluster_labels_ if label == -1) if hasattr(enhanced_detector, 'text_cluster_labels_') else 0
+            },
+            "numerical_clustering": {
+                "silhouette_score": getattr(enhanced_detector, 'numerical_silhouette_score', 0.0),
+                "n_clusters": len(set(enhanced_detector.numerical_cluster_labels_)) if hasattr(enhanced_detector, 'numerical_cluster_labels_') else 0,
+                "n_noise": sum(1 for label in enhanced_detector.numerical_cluster_labels_ if label == -1) if hasattr(enhanced_detector, 'numerical_cluster_labels_') else 0
+            },
+            "combined_clustering": {
+                "silhouette_score": getattr(enhanced_detector, 'combined_silhouette_score', 0.0),
+                "n_clusters": len(set(enhanced_detector.combined_cluster_labels_)) if hasattr(enhanced_detector, 'combined_cluster_labels_') else 0,
+                "n_noise": sum(1 for label in enhanced_detector.combined_cluster_labels_ if label == -1) if hasattr(enhanced_detector, 'combined_cluster_labels_') else 0
+            }
+        }
+        
+        return {"performance_comparison": convert_numpy_types(comparison)}
+    
+    except Exception as e:
+        logger.error(f"Error getting performance comparison: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Start monitoring background task

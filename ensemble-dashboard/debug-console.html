@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Console Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .console-output { background: #f8f9fa; padding: 10px; height: 300px; overflow-y: auto; border: 1px solid #ddd; }
+        button { margin: 5px; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Frontend/Backend Debug Console</h1>
+    
+    <div class="test-section">
+        <h3>Test 1: Basic Backend Health</h3>
+        <button onclick="testBackendHealth()">Test Backend Health</button>
+        <div id="health-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 2: CORS Test</h3>
+        <button onclick="testCORS()">Test CORS Policy</button>
+        <div id="cors-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 3: Training Stats</h3>
+        <button onclick="testTrainingStats()">Test Training Stats Endpoint</button>
+        <div id="stats-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 4: JavaScript Safe Number Function</h3>
+        <button onclick="testSafeToFixed()">Test safeToFixed Function</button>
+        <div id="safe-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Console Output</h3>
+        <div id="console-output" class="console-output"></div>
+        <button onclick="clearConsole()">Clear Console</button>
+    </div>
+    
+    <script>
+        // Capture console logs
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        const originalConsoleWarn = console.warn;
+        
+        function addToConsole(message, type = 'log') {
+            const output = document.getElementById('console-output');
+            const timestamp = new Date().toLocaleTimeString();
+            output.innerHTML += \`<div style="color: \${type === 'error' ? 'red' : type === 'warn' ? 'orange' : 'black'}">\${timestamp} [\${type.toUpperCase()}] \${message}</div>\`;
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            addToConsole(args.join(' '), 'log');
+        };
+        
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            addToConsole(args.join(' '), 'error');
+        };
+        
+        console.warn = function(...args) {
+            originalConsoleWarn.apply(console, args);
+            addToConsole(args.join(' '), 'warn');
+        };
+        
+        // Test functions
+        async function testBackendHealth() {
+            console.log('Testing backend health...');
+            const resultDiv = document.getElementById('health-result');
+            
+            try {
+                const response = await fetch('http://localhost:8001/api/health');
+                const data = await response.text();
+                
+                resultDiv.innerHTML = \`
+                    <p><strong>Status:</strong> \${response.status}</p>
+                    <pre>\${data}</pre>
+                \`;
+                
+                console.log('Backend health test completed:', response.status);
+            } catch (error) {
+                resultDiv.innerHTML = \`<p style="color: red;">Error: \${error.message}</p>\`;
+                console.error('Backend health test failed:', error);
+            }
+        }
+        
+        async function testCORS() {
+            console.log('Testing CORS policy...');
+            const resultDiv = document.getElementById('cors-result');
+            
+            try {
+                const response = await fetch('http://localhost:8001/api/health', {
+                    method: 'GET',
+                    headers: {
+                        'Origin': 'http://localhost:3000',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const corsHeaders = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods'),
+                    'Access-Control-Allow-Headers': response.headers.get('Access-Control-Allow-Headers')
+                };
+                
+                resultDiv.innerHTML = \`
+                    <p><strong>Status:</strong> \${response.status}</p>
+                    <p><strong>CORS Headers:</strong></p>
+                    <pre>\${JSON.stringify(corsHeaders, null, 2)}</pre>
+                \`;
+                
+                console.log('CORS test completed:', corsHeaders);
+            } catch (error) {
+                resultDiv.innerHTML = \`<p style="color: red;">CORS Error: \${error.message}</p>\`;
+                console.error('CORS test failed:', error);
+            }
+        }
+        
+        async function testTrainingStats() {
+            console.log('Testing training stats endpoint...');
+            const resultDiv = document.getElementById('stats-result');
+            
+            try {
+                const response = await fetch('http://localhost:8001/api/training_stats');
+                const data = await response.text();
+                
+                resultDiv.innerHTML = \`
+                    <p><strong>Status:</strong> \${response.status}</p>
+                    <pre>\${data}</pre>
+                \`;
+                
+                console.log('Training stats test completed:', response.status);
+            } catch (error) {
+                resultDiv.innerHTML = \`<p style="color: red;">Error: \${error.message}</p>\`;
+                console.error('Training stats test failed:', error);
+            }
+        }
+        
+        function testSafeToFixed() {
+            console.log('Testing safeToFixed function...');
+            const resultDiv = document.getElementById('safe-result');
+            
+            // Define the safe function locally
+            const safeToFixed = (value, decimals = 2) => {
+                console.log(\`safeToFixed called with: \${value} (type: \${typeof value})\`);
+                
+                if (value === null || value === undefined || isNaN(value) || !isFinite(value)) {
+                    console.log('Returning N/A for invalid value');
+                    return 'N/A';
+                }
+                if (typeof value !== 'number') {
+                    const num = parseFloat(value);
+                    if (isNaN(num) || !isFinite(num)) return 'N/A';
+                    return num.toFixed(decimals);
+                }
+                return value.toFixed(decimals);
+            };
+            
+            const testCases = [
+                { value: 3.14159, expected: '3.14' },
+                { value: undefined, expected: 'N/A' },
+                { value: null, expected: 'N/A' },
+                { value: NaN, expected: 'N/A' },
+                { value: '2.5', expected: '2.50' },
+                { value: 'invalid', expected: 'N/A' },
+                { value: Infinity, expected: 'N/A' }
+            ];
+            
+            let results = '<h4>Test Results:</h4>';
+            testCases.forEach((test, index) => {
+                const result = safeToFixed(test.value);
+                const passed = result === test.expected;
+                results += \`<p>Test \${index + 1}: \${test.value} → \${result} \${passed ? '✅' : '❌'}</p>\`;
+            });
+            
+            resultDiv.innerHTML = results;
+            console.log('safeToFixed function tests completed');
+        }
+        
+        function clearConsole() {
+            document.getElementById('console-output').innerHTML = '';
+        }
+        
+        // Initial message
+        console.log('Debug console loaded. Ready for testing.');
+    </script>
+</body>
+</html>
