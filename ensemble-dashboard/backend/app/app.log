@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/Users/christopherpearson/Projects/abm_ej_exporter_docker_cleaned/EJAnomalyDetectionV3/ensemble-dashboard/backend/app/main.py", line 18, in <module>
+    from enhanced_ensemble_detector import EnhancedEnsembleAnomalyDetector as EnsembleAnomalyDetector
+  File "/Users/christopherpearson/Projects/abm_ej_exporter_docker_cleaned/EJAnomalyDetectionV3/ensemble-dashboard/backend/enhanced_ensemble_detector.py", line 1908
+    feature_names = self.feature_names
+IndentationError: expected an indented block

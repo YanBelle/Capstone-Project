@@ -33,7 +33,7 @@ class ErrorBoundary extends React.Component {
 
 // Lazy load components to catch import errors
 // Lazy load components to catch import errors
-const Dashboard = React.lazy(() => import('./SimplifiedDashboard').catch(err => {
+const Dashboard = React.lazy(() => import('./Dashboard').catch(err => {
   console.error('Error loading Dashboard:', err);
   return { default: () => <div>Error loading Dashboard component</div> };
 }));

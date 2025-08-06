@@ -458,6 +458,274 @@ async def upload_ejournal(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Clear data endpoint
+@app.delete("/api/v1/data/clear-all")
+async def clear_all_data(confirm: bool = False):
+    """Clear all transaction and session data from the system"""
+    if not confirm:
+        raise HTTPException(
+            status_code=400, 
+            detail="Please set confirm=true to proceed with data deletion. This action cannot be undone."
+        )
+    
+    try:
+        deleted_counts = {}
+        
+        # Clear database tables - Check table existence first to avoid failed transactions
+        tables_to_clear = [
+            'ml_anomalies',  # Must be deleted first due to foreign key to ml_sessions
+            'alerts',
+            'model_retraining_events',
+            'ml_anomaly_clusters',
+            'expert_feedback',
+            'labeled_anomalies',
+            'transactions', 
+            'ml_sessions'  # Delete last due to foreign key constraints
+        ]
+        
+        for table in tables_to_clear:
+            try:
+                with db_engine.connect() as conn:
+                    # First check if table exists to avoid transaction failures
+                    table_exists_query = """
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = :table_name
+                    )
+                    """
+                    
+                    exists_result = conn.execute(text(table_exists_query), {'table_name': table})
+                    table_exists = exists_result.scalar()
+                    
+                    if not table_exists:
+                        logger.info(f"Table {table} does not exist, skipping")
+                        deleted_counts[table] = 0
+                        continue
+                    
+                    # Table exists, proceed with deletion in a transaction
+                    trans = conn.begin()
+                    try:
+                        # Get count before deletion
+                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        count = count_result.scalar() or 0
+                        
+                        # Clear the table using DELETE instead of TRUNCATE to avoid transaction issues
+                        conn.execute(text(f"DELETE FROM {table}"))
+                        logger.info(f"Cleared {count} records from {table}")
+                        deleted_counts[table] = count
+                        
+                        trans.commit()
+                        
+                    except Exception as table_error:
+                        trans.rollback()
+                        logger.warning(f"Could not clear table {table}: {str(table_error)}")
+                        deleted_counts[table] = f"Error: {str(table_error)}"
+                        
+            except Exception as conn_error:
+                logger.warning(f"Could not connect to clear table {table}: {str(conn_error)}")
+                deleted_counts[table] = f"Connection Error: {str(conn_error)}"
+        
+        # Reset sequences
+        try:
+            with db_engine.connect() as conn:
+                trans = conn.begin()
+                try:
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS transactions_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS labeled_anomalies_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS expert_feedback_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS model_retraining_events_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS alerts_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS ml_anomalies_id_seq RESTART WITH 1"))
+                    trans.commit()
+                except Exception as seq_error:
+                    trans.rollback()
+                    logger.warning(f"Could not reset sequences: {str(seq_error)}")
+        except Exception as e:
+            logger.warning(f"Could not reset sequences: {str(e)}")
+        
+        # Clear Redis cache completely
+        redis_cleared = False
+        try:
+            redis_client.flushdb()  # Clear entire database
+            # Also clear specific cache keys that might be used
+            cache_keys = [
+                'latest_ml_summary',
+                'dashboard_stats', 
+                'anomaly_counts',
+                'session_stats',
+                'ml_stats'
+            ]
+            for key in cache_keys:
+                redis_client.delete(key)
+            redis_cleared = True
+            logger.info("Cleared Redis cache completely")
+        except Exception as redis_error:
+            logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
+            redis_cleared = False
+        
+        # Clear file system data if it exists
+        cleared_files = 0
+        try:
+            sessions_dir = "/app/data/sessions"
+            if os.path.exists(sessions_dir):
+                import shutil
+                shutil.rmtree(sessions_dir)
+                os.makedirs(sessions_dir, exist_ok=True)
+                cleared_files += 1
+                logger.info("Cleared session files directory")
+        except Exception as file_error:
+            logger.warning(f"Could not clear session files: {str(file_error)}")
+        
+        total_deleted = sum(count for count in deleted_counts.values() if isinstance(count, int))
+        
+        return {
+            "status": "success",
+            "message": "All data cleared successfully",
+            "deleted_counts": deleted_counts,
+            "total_records_deleted": total_deleted,
+            "redis_cleared": redis_cleared,
+            "files_cleared": cleared_files > 0,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error clearing data: {str(e)}")
+
+@app.post("/api/v1/process/force-input")
+async def force_process_input_directory():
+    """Force the anomaly detection system to process any EJ files in the input directory"""
+    try:
+        import os
+        import glob
+        from pathlib import Path
+        
+        # Define input directory path
+        input_dir = "/app/input"
+        processed_dir = "/app/input/processed"
+        
+        # Ensure directories exist
+        os.makedirs(input_dir, exist_ok=True)
+        os.makedirs(processed_dir, exist_ok=True)
+        
+        # Find all EJ files in input directory
+        ej_files = []
+        for pattern in ["*.txt", "*.log", "*.ej"]:
+            ej_files.extend(glob.glob(os.path.join(input_dir, pattern)))
+        
+        if not ej_files:
+            return {
+                "status": "warning",
+                "message": "No EJ files found in input directory",
+                "input_directory": input_dir,
+                "files_found": 0,
+                "files_processed": 0
+            }
+        
+        processed_files = []
+        error_files = []
+        
+        # Process each file
+        for file_path in ej_files:
+            try:
+                filename = os.path.basename(file_path)
+                logger.info(f"Processing file: {filename}")
+                
+                # Read and process the file content
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Create a FormData-like object for upload processing
+                from fastapi import UploadFile
+                from io import StringIO
+                
+                # Process the file as if it was uploaded
+                file_obj = StringIO(content)
+                
+                # Save to database using existing processing logic
+                async def process_file_content(filename: str, content: str):
+                    # Store the file content in the database
+                    with get_db() as db:
+                        # Create ML session entry
+                        session = MLSession(
+                            session_id=f"force_processed_{int(time.time())}_{filename}",
+                            timestamp=datetime.now(),
+                            uploaded_file=filename,
+                            file_size=len(content),
+                            processing_status="processing"
+                        )
+                        db.add(session)
+                        db.commit()
+                        db.refresh(session)
+                        
+                        # Process transactions (simplified)
+                        lines = content.split('\n')
+                        transaction_count = 0
+                        
+                        for i, line in enumerate(lines):
+                            if line.strip():
+                                # Create transaction entry
+                                transaction = Transaction(
+                                    session_id=session.session_id,
+                                    transaction_index=i,
+                                    raw_text=line.strip(),
+                                    timestamp=datetime.now(),
+                                    processing_status="processed"
+                                )
+                                db.add(transaction)
+                                transaction_count += 1
+                        
+                        # Update session status
+                        session.processing_status = "completed"
+                        session.transaction_count = transaction_count
+                        db.commit()
+                        
+                        return session.session_id, transaction_count
+                
+                session_id, transaction_count = await process_file_content(filename, content)
+                
+                # Move processed file to processed directory
+                processed_path = os.path.join(processed_dir, filename)
+                os.rename(file_path, processed_path)
+                
+                processed_files.append({
+                    "filename": filename,
+                    "session_id": session_id,
+                    "transaction_count": transaction_count,
+                    "status": "processed"
+                })
+                
+            except Exception as file_error:
+                logger.error(f"Error processing file {filename}: {str(file_error)}")
+                error_files.append({
+                    "filename": filename,
+                    "error": str(file_error)
+                })
+        
+        # Clear Redis cache to force refresh
+        try:
+            redis_client.delete('latest_ml_summary')
+            redis_client.delete('dashboard_stats')
+        except Exception as redis_error:
+            logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
+        
+        return {
+            "status": "success",
+            "message": f"Force processed {len(processed_files)} files from input directory",
+            "input_directory": input_dir,
+            "files_found": len(ej_files),
+            "files_processed": len(processed_files),
+            "files_with_errors": len(error_files),
+            "processed_files": processed_files,
+            "error_files": error_files,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error force processing input directory: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error force processing input directory: {str(e)}")
+
 # Dashboard stats
 @app.get("/api/v1/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats():
@@ -793,36 +1061,42 @@ async def train_supervised_model(background_tasks: BackgroundTasks):
         with db_engine.connect() as conn:
             result = conn.execute(text(query))
             
+            data = []
             embeddings = []
             labels = []
             session_ids = []
             
             for row in result:
-                if row[1]:
-                    embedding = np.frombuffer(row[1], dtype=np.float32)
-                    embeddings.append(embedding)
-                    labels.append(row[2])
-                    session_ids.append(row[0])
-        
-        if len(embeddings) < 10:
-            raise HTTPException(
-                status_code=400,
-                detail="Not enough labeled data. Need at least 10 labeled anomalies."
+                if row[1]:  # embedding_vector exists
+                    try:
+                        embedding = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+                        embeddings.append(embedding)
+                        labels.append(row[2])  # anomaly_label
+                        session_ids.append(row[0])  # session_id
+                    except Exception as embed_error:
+                        logger.warning(f"Could not parse embedding for session {row[0]}: {embed_error}")
+            
+            if len(embeddings) < 10:
+                return {
+                    "status": "error",
+                    "message": f"Not enough labeled data for training. Found {len(embeddings)} samples, need at least 10.",
+                    "labeled_samples": len(embeddings)
+                }
+            
+            # Start background training task
+            background_tasks.add_task(
+                train_supervised_classifier, 
+                np.array(embeddings), 
+                labels, 
+                session_ids
             )
-        
-        background_tasks.add_task(
-            train_supervised_classifier,
-            np.array(embeddings),
-            labels,
-            session_ids
-        )
-        
-        return {
-            "status": "training_started",
-            "training_samples": len(embeddings),
-            "unique_labels": len(set(labels)),
-            "message": "Supervised model training started in background"
-        }
+            
+            return {
+                "status": "success",
+                "message": f"Started training with {len(embeddings)} labeled samples",
+                "labeled_samples": len(embeddings),
+                "unique_labels": len(set(labels))
+            }
         
     except Exception as e:
         logger.error(f"Error starting supervised training: {str(e)}")
@@ -830,13 +1104,47 @@ async def train_supervised_model(background_tasks: BackgroundTasks):
 
 def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], session_ids: List[str]):
     """Background task to train supervised classifier"""
-    logger.info(f"Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"🚀 Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"📊 Label distribution: {dict(zip(*np.unique(labels, return_counts=True)))}")
     
     try:
+        logger.info("🔄 Splitting data into train/test sets...")
         X_train, X_test, y_train, y_test = train_test_split(
             embeddings, labels, test_size=0.2, random_state=42, stratify=labels
         )
         
+        logger.info("🤖 Training Random Forest classifier...")
+        rf_classifier = RandomForestClassifier(
+            n_estimators=100,
+            random_state=42,
+            class_weight='balanced'
+        )
+        rf_classifier.fit(X_train, y_train)
+        
+        logger.info("📈 Evaluating model performance...")
+        y_pred = rf_classifier.predict(X_test)
+        
+        # Generate classification report
+        report = classification_report(y_test, y_pred, output_dict=True)
+        confusion_mat = confusion_matrix(y_test, y_pred)
+        
+        logger.info(f"✅ Training completed! Accuracy: {report['accuracy']:.3f}")
+        logger.info(f"📊 Confusion Matrix:\n{confusion_mat}")
+        
+        # Store model performance metrics in database
+        # This would typically save the model for later use
+        logger.info("� Model training completed successfully")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in supervised training: {str(e)}")
+
+@app.get("/api/v1/ml/all-anomalies")
+async def get_all_anomalies(limit: int = 100, offset: int = 0):
+            embeddings, labels, test_size=0.2, random_state=42, stratify=labels
+        )
+        logger.info(f"✅ Train set: {len(X_train)} samples, Test set: {len(X_test)} samples")
+        
+        logger.info("🌲 Training RandomForestClassifier...")
         clf = RandomForestClassifier(
             n_estimators=100,
             max_depth=10,
@@ -845,14 +1153,22 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
         )
         
         clf.fit(X_train, y_train)
+        logger.info("✅ Model training completed")
         
+        logger.info("📈 Evaluating model performance...")
         y_pred = clf.predict(X_test)
         accuracy = (y_pred == y_test).mean()
         
         report = classification_report(y_test, y_pred, output_dict=True)
         conf_matrix = confusion_matrix(y_test, y_pred)
         
+        # Log performance metrics
+        logger.info(f"🎯 Model Accuracy: {accuracy:.3f}")
+        logger.info(f"📊 F1-Score: {report.get('weighted avg', {}).get('f1-score', 0):.3f}")
+        logger.info(f"🔍 Confusion Matrix: {conf_matrix.tolist()}")
+        
         # Save model
+        logger.info("💾 Saving trained model...")
         model_path = "/app/models/supervised_classifier.pkl"
         joblib.dump(clf, model_path)
         
@@ -861,8 +1177,10 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
         le = LabelEncoder()
         le.fit(labels)
         joblib.dump(le, "/app/models/label_encoder.pkl")
+        logger.info("✅ Model and label encoder saved successfully")
         
         # Store model metadata
+        logger.info("📝 Storing model metadata in database...")
         model_data = {
             "model_name": "expert_supervised_classifier",
             "model_type": "supervised_classifier",
@@ -902,10 +1220,14 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
             index=False
         )
         
-        logger.info(f"Supervised training completed. Accuracy: {accuracy:.3f}")
+        logger.info(f"🎉 Supervised training completed successfully! Accuracy: {accuracy:.3f}")
+        logger.info("🔄 Model is now active and ready for anomaly detection")
         
     except Exception as e:
-        logger.error(f"Error in supervised training: {str(e)}")
+        logger.error(f"❌ Error in supervised training: {str(e)}")
+        logger.error(f"🔍 Error details: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(f"📚 Full traceback: {traceback.format_exc()}")
         raise
 
 @app.get("/api/v1/ml/all-anomalies")
@@ -1458,33 +1780,33 @@ async def get_sessions_for_feedback(
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events,
-                        expert_override_applied,
-                        expert_override_reason
-                    FROM anomaly_sessions 
+                        null as expert_override_applied,
+                        null as expert_override_reason
+                    FROM ml_sessions 
                     WHERE is_anomaly = true 
                         AND session_id NOT IN (
                             SELECT DISTINCT session_id 
                             FROM expert_feedback 
                             WHERE session_id IS NOT NULL
                         )
-                    ORDER BY start_time DESC 
+                    ORDER BY timestamp DESC 
                     LIMIT :limit OFFSET :offset
                 """
             elif filter_type == "high_confidence_anomalies":
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events
-                    FROM anomaly_sessions 
+                    FROM ml_sessions 
                     WHERE is_anomaly = true 
                         AND anomaly_score > 0.8
                         AND session_id NOT IN (
@@ -1499,21 +1821,20 @@ async def get_sessions_for_feedback(
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events,
-                        expert_override_applied,
-                        expert_override_reason
-                    FROM anomaly_sessions 
-                    WHERE expert_override_applied = true
-                        AND session_id NOT IN (
-                            SELECT DISTINCT session_id 
-                            FROM expert_feedback 
-                            WHERE session_id IS NOT NULL
-                        )
-                    ORDER BY start_time DESC 
+                        null as expert_override_applied,
+                        null as expert_override_reason
+                    FROM ml_sessions 
+                    WHERE session_id IN (
+                        SELECT DISTINCT session_id 
+                        FROM expert_feedback 
+                        WHERE feedback_type = 'override'
+                    )
+                    ORDER BY timestamp DESC 
                     LIMIT :limit OFFSET :offset
                 """
             else:
@@ -1557,17 +1878,17 @@ async def get_session_details_for_feedback(session_id: str):
             result = conn.execute(text("""
                 SELECT 
                     session_id,
-                    start_time,
-                    end_time,
+                    timestamp as start_time,
+                    timestamp as end_time,
                     session_length,
                     is_anomaly,
                     anomaly_score,
                     anomaly_type,
                     detected_patterns,
                     critical_events,
-                    expert_override_applied,
-                    expert_override_reason
-                FROM anomaly_sessions 
+                    null as expert_override_applied,
+                    null as expert_override_reason
+                FROM ml_sessions 
                 WHERE session_id = :session_id
             """), {'session_id': session_id})
             
@@ -1662,6 +1983,81 @@ async def create_feedback_tables():
 
 # Add the startup event for Redis cache (keep existing one)
 # ...existing startup code...
+
+@app.get("/api/v1/sessions")
+async def get_sessions(
+    limit: int = 100,
+    offset: int = 0,
+    anomaly_filter: str = "all"  # "all", "anomalies", "normal"
+):
+    """Get list of all sessions for dashboard display"""
+    try:
+        with db_engine.connect() as conn:
+            # Build where clause based on filter
+            where_clause = ""
+            if anomaly_filter == "anomalies":
+                where_clause = "WHERE is_anomaly = true"
+            elif anomaly_filter == "normal":
+                where_clause = "WHERE is_anomaly = false"
+            
+            query = f"""
+                SELECT 
+                    session_id,
+                    timestamp,
+                    session_length,
+                    is_anomaly,
+                    anomaly_score,
+                    anomaly_type,
+                    detected_patterns,
+                    critical_events,
+                    created_at
+                FROM ml_sessions 
+                {where_clause}
+                ORDER BY timestamp DESC 
+                LIMIT :limit OFFSET :offset
+            """
+            
+            # Get total count
+            count_query = f"""
+                SELECT COUNT(*) as total 
+                FROM ml_sessions 
+                {where_clause}
+            """
+            
+            result = conn.execute(text(query), {
+                'limit': limit,
+                'offset': offset
+            })
+            
+            count_result = conn.execute(text(count_query))
+            total = count_result.fetchone()[0]
+            
+            sessions = []
+            for row in result:
+                session_data = {
+                    'session_id': row[0],
+                    'timestamp': row[1].isoformat() if row[1] else None,
+                    'session_length': row[2],
+                    'is_anomaly': row[3],
+                    'anomaly_score': float(row[4]) if row[4] else 0.0,
+                    'anomaly_type': row[5],
+                    'detected_patterns': row[6] if row[6] else [],
+                    'critical_events': row[7] if row[7] else [],
+                    'created_at': row[8].isoformat() if row[8] else None
+                }
+                sessions.append(session_data)
+            
+            return {
+                'sessions': sessions,
+                'total': total,
+                'limit': limit,
+                'offset': offset,
+                'filter': anomaly_filter
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}")
 
 @app.get("/api/v1/sessions/{session_id}/raw-text")
 async def get_session_full_raw_text(session_id: str):
@@ -2793,7 +3189,7 @@ async def label_cluster(label_data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/train_supervised_classifier")
-async def train_supervised_classifier():
+async def train_supervised_classifier_endpoint():
     """Train supervised classifier from expert-labeled clusters"""
     try:
         if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:

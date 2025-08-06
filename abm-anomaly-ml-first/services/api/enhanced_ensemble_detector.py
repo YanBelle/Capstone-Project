@@ -281,14 +281,6 @@ class EnhancedEnsembleDetector:
         dbscan = DBSCAN(eps=eps, min_samples=min_samples)
         labels = dbscan.fit_predict(features)
         
-        # Store cluster labels for later retrieval
-        if feature_type == 'text':
-            self.text_cluster_labels = labels.tolist()
-        elif feature_type == 'numerical':
-            self.numerical_cluster_labels = labels.tolist()
-        elif feature_type == 'combined':
-            self.combined_cluster_labels = labels.tolist()
-        
         # Calculate metrics
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
         n_noise = np.sum(labels == -1)
@@ -335,54 +327,23 @@ class EnhancedEnsembleDetector:
         
         return results
     
-    def train(self, sessions: List[Dict]) -> Dict[str, Any]:
+    def train(self, sessions: List[str]) -> Dict[str, Any]:
         """
         Train the enhanced ensemble detector
         
         Args:
-            sessions: List of training sessions (can be strings or dicts)
+            sessions: List of training session strings
             
         Returns:
             Training results dictionary
         """
         logger.info(f"Training enhanced ensemble detector with {len(sessions)} sessions")
         
-        # Convert string sessions to dictionary format if needed
-        processed_sessions = []
-        for i, session in enumerate(sessions):
-            if isinstance(session, str):
-                # Convert string to expected dictionary format
-                session_dict = {
-                    'session_id': f'session_{i}',
-                    'raw_text': session,
-                    'ej_logs': [session],  # Feature extraction expects this
-                    'anomaly_score': 0.0,
-                    'anomaly_type': 'unknown',
-                    'timestamp': None,
-                    'has_errors': False,
-                    'error_types': [],
-                    'transaction_type': 'unknown'
-                }
-                processed_sessions.append(session_dict)
-            elif isinstance(session, dict):
-                # Ensure dictionary has required fields
-                session_dict = {
-                    'session_id': session.get('session_id', f'session_{i}'),
-                    'raw_text': session.get('raw_text', ''),
-                    'ej_logs': session.get('ej_logs', [session.get('raw_text', '')]),
-                    'anomaly_score': session.get('anomaly_score', 0.0),
-                    'anomaly_type': session.get('anomaly_type', 'unknown'),
-                    'timestamp': session.get('timestamp', None),
-                    'has_errors': session.get('has_errors', False),
-                    'error_types': session.get('error_types', []),
-                    'transaction_type': session.get('transaction_type', 'unknown')
-                }
-                processed_sessions.append(session_dict)
-            else:
-                raise ValueError(f"Invalid session format at index {i}: expected string or dict")
+        # Store training sessions for cluster analysis
+        self.training_sessions = sessions
         
         # Extract features
-        text_features, numerical_features = self.extract_features(processed_sessions)
+        text_features, numerical_features = self.extract_features(sessions)
         
         # Scale features
         text_features_scaled = self.text_scaler.fit_transform(text_features)
@@ -422,12 +383,6 @@ class EnhancedEnsembleDetector:
         combined_results = self.perform_clustering_analysis(combined_features_scaled, "combined")
         self.dbscan_combined = combined_results['dbscan_model']
         
-        # Store scaled features and training sessions for cluster interaction
-        self.text_features_scaled = text_features_scaled
-        self.numerical_features_scaled = numerical_features_scaled  
-        self.combined_features_scaled = combined_features_scaled
-        self.training_sessions = processed_sessions
-        
         # Store clustering results
         self.cluster_results = {
             'text': text_results,
@@ -437,7 +392,7 @@ class EnhancedEnsembleDetector:
         
         # Calculate training statistics
         self.training_stats = {
-            'n_sessions': len(processed_sessions),
+            'n_sessions': len(sessions),
             'text_features_shape': text_features.shape,
             'numerical_features_shape': numerical_features.shape,
             'combined_features_shape': combined_features_scaled.shape,
@@ -493,6 +448,11 @@ class EnhancedEnsembleDetector:
         text_clusters = self.dbscan_text.fit_predict(text_features_scaled)
         numerical_clusters = self.dbscan_numerical.fit_predict(numerical_features_scaled)
         combined_clusters = self.dbscan_combined.fit_predict(combined_features_scaled)
+        
+        # Store cluster labels for expert labeling
+        self.text_cluster_labels = text_clusters
+        self.numerical_cluster_labels = numerical_clusters
+        self.combined_cluster_labels = combined_clusters
         
         # Calculate density-based anomaly scores
         density_scores = []
@@ -780,10 +740,6 @@ class EnhancedEnsembleDetector:
             self.training_stats = metadata.get('training_stats', {})
             self.cluster_results = metadata.get('cluster_results', {})
             
-            # Load cluster labels and supervised model
-            self._load_cluster_labels()
-            self._load_supervised_model()
-            
             logger.info("Models loaded successfully")
             return True
             
@@ -793,367 +749,222 @@ class EnhancedEnsembleDetector:
     
     def get_cluster_sessions(self, cluster_id: int, feature_type: str = 'combined') -> List[Dict[str, Any]]:
         """
-        Get EJ sessions belonging to a specific cluster
+        Get all sessions belonging to a specific cluster
         
         Args:
             cluster_id: The cluster ID to get sessions for
             feature_type: Type of features used for clustering ('text', 'numerical', 'combined')
-            
+        
         Returns:
-            List of session dictionaries with detailed information
+            List of session dictionaries with text and metadata
         """
-        logger.info(f"get_cluster_sessions called with cluster_id={cluster_id}, feature_type={feature_type}")
-        
-        if not self.is_trained:
-            logger.error("Model is not trained")
-            raise ValueError("Model must be trained before getting cluster sessions")
-        
-        logger.info(f"Model is trained. Available attributes:")
-        logger.info(f"  hasattr text_cluster_labels: {hasattr(self, 'text_cluster_labels')}")
-        logger.info(f"  hasattr numerical_cluster_labels: {hasattr(self, 'numerical_cluster_labels')}")
-        logger.info(f"  hasattr combined_cluster_labels: {hasattr(self, 'combined_cluster_labels')}")
-        
-        # Get the appropriate cluster labels
-        if feature_type == 'text' and hasattr(self, 'text_cluster_labels'):
-            labels = self.text_cluster_labels
-            logger.info(f"Using text_cluster_labels: {len(labels) if labels else 0} labels")
-        elif feature_type == 'numerical' and hasattr(self, 'numerical_cluster_labels'):
-            labels = self.numerical_cluster_labels
-            logger.info(f"Using numerical_cluster_labels: {len(labels) if labels else 0} labels")
-        elif feature_type == 'combined' and hasattr(self, 'combined_cluster_labels'):
-            labels = self.combined_cluster_labels
-            logger.info(f"Using combined_cluster_labels: {len(labels) if labels else 0} labels")
-        else:
-            logger.error(f"No cluster labels found for feature type: {feature_type}")
-            raise ValueError(f"No cluster labels found for feature type: {feature_type}")
-        
-        if labels is None:
-            logger.error(f"Cluster labels for {feature_type} is None")
-            raise ValueError(f"Cluster labels for {feature_type} is None")
-        
-        # Find sessions in the specified cluster
-        cluster_sessions = []
-        cluster_indices = np.where(np.array(labels) == cluster_id)[0]
-        
-        logger.info(f"Found {len(cluster_indices)} sessions in cluster {cluster_id} for {feature_type} features")
-        logger.info(f"training_sessions available: {hasattr(self, 'training_sessions')}")
-        if hasattr(self, 'training_sessions'):
-            logger.info(f"training_sessions length: {len(self.training_sessions) if self.training_sessions else 0}")
-        
-        for idx in cluster_indices:
-            logger.info(f"Processing session index {idx}")
-            if idx < len(self.training_sessions):
-                session = self.training_sessions[idx]
-                logger.info(f"Session type: {type(session)}")
-                if isinstance(session, dict):
-                    logger.info(f"Session keys: {list(session.keys())}")
-                
-                # Create detailed session info
-                session_info = {
-                    'index': int(idx),
-                    'session_id': session.get('session_id', f'session_{idx}'),
-                    'raw_text': session.get('raw_text', ''),
-                    'raw_text_preview': session.get('raw_text', '')[:500] + '...' if len(session.get('raw_text', '')) > 500 else session.get('raw_text', ''),
-                    'cluster_id': int(cluster_id),
-                    'feature_type': feature_type,
-                    'anomaly_score': session.get('anomaly_score', 0.0),
-                    'anomaly_type': session.get('anomaly_type', 'unknown'),
-                    'timestamp': session.get('timestamp', None),
-                    'has_errors': session.get('has_errors', False),
-                    'error_types': session.get('error_types', []),
-                    'transaction_type': session.get('transaction_type', 'unknown'),
-                    'expert_label': getattr(self, 'cluster_labels', {}).get(f"{feature_type}_{cluster_id}", {}).get('label_name', None),
-                    'expert_confidence': getattr(self, 'cluster_labels', {}).get(f"{feature_type}_{cluster_id}", {}).get('confidence', None)
-                }
-                
-                cluster_sessions.append(session_info)
-                logger.info(f"Added session {idx} to cluster_sessions")
+        try:
+            if not self.is_trained or not hasattr(self, 'training_sessions'):
+                raise ValueError("Model not trained or training data not available")
+            
+            # Get the appropriate cluster labels
+            if feature_type == 'text' and hasattr(self, 'text_cluster_labels'):
+                cluster_labels = self.text_cluster_labels
+            elif feature_type == 'numerical' and hasattr(self, 'numerical_cluster_labels'):
+                cluster_labels = self.numerical_cluster_labels
+            elif feature_type == 'combined' and hasattr(self, 'combined_cluster_labels'):
+                cluster_labels = self.combined_cluster_labels
             else:
-                logger.warning(f"Session index {idx} out of range (training_sessions length: {len(self.training_sessions)})")
-        
-        logger.info(f"Returning {len(cluster_sessions)} cluster sessions")
-        return cluster_sessions
+                raise ValueError(f"No cluster labels found for feature_type: {feature_type}")
+            
+            # Find sessions in the specified cluster
+            cluster_sessions = []
+            for i, label in enumerate(cluster_labels):
+                if label == cluster_id and i < len(self.training_sessions):
+                    session_text = self.training_sessions[i]
+                    
+                    # Create session metadata
+                    session_info = {
+                        'index': i,
+                        'text': session_text,
+                        'cluster_id': cluster_id,
+                        'feature_type': feature_type,
+                        'length': len(session_text),
+                        'word_count': len(session_text.split()) if isinstance(session_text, str) else 0
+                    }
+                    
+                    cluster_sessions.append(session_info)
+            
+            return cluster_sessions
+            
+        except Exception as e:
+            logger.error(f"Error getting cluster sessions: {e}")
+            raise
     
-    def label_cluster(self, cluster_id: int, feature_type: str, label_name: str, 
-                     label_description: str = '', expert_confidence: float = 0.8) -> Dict[str, Any]:
+    def label_cluster(self, cluster_id: int, label: str, feature_type: str = 'combined') -> bool:
         """
-        Apply expert label to a cluster
+        Assign a human-readable label to a cluster
         
         Args:
             cluster_id: The cluster ID to label
-            feature_type: Type of features ('text', 'numerical', 'combined')
-            label_name: Expert-assigned label name
-            label_description: Optional description of the label
-            expert_confidence: Expert confidence in the label (0-1)
-            
+            label: Human-readable label for the cluster
+            feature_type: Type of features used for clustering
+        
         Returns:
-            Dictionary with labeling result
+            True if successful, False otherwise
         """
-        if not self.is_trained:
-            raise ValueError("Model must be trained before labeling clusters")
-        
-        # Initialize cluster labels if not exists
-        if not hasattr(self, 'cluster_labels'):
-            self.cluster_labels = {}
-        
-        # Create label key
-        label_key = f"{feature_type}_{cluster_id}"
-        
-        # Store the label
-        self.cluster_labels[label_key] = {
-            'cluster_id': cluster_id,
-            'feature_type': feature_type,
-            'label_name': label_name,
-            'label_description': label_description,
-            'confidence': expert_confidence,
-            'timestamp': datetime.now().isoformat(),
-            'session_count': len(self.get_cluster_sessions(cluster_id, feature_type))
-        }
-        
-        logger.info(f"Applied label '{label_name}' to cluster {cluster_id} ({feature_type}) with confidence {expert_confidence}")
-        
-        # Save labels to file
-        self._save_cluster_labels()
-        
-        return {
-            'success': True,
-            'label_key': label_key,
-            'label_info': self.cluster_labels[label_key]
-        }
-    
-    def _save_cluster_labels(self):
-        """Save cluster labels to file"""
         try:
-            labels_path = os.path.join(self.models_dir, 'cluster_labels.json')
-            os.makedirs(os.path.dirname(labels_path), exist_ok=True)
-            
-            with open(labels_path, 'w') as f:
-                json.dump(self.cluster_labels, f, indent=2)
-            
-            logger.info(f"Cluster labels saved to {labels_path}")
-            
-        except Exception as e:
-            logger.error(f"Error saving cluster labels: {e}")
-    
-    def _load_cluster_labels(self):
-        """Load cluster labels from file"""
-        try:
-            labels_path = os.path.join(self.models_dir, 'cluster_labels.json')
-            if os.path.exists(labels_path):
-                with open(labels_path, 'r') as f:
-                    self.cluster_labels = json.load(f)
-                logger.info(f"Loaded {len(self.cluster_labels)} cluster labels")
-            else:
+            # Initialize cluster labels storage if it doesn't exist
+            if not hasattr(self, 'cluster_labels'):
                 self.cluster_labels = {}
-                
+            
+            # Store the label with feature type context
+            label_key = f"{feature_type}_{cluster_id}"
+            self.cluster_labels[label_key] = {
+                'cluster_id': cluster_id,
+                'label': label,
+                'feature_type': feature_type,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Labeled cluster {cluster_id} ({feature_type}) as '{label}'")
+            return True
+            
         except Exception as e:
-            logger.error(f"Error loading cluster labels: {e}")
-            self.cluster_labels = {}
+            logger.error(f"Error labeling cluster: {e}")
+            return False
     
-    def train_supervised_classifier(self) -> Dict[str, Any]:
+    def train_supervised_classifier(self, force_retrain: bool = False) -> Dict[str, Any]:
         """
-        Train supervised classifier from expert-labeled clusters
+        Train a supervised classifier using labeled clusters
+        
+        Args:
+            force_retrain: Whether to retrain even if classifier exists
         
         Returns:
-            Dictionary with training results
+            Training statistics and performance metrics
         """
-        if not self.is_trained:
-            raise ValueError("Model must be trained before training supervised classifier")
-        
-        if not hasattr(self, 'cluster_labels') or not self.cluster_labels:
-            raise ValueError("No expert labels found. Please label some clusters first.")
-        
-        logger.info("Training supervised classifier from expert labels")
-        
-        # Collect labeled data
-        labeled_features = []
-        labeled_targets = []
-        
-        for label_key, label_info in self.cluster_labels.items():
-            feature_type = label_info['feature_type']
-            cluster_id = label_info['cluster_id']
-            label_name = label_info['label_name']
-            
-            # Get sessions for this cluster
-            cluster_sessions = self.get_cluster_sessions(cluster_id, feature_type)
-            
-            # Get features for these sessions
-            for session_info in cluster_sessions:
-                session_idx = session_info['index']
-                
-                # Get appropriate features
-                if feature_type == 'text' and hasattr(self, 'text_features_scaled'):
-                    features = self.text_features_scaled[session_idx]
-                elif feature_type == 'numerical' and hasattr(self, 'numerical_features_scaled'):
-                    features = self.numerical_features_scaled[session_idx]
-                elif feature_type == 'combined' and hasattr(self, 'combined_features_scaled'):
-                    features = self.combined_features_scaled[session_idx]
-                else:
-                    continue
-                
-                labeled_features.append(features)
-                labeled_targets.append(label_name)
-        
-        if len(labeled_features) == 0:
-            raise ValueError("No valid labeled features found")
-        
-        # Convert to numpy arrays
-        X = np.array(labeled_features)
-        y = np.array(labeled_targets)
-        
-        logger.info(f"Training supervised classifier with {len(X)} labeled samples and {len(set(y))} classes")
-        
-        # Split data for validation
-        from sklearn.model_selection import train_test_split
-        from sklearn.ensemble import RandomForestClassifier
-        from sklearn.metrics import classification_report, accuracy_score
-        
-        if len(set(y)) > 1 and len(X) > 10:  # Only split if we have enough data
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-        else:
-            X_train, X_test, y_train, y_test = X, X, y, y
-        
-        # Train Random Forest classifier
-        self.supervised_classifier = RandomForestClassifier(
-            n_estimators=100,
-            random_state=42,
-            class_weight='balanced'
-        )
-        
-        self.supervised_classifier.fit(X_train, y_train)
-        
-        # Evaluate
-        y_pred = self.supervised_classifier.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        
-        # Store label encoder for consistency
-        from sklearn.preprocessing import LabelEncoder
-        self.label_encoder = LabelEncoder()
-        self.label_encoder.fit(y)
-        
-        # Save supervised model
-        self._save_supervised_model()
-        
-        result = {
-            'success': True,
-            'accuracy': accuracy,
-            'training_samples': len(X_train),
-            'test_samples': len(X_test),
-            'classes': list(set(y)),
-            'class_distribution': {label: int(np.sum(y == label)) for label in set(y)},
-            'feature_importance': self.supervised_classifier.feature_importances_.tolist() if hasattr(self.supervised_classifier, 'feature_importances_') else None
-        }
-        
-        logger.info(f"Supervised classifier trained with accuracy: {accuracy:.3f}")
-        
-        return result
-    
-    def _save_supervised_model(self):
-        """Save supervised model to file"""
         try:
-            if hasattr(self, 'supervised_classifier'):
-                model_path = os.path.join(self.models_dir, 'supervised_classifier.pkl')
-                joblib.dump(self.supervised_classifier, model_path)
-                
-                if hasattr(self, 'label_encoder'):
-                    encoder_path = os.path.join(self.models_dir, 'label_encoder.pkl')
-                    joblib.dump(self.label_encoder, encoder_path)
-                
-                logger.info("Supervised model saved successfully")
-                
-        except Exception as e:
-            logger.error(f"Error saving supervised model: {e}")
-    
-    def _load_supervised_model(self):
-        """Load supervised model from file"""
-        try:
-            model_path = os.path.join(self.models_dir, 'supervised_classifier.pkl')
-            encoder_path = os.path.join(self.models_dir, 'label_encoder.pkl')
+            if not hasattr(self, 'cluster_labels') or not self.cluster_labels:
+                raise ValueError("No labeled clusters available for supervised training")
             
-            if os.path.exists(model_path):
-                self.supervised_classifier = joblib.load(model_path)
-                logger.info("Supervised classifier loaded")
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.model_selection import cross_val_score
+            from sklearn.metrics import classification_report
+            
+            # Prepare training data
+            X_train = []
+            y_train = []
+            
+            for label_key, label_info in self.cluster_labels.items():
+                cluster_id = label_info['cluster_id']
+                feature_type = label_info['feature_type']
+                label = label_info['label']
                 
-                if os.path.exists(encoder_path):
-                    self.label_encoder = joblib.load(encoder_path)
-                    logger.info("Label encoder loaded")
+                # Get sessions for this cluster
+                try:
+                    sessions = self.get_cluster_sessions(cluster_id, feature_type)
                     
+                    # Extract features for each session
+                    for session in sessions:
+                        session_text = session['text']
+                        
+                        # Create feature vector (use combined features for consistency)
+                        if hasattr(self, 'tfidf_vectorizer'):
+                            text_features = self.tfidf_vectorizer.transform([session_text])
+                            numerical_features = self._extract_numerical_features([session_text])
+                            
+                            # Combine features
+                            combined_features = np.hstack([
+                                text_features.toarray(),
+                                numerical_features
+                            ])
+                            
+                            X_train.append(combined_features[0])
+                            y_train.append(label)
+                            
+                except Exception as e:
+                    logger.warning(f"Error processing cluster {cluster_id}: {e}")
+                    continue
+            
+            if len(X_train) == 0:
+                raise ValueError("No training data could be extracted from labeled clusters")
+            
+            # Train supervised classifier
+            X_train = np.array(X_train)
+            y_train = np.array(y_train)
+            
+            self.supervised_classifier = RandomForestClassifier(
+                n_estimators=100,
+                random_state=self.random_state,
+                class_weight='balanced'
+            )
+            
+            self.supervised_classifier.fit(X_train, y_train)
+            
+            # Evaluate classifier
+            cv_scores = cross_val_score(self.supervised_classifier, X_train, y_train, cv=5)
+            
+            # Store training statistics
+            training_stats = {
+                'num_samples': len(X_train),
+                'num_classes': len(np.unique(y_train)),
+                'classes': list(np.unique(y_train)),
+                'cv_accuracy_mean': cv_scores.mean(),
+                'cv_accuracy_std': cv_scores.std(),
+                'feature_dimensions': X_train.shape[1],
+                'training_timestamp': datetime.now().isoformat()
+            }
+            
+            # Store classifier state
+            self.supervised_training_stats = training_stats
+            
+            logger.info(f"Supervised classifier trained successfully: {training_stats}")
+            return training_stats
+            
         except Exception as e:
-            logger.error(f"Error loading supervised model: {e}")
+            logger.error(f"Error training supervised classifier: {e}")
+            raise
     
     def predict_supervised(self, session_text: str) -> Dict[str, Any]:
         """
-        Predict cluster label for new session using supervised model
+        Predict cluster label for a session using supervised classifier
         
         Args:
-            session_text: Raw EJ session text
-            
-        Returns:
-            Dictionary with prediction results
-        """
-        if not hasattr(self, 'supervised_classifier'):
-            raise ValueError("Supervised classifier not trained. Please train it first.")
-        
-        # Extract features for the session
-        text_features, numerical_features = self._extract_features([{'raw_text': session_text}])
-        
-        # Try different feature types (use combined if available)
-        predictions = {}
-        
-        if hasattr(self, 'combined_scaler') and text_features.shape[0] > 0 and numerical_features.shape[0] > 0:
-            # Use combined features
-            combined_features = np.hstack([text_features, numerical_features])
-            combined_scaled = self.combined_scaler.transform(combined_features)
-            
-            pred_proba = self.supervised_classifier.predict_proba(combined_scaled)[0]
-            pred_class = self.supervised_classifier.predict(combined_scaled)[0]
-            
-            predictions['combined'] = {
-                'predicted_label': pred_class,
-                'confidence': float(np.max(pred_proba)),
-                'all_probabilities': {
-                    label: float(prob) for label, prob in zip(self.supervised_classifier.classes_, pred_proba)
-                }
-            }
-        
-        # Fallback to text features if combined not available
-        elif hasattr(self, 'text_scaler') and text_features.shape[0] > 0:
-            text_scaled = self.text_scaler.transform(text_features)
-            
-            pred_proba = self.supervised_classifier.predict_proba(text_scaled)[0]
-            pred_class = self.supervised_classifier.predict(text_scaled)[0]
-            
-            predictions['text'] = {
-                'predicted_label': pred_class,
-                'confidence': float(np.max(pred_proba)),
-                'all_probabilities': {
-                    label: float(prob) for label, prob in zip(self.supervised_classifier.classes_, pred_proba)
-                }
-            }
-        
-        if not predictions:
-            raise ValueError("Could not extract valid features for prediction")
-        
-        return {
-            'session_preview': session_text[:200] + '...' if len(session_text) > 200 else session_text,
-            'predictions': predictions,
-            'timestamp': datetime.now().isoformat()
-        }
-    
-    def get_cluster_labels(self) -> Dict[str, Any]:
-        """
-        Get all expert-applied cluster labels
+            session_text: The session text to classify
         
         Returns:
-            Dictionary with all cluster labels
+            Prediction results with confidence scores
         """
-        if not hasattr(self, 'cluster_labels'):
-            self.cluster_labels = {}
-        
-        return {
-            'labels': self.cluster_labels,
-            'total_labels': len(self.cluster_labels),
-            'feature_types': list(set(label_info['feature_type'] for label_info in self.cluster_labels.values())),
-            'unique_labels': list(set(label_info['label_name'] for label_info in self.cluster_labels.values())),
-            'supervised_trained': hasattr(self, 'supervised_classifier')
-        }
+        try:
+            if not hasattr(self, 'supervised_classifier'):
+                raise ValueError("Supervised classifier not trained. Call train_supervised_classifier() first.")
+            
+            # Extract features
+            text_features = self.tfidf_vectorizer.transform([session_text])
+            numerical_features = self._extract_numerical_features([session_text])
+            
+            # Combine features
+            combined_features = np.hstack([
+                text_features.toarray(),
+                numerical_features
+            ])
+            
+            # Make prediction
+            prediction = self.supervised_classifier.predict(combined_features)[0]
+            probabilities = self.supervised_classifier.predict_proba(combined_features)[0]
+            
+            # Get class labels
+            classes = self.supervised_classifier.classes_
+            
+            # Create prediction result
+            prediction_result = {
+                'predicted_label': prediction,
+                'confidence': max(probabilities),
+                'all_probabilities': {
+                    classes[i]: probabilities[i] for i in range(len(classes))
+                },
+                'session_text': session_text,
+                'prediction_timestamp': datetime.now().isoformat()
+            }
+            
+            return prediction_result
+            
+        except Exception as e:
+            logger.error(f"Error making supervised prediction: {e}")
+            raise
