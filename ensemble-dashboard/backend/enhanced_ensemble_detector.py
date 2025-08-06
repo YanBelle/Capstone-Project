@@ -1,5 +1,5 @@
 """
-Enhanced Ensemble Anomaly Detection Model with DBSCAN Integration
+Enhanced Ensemble Anomaly Detection Model with BERT and DBSCAN Integration
 """
 
 import numpy as np
@@ -19,18 +19,45 @@ from sklearn.decomposition import PCA
 import warnings
 warnings.filterwarnings('ignore')
 
+# BERT dependencies
+try:
+    from transformers import AutoTokenizer, AutoModel
+    import torch
+    BERT_AVAILABLE = True
+except ImportError:
+    print("Warning: BERT dependencies not available. Falling back to TF-IDF.")
+    BERT_AVAILABLE = False
+
 class EnhancedEnsembleAnomalyDetector:
     """
     Enhanced ensemble anomaly detection system with DBSCAN integration
     Combines text analysis, statistical analysis, and density-based clustering
     """
     
-    def __init__(self, model_dir: str = "./models"):
+    def __init__(self, model_dir: str = "./models", use_bert: bool = True):
         self.model_dir = model_dir
         os.makedirs(model_dir, exist_ok=True)
         
+        # BERT configuration
+        self.use_bert = use_bert and BERT_AVAILABLE
+        if self.use_bert:
+            # Use DistilBERT for faster processing while maintaining good performance
+            self.bert_model_name = "distilbert-base-uncased"
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.bert_model_name)
+                self.bert_model = AutoModel.from_pretrained(self.bert_model_name)
+                self.bert_model.eval()
+                print("BERT initialized successfully for semantic text analysis")
+            except Exception as e:
+                print(f"Failed to initialize BERT: {e}")
+                self.use_bert = False
+                
+        # Fallback to TF-IDF if BERT not available
+        if not self.use_bert:
+            self.text_vectorizer = TfidfVectorizer(max_features=500, ngram_range=(1, 2), lowercase=True)
+            print("Using TF-IDF for text vectorization")
+        
         # Original ensemble components
-        self.text_vectorizer = TfidfVectorizer(max_features=500, ngram_range=(1, 2), lowercase=True)
         self.svm_model = OneClassSVM(kernel='rbf', gamma='scale', nu=0.1)
         self.isolation_model = IsolationForest(contamination=0.1, random_state=42)
         self.scaler = StandardScaler()
@@ -67,6 +94,555 @@ class EnhancedEnsembleAnomalyDetector:
             'combined_min_samples': 3
         }
     
+    def _preprocess_atm_text(self, text: str) -> str:
+        """Preprocess ATM session text for better BERT understanding"""
+        # Replace ATM-specific codes with more semantic terms
+        text = re.sub(r'M-(\d+)', r'machine_status_\1', text)
+        text = re.sub(r'E-(\d+)', r'error_code_\1', text)
+        text = re.sub(r'OPCODE_([A-Z]+)', r'operation_\1', text)
+        
+        # Add semantic context to operations for better BERT understanding
+        replacements = {
+            'CARD_INSERTED': 'card reader activated',
+            'ATR_RECEIVED': 'card authentication started', 
+            'PIN_ENTERED': 'customer authentication',
+            'NOTES_STACKED': 'cash dispensing successful',
+            'NOTES_PRESENTED': 'cash presented to customer',
+            'NOTES_TAKEN': 'cash taken by customer',
+            'CARD_TAKEN': 'card returned to customer',
+            'RECEIPT_PRINTED': 'transaction receipt printed',
+            'TRANSACTION_START': 'transaction initiated',
+            'TRANSACTION_END': 'transaction completed',
+            'DEVICE_ERROR': 'critical hardware failure',
+            'TIMEOUT': 'operation timeout error',
+            'COMMUNICATION_FAILURE': 'network connectivity error',
+            'RECOVERY_FAILED': 'device recovery unsuccessful',
+            'SUPERVISOR_MODE': 'maintenance mode activated',
+            'CASH_DISPENSED': 'money dispensing completed',
+            'PRIMARY_CARD_READER_ACTIVATED': 'card reader ready for next transaction'
+        }
+        
+        for code, meaning in replacements.items():
+            text = text.replace(code, meaning)
+        
+        # Clean up formatting for BERT
+        text = re.sub(r'\s+', ' ', text)  # Multiple spaces to single space
+        text = text.strip().lower()
+        
+        return text
+    
+    def _get_bert_embeddings(self, texts: List[str]) -> np.ndarray:
+        """Generate BERT embeddings for text clustering"""
+        if not self.use_bert:
+            raise ValueError("BERT not available")
+            
+        embeddings = []
+        batch_size = 8  # Process in batches to manage memory
+        
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            processed_texts = [self._preprocess_atm_text(text) for text in batch_texts]
+            
+            # Tokenize batch
+            inputs = self.tokenizer(
+                processed_texts, 
+                return_tensors="pt", 
+                padding=True, 
+                truncation=True, 
+                max_length=512
+            )
+            
+            # Generate embeddings
+            with torch.no_grad():
+                outputs = self.bert_model(**inputs)
+                # Use [CLS] token embedding as sentence representation
+                batch_embeddings = outputs.last_hidden_state[:, 0, :].numpy()
+                embeddings.extend(batch_embeddings)
+        
+        return np.array(embeddings)
+    
+    def _get_enhanced_semantic_embeddings(self, texts: List[str]) -> np.ndarray:
+        """
+        Generate enhanced BERT embeddings with improved ATM domain preprocessing
+        """
+        if not self.use_bert:
+            raise ValueError("BERT not available for semantic clustering")
+            
+        print(f"Generating enhanced semantic embeddings for {len(texts)} ATM sessions...")
+        
+        # Enhanced ATM semantic mappings for better clustering
+        atm_semantic_mappings = {
+            # Transaction types
+            'TRANSACTION_START': 'customer initiated transaction',
+            'CARD_INSERTED': 'card reader activation and verification',
+            'PIN_ENTERED': 'customer authentication process',
+            'AMOUNT_SELECTED': 'cash withdrawal request',
+            'CASH_DISPENSED': 'successful money dispensing',
+            'CARD_EJECTED': 'transaction completion',
+            'RECEIPT_PRINTED': 'transaction documentation',
+            
+            # Error categories  
+            'DEVICE_ERROR': 'critical hardware malfunction requiring service',
+            'COMMUNICATION_FAILURE': 'network connectivity issues affecting operations',
+            'CASH_JAM': 'physical dispenser mechanism failure',
+            'CARD_CAPTURE': 'security response to authentication failure',
+            'TIMEOUT_ERROR': 'system response delay exceeding limits',
+            'SUPERVISOR_MODE': 'administrative intervention required',
+            
+            # Status codes
+            'M-65': 'device initialization failure',
+            'M-01': 'critical system error',
+            'M-15': 'dispenser mechanism fault',
+            'M-23': 'communication timeout',
+            'E-45': 'authentication failure',
+            'E-67': 'cash handling error'
+        }
+        
+        embeddings = []
+        batch_size = 8
+        
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            
+            # Enhanced preprocessing for semantic understanding
+            processed_texts = []
+            for text in batch_texts:
+                processed_text = text.lower()
+                
+                # Apply semantic mappings
+                for code, meaning in atm_semantic_mappings.items():
+                    pattern = code.lower().replace('_', r'[\s_-]*')
+                    processed_text = re.sub(pattern, meaning, processed_text)
+                
+                # Clean up common ATM patterns for better semantic focus
+                processed_text = re.sub(r'\b\d{2}:\d{2}:\d{2}\b', 'timestamp', processed_text)
+                processed_text = re.sub(r'\b\d{4}-\d{2}-\d{2}\b', 'date', processed_text)
+                processed_text = re.sub(r'\$\d+\.?\d*', 'currency_amount', processed_text)
+                processed_text = re.sub(r'\b[A-Z]{2,}\b', lambda m: m.group().lower(), processed_text)
+                
+                # Focus on semantic content
+                semantic_keywords = [
+                    'customer', 'transaction', 'authentication', 'dispensing', 'error',
+                    'failure', 'success', 'completion', 'verification', 'security',
+                    'hardware', 'network', 'communication', 'service', 'maintenance'
+                ]
+                
+                # Ensure semantic keywords are preserved and emphasized
+                for keyword in semantic_keywords:
+                    if keyword in processed_text:
+                        processed_text += f' {keyword}_context'
+                
+                processed_texts.append(processed_text)
+            
+            # Tokenize with attention to semantic content
+            inputs = self.tokenizer(
+                processed_texts,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512
+            )
+            
+            # Generate embeddings with attention pooling for better semantic representation
+            with torch.no_grad():
+                outputs = self.bert_model(**inputs)
+                
+                # Use attention-weighted pooling instead of just [CLS] token
+                attention_mask = inputs['attention_mask']
+                last_hidden_states = outputs.last_hidden_state
+                
+                # Weighted average using attention mask for better semantic capture
+                masked_hidden_states = last_hidden_states * attention_mask.unsqueeze(-1)
+                summed_hidden_states = masked_hidden_states.sum(dim=1)
+                attention_sums = attention_mask.sum(dim=1, keepdim=True)
+                batch_embeddings = summed_hidden_states / attention_sums
+                
+                embeddings.extend(batch_embeddings.numpy())
+        
+        return np.array(embeddings)
+    
+    def _optimize_semantic_dbscan_parameters(self, embeddings: np.ndarray) -> Dict[str, float]:
+        """
+        Optimize DBSCAN parameters specifically for semantic clustering
+        """
+        print("Optimizing DBSCAN parameters for semantic clustering...")
+        
+        best_params = {'semantic_eps': 0.3, 'semantic_min_samples': 5}
+        best_score = -1
+        
+        # Test range optimized for semantic similarity
+        eps_values = [0.25, 0.3, 0.35, 0.4, 0.45]
+        min_samples_values = [3, 4, 5, 6, 7, 8]
+        
+        for eps in eps_values:
+            for min_samples in min_samples_values:
+                try:
+                    dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
+                    labels = dbscan.fit_predict(embeddings)
+                    
+                    # Check if we have reasonable clustering
+                    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+                    n_noise = list(labels).count(-1)
+                    
+                    # Prefer larger, more meaningful clusters for semantic understanding
+                    if n_clusters >= 2 and n_clusters <= len(embeddings) // 3 and n_noise < len(embeddings) * 0.4:
+                        score = silhouette_score(embeddings, labels, metric='cosine')
+                        
+                        # Bonus for fewer, larger clusters (more semantic meaning)
+                        cluster_size_bonus = 1.0 / (1.0 + n_clusters * 0.1)  # Prefer fewer clusters
+                        adjusted_score = score * cluster_size_bonus
+                        
+                        if adjusted_score > best_score:
+                            best_score = adjusted_score
+                            best_params = {'semantic_eps': eps, 'semantic_min_samples': min_samples}
+                            
+                except Exception as e:
+                    continue
+        
+        print(f"Best semantic parameters: eps={best_params['semantic_eps']}, min_samples={best_params['semantic_min_samples']}, score={best_score:.3f}")
+        return best_params
+    
+    def _analyze_semantic_clusters(self, embeddings: np.ndarray, cluster_labels: np.ndarray, 
+                                 sessions: List[str]) -> Dict[int, Dict[str, Any]]:
+        """
+        Analyze semantic clusters to understand business meaning and patterns
+        """
+        cluster_analysis = {}
+        unique_labels = set(cluster_labels)
+        
+        for cluster_id in unique_labels:
+            if cluster_id == -1:  # Skip noise points
+                continue
+                
+            # Get sessions in this cluster
+            cluster_mask = cluster_labels == cluster_id
+            cluster_sessions = [sessions[i] for i in range(len(sessions)) if cluster_mask[i]]
+            cluster_embeddings = embeddings[cluster_mask]
+            
+            # Analyze semantic patterns
+            semantic_patterns = self._extract_semantic_patterns(cluster_sessions)
+            
+            # Calculate cluster characteristics
+            centroid = np.mean(cluster_embeddings, axis=0)
+            
+            # Find most representative session (closest to centroid)
+            distances = [np.linalg.norm(emb - centroid) for emb in cluster_embeddings]
+            representative_idx = np.argmin(distances)
+            representative_session = cluster_sessions[representative_idx]
+            
+            # Generate business meaning descriptions
+            business_characteristics = self._describe_semantic_cluster(semantic_patterns)
+            
+            cluster_analysis[cluster_id] = {
+                'size': len(cluster_sessions),
+                'semantic_patterns': semantic_patterns,
+                'business_meaning': business_characteristics,
+                'representative_session': representative_session[:500],  # Truncate for display
+                'sessions_sample': cluster_sessions[:5],  # First 5 sessions as examples
+                'clustering_reason': self._explain_clustering_reason(semantic_patterns),
+                'centroid': centroid.tolist() if len(centroid) < 20 else centroid[:20].tolist(),  # Truncate for storage
+                # Enhanced pattern analysis
+                'actual_text_patterns': {
+                    'common_sequences': self._extract_common_sequences(cluster_sessions),
+                    'key_terms': self._extract_key_terms(cluster_sessions),
+                    'transaction_flows': self._extract_transaction_flows(cluster_sessions)
+                },
+                'cluster_name': self._generate_meaningful_cluster_name(semantic_patterns, cluster_sessions),
+                'contextual_error_types': self._classify_error_types(cluster_sessions) if any(error in ' '.join(cluster_sessions).lower() for error in ['error', 'fail', 'timeout', 'malfunction']) else None
+            }
+        
+        return cluster_analysis
+    
+    def _extract_semantic_patterns(self, sessions: List[str]) -> Dict[str, int]:
+        """
+        Extract semantic patterns from cluster sessions for business understanding
+        """
+        combined_text = ' '.join(sessions).lower()
+        
+        patterns = {
+            'authentication_issues': len(re.findall(r'pin.*fail|auth.*fail|authentication.*error|card.*capture', combined_text)),
+            'hardware_failures': len(re.findall(r'device.*error|hardware.*fail|malfunction|initialization.*failure', combined_text)),
+            'communication_errors': len(re.findall(r'communication.*fail|network.*error|timeout|connectivity', combined_text)),
+            'cash_dispensing_issues': len(re.findall(r'cash.*error|dispenser.*fail|notes.*jam|dispensing.*problem', combined_text)),
+            'successful_transactions': len(re.findall(r'completed|successful|dispensed.*successfully|printed.*receipt', combined_text)),
+            'supervisor_interventions': len(re.findall(r'supervisor.*mode|administrative.*intervention|maintenance.*required', combined_text)),
+            'security_events': len(re.findall(r'capture|security|fraud|suspicious|card.*retained', combined_text)),
+            # Enhanced patterns for better semantic understanding
+            'transaction_flow_patterns': self._extract_transaction_flows(sessions),
+            'common_text_sequences': self._extract_common_sequences(sessions),
+            'key_operational_terms': self._extract_key_terms(sessions)
+        }
+        
+        return patterns
+    
+    def _extract_transaction_flows(self, sessions: List[str]) -> Dict[str, int]:
+        """Extract common transaction flow patterns"""
+        flows = {
+            'complete_withdrawal_flow': 0,
+            'authentication_sequence': 0,
+            'cash_handling_sequence': 0,
+            'error_recovery_sequence': 0,
+            'emv_chip_sequence': 0
+        }
+        
+        for session in sessions:
+            upper_session = session.upper()
+            
+            # Complete withdrawal pattern
+            if all(term in upper_session for term in ['TRANSACTION_START', 'CASH_DISPENSED', 'TRANSACTION_END']):
+                flows['complete_withdrawal_flow'] += 1
+            
+            # Authentication sequence
+            if all(term in upper_session for term in ['CARD_INSERTED', 'PIN_ENTERED']):
+                flows['authentication_sequence'] += 1
+            
+            # Cash handling sequence
+            if all(term in upper_session for term in ['NOTES_STACKED', 'NOTES_PRESENTED', 'NOTES_TAKEN']):
+                flows['cash_handling_sequence'] += 1
+            
+            # EMV chip sequence
+            if any(term in upper_session for term in ['OPCODE_FI', 'GENAC', 'ATR_RECEIVED']):
+                flows['emv_chip_sequence'] += 1
+            
+            # Error recovery
+            if any(term in upper_session for term in ['RECOVERY', 'RESET', 'RETRY']):
+                flows['error_recovery_sequence'] += 1
+        
+        return flows
+    
+    def _extract_common_sequences(self, sessions: List[str]) -> List[str]:
+        """Extract most common 3-word sequences"""
+        from collections import Counter
+        
+        all_sequences = []
+        for session in sessions:
+            # Clean and normalize text
+            clean_text = session.replace('\x1b', ' ').replace('\u001b', ' ').upper()
+            words = clean_text.split()
+            
+            # Extract 3-word sequences
+            for i in range(len(words) - 2):
+                sequence = ' '.join(words[i:i+3])
+                if len(sequence) > 10:  # Filter out very short sequences
+                    all_sequences.append(sequence)
+        
+        # Return top 5 most common sequences
+        counter = Counter(all_sequences)
+        return [seq for seq, count in counter.most_common(5) if count > 1]
+    
+    def _extract_key_terms(self, sessions: List[str]) -> List[str]:
+        """Extract key operational terms from sessions"""
+        from collections import Counter
+        
+        all_words = []
+        for session in sessions:
+            clean_text = session.replace('\x1b', ' ').replace('\u001b', ' ').upper()
+            words = clean_text.split()
+            # Filter for meaningful ATM terms
+            meaningful_words = [word for word in words 
+                              if len(word) > 3 and 
+                              any(keyword in word for keyword in 
+                                  ['TRANSACTION', 'CARD', 'PIN', 'CASH', 'RECEIPT', 'ERROR', 'NOTES', 'OPCODE'])]
+            all_words.extend(meaningful_words)
+        
+        # Return top 8 most common meaningful terms
+        counter = Counter(all_words)
+        return [word for word, count in counter.most_common(8) if count > 1]
+    
+    def _generate_meaningful_cluster_name(self, semantic_patterns: Dict, sessions: List[str]) -> str:
+        """Generate a meaningful business name for the cluster"""
+        
+        # Check transaction flow patterns first
+        transaction_flows = semantic_patterns.get('transaction_flow_patterns', {})
+        
+        if transaction_flows.get('complete_withdrawal_flow', 0) > 0:
+            if transaction_flows.get('emv_chip_sequence', 0) > 0:
+                return "Successful EMV Cash Withdrawal"
+            else:
+                return "Successful Cash Withdrawal"
+        
+        # Check for error patterns
+        if semantic_patterns.get('authentication_issues', 0) > 0:
+            return "Authentication Failure Events"
+        elif semantic_patterns.get('hardware_failures', 0) > 0:
+            return "Hardware Malfunction Events"
+        elif semantic_patterns.get('cash_dispensing_issues', 0) > 0:
+            return "Cash Dispensing Issues"
+        elif semantic_patterns.get('communication_errors', 0) > 0:
+            return "Communication Error Events"
+        elif semantic_patterns.get('security_events', 0) > 0:
+            return "Security Related Events"
+        elif semantic_patterns.get('supervisor_interventions', 0) > 0:
+            return "Supervisor Intervention Events"
+        
+        # Check for specific operational patterns
+        combined_text = ' '.join(sessions).upper()
+        if 'RECEIPT_PRINTED' in combined_text and 'TRANSACTION_END' in combined_text:
+            return "Transaction Completion Events"
+        elif 'MAINTENANCE' in combined_text or 'SUPERVISOR' in combined_text:
+            return "Maintenance and Administrative Events"
+        elif 'CARD_INSERTED' in combined_text and 'PIN_ENTERED' in combined_text:
+            return "Authentication Sequence Events"
+        
+        # Default naming based on size and common terms
+        key_terms = semantic_patterns.get('key_operational_terms', [])
+        if key_terms:
+            primary_term = key_terms[0].replace('_', ' ').title()
+            return f"{primary_term} Related Events"
+        
+        return "Mixed Transaction Events"
+    
+    def _classify_error_types(self, sessions: List[str]) -> Dict[str, Any]:
+        """Classify sessions using contextual labeler error categories"""
+        
+        combined_text = ' '.join(sessions).lower()
+        
+        # Based on EJ Contextual Labeler categories
+        error_classifications = {
+            'hardware_errors': {
+                'device_initialization_failure': 'device.*initialization.*failure' in combined_text,
+                'cash_dispenser_malfunction': any(term in combined_text for term in ['dispenser.*malfunction', 'notes.*jam', 'cash.*mechanism.*error']),
+                'card_reader_failure': any(term in combined_text for term in ['card.*reader.*error', 'magnetic.*stripe.*error', 'chip.*reader.*failure']),
+                'receipt_printer_issues': any(term in combined_text for term in ['printer.*error', 'receipt.*jam', 'paper.*empty'])
+            },
+            'software_errors': {
+                'application_timeout': 'timeout' in combined_text or 'application.*timeout' in combined_text,
+                'processing_error': any(term in combined_text for term in ['processing.*error', 'transaction.*processing.*failure']),
+                'data_validation_error': any(term in combined_text for term in ['validation.*error', 'invalid.*data', 'format.*error'])
+            },
+            'network_errors': {
+                'host_communication_failure': any(term in combined_text for term in ['host.*communication.*fail', 'network.*error', 'connectivity.*issue']),
+                'authorization_timeout': any(term in combined_text for term in ['authorization.*timeout', 'host.*timeout'])
+            },
+            'security_errors': {
+                'authentication_failure': any(term in combined_text for term in ['authentication.*fail', 'pin.*fail', 'invalid.*pin']),
+                'card_capture_event': any(term in combined_text for term in ['card.*capture', 'card.*retained', 'suspicious.*activity']),
+                'fraud_detection': any(term in combined_text for term in ['fraud.*detect', 'suspicious.*transaction'])
+            },
+            'operational_events': {
+                'successful_transaction': any(term in combined_text for term in ['completed.*successfully', 'transaction.*completed', 'cash.*dispensed.*successfully']),
+                'user_cancellation': any(term in combined_text for term in ['user.*cancel', 'transaction.*cancel', 'customer.*cancel']),
+                'maintenance_mode': any(term in combined_text for term in ['maintenance.*mode', 'supervisor.*intervention', 'administrative.*access'])
+            }
+        }
+        
+        # Determine primary error category
+        primary_categories = []
+        for category, errors in error_classifications.items():
+            if any(errors.values()):
+                primary_categories.append(category)
+        
+        return {
+            'classifications': error_classifications,
+            'primary_categories': primary_categories,
+            'error_severity': self._assess_error_severity(combined_text),
+            'contextual_labels': self._generate_contextual_labels(sessions)
+        }
+    
+    def _assess_error_severity(self, combined_text: str) -> str:
+        """Assess error severity based on contextual indicators"""
+        
+        if any(term in combined_text for term in ['critical', 'fatal', 'emergency', 'out.*of.*service']):
+            return 'critical'
+        elif any(term in combined_text for term in ['error', 'failure', 'malfunction', 'timeout']):
+            return 'moderate'
+        elif any(term in combined_text for term in ['warning', 'retry', 'delay']):
+            return 'low'
+        else:
+            return 'informational'
+    
+    def _generate_contextual_labels(self, sessions: List[str]) -> List[str]:
+        """Generate contextual labels based on EJ Contextual Labeler system"""
+        
+        labels = []
+        combined_text = ' '.join(sessions).upper()
+        
+        # Event type labels (based on the 35 event types from contextual labeler)
+        event_mappings = {
+            'CARD_INSERTED': 'card_insertion_event',
+            'PIN_ENTERED': 'pin_authentication_event', 
+            'CASH_DISPENSED': 'cash_dispensing_event',
+            'RECEIPT_PRINTED': 'receipt_printing_event',
+            'TRANSACTION_START': 'transaction_initiation_event',
+            'TRANSACTION_END': 'transaction_completion_event',
+            'NOTES_STACKED': 'cash_handling_event',
+            'CARD_TAKEN': 'card_retrieval_event',
+            'SUPERVISOR': 'administrative_intervention',
+            'MAINTENANCE': 'maintenance_activity',
+            'ERROR': 'error_condition',
+            'TIMEOUT': 'timeout_event',
+            'RETRY': 'retry_attempt',
+            'CANCEL': 'cancellation_event'
+        }
+        
+        for keyword, label in event_mappings.items():
+            if keyword in combined_text:
+                labels.append(label)
+        
+        return list(set(labels))  # Remove duplicates
+    
+    def _describe_semantic_cluster(self, patterns: Dict[str, int]) -> List[str]:
+        """
+        Generate human-readable business descriptions of cluster characteristics
+        """
+        descriptions = []
+        total_events = sum(patterns.values())
+        
+        if total_events == 0:
+            return ["General ATM operations with mixed patterns"]
+        
+        # Identify dominant patterns for business meaning
+        for pattern_name, count in patterns.items():
+            if count > 0:
+                percentage = (count / total_events) * 100
+                if percentage > 15:  # Significant pattern threshold
+                    pattern_descriptions = {
+                        'authentication_issues': f"🔐 Authentication and PIN verification problems ({percentage:.1f}%)",
+                        'hardware_failures': f"⚙️ Hardware malfunctions and device errors ({percentage:.1f}%)",
+                        'communication_errors': f"📡 Network connectivity and communication issues ({percentage:.1f}%)",
+                        'cash_dispensing_issues': f"💰 Cash dispensing and mechanical problems ({percentage:.1f}%)",
+                        'successful_transactions': f"✅ Successful transaction completions ({percentage:.1f}%)",
+                        'supervisor_interventions': f"👨‍💼 Administrative and maintenance interventions ({percentage:.1f}%)",
+                        'security_events': f"🔒 Security responses and fraud prevention ({percentage:.1f}%)"
+                    }
+                    descriptions.append(pattern_descriptions[pattern_name])
+        
+        return descriptions if descriptions else ["Mixed ATM operational patterns"]
+    
+    def _explain_clustering_reason(self, patterns: Dict[str, int]) -> str:
+        """
+        Explain why sessions were grouped together semantically
+        """
+        dominant_patterns = []
+        total_events = sum(patterns.values())
+        
+        for pattern_name, count in patterns.items():
+            if count > 0 and total_events > 0:
+                percentage = (count / total_events) * 100
+                if percentage > 20:
+                    dominant_patterns.append(pattern_name.replace('_', ' '))
+        
+        if dominant_patterns:
+            return f"Sessions clustered by semantic similarity in: {', '.join(dominant_patterns)}"
+        else:
+            return "Sessions grouped by general operational similarity"
+    
+    def _get_text_vectors(self, texts: List[str]) -> np.ndarray:
+        """Get text vectors using BERT or TF-IDF"""
+        if self.use_bert:
+            print("Generating BERT embeddings for semantic analysis...")
+            return self._get_bert_embeddings(texts)
+        else:
+            print("Using TF-IDF vectorization...")
+            return self.text_vectorizer.fit_transform(texts).toarray()
+    
+    def _transform_text_vectors(self, texts: List[str]) -> np.ndarray:
+        """Transform text using trained vectorizer (for prediction)"""
+        if self.use_bert:
+            return self._get_bert_embeddings(texts)
+        else:
+            return self.text_vectorizer.transform(texts).toarray()
+    
     def extract_text_features(self, session_text: str) -> Dict[str, float]:
         """Extract text-based features (same as original but with clustering preparation)"""
         text_lower = session_text.lower()
@@ -99,8 +675,6 @@ class EnhancedEnsembleAnomalyDetector:
         # Base features
         features = {
             'total_words': len(words),
-            'unique_words': len(set(words)),
-            'avg_word_length': np.mean([len(word) for word in words]) if words else 0,
             
             # Term counting
             'normal_term_count': sum(1 for word in words if any(term in word for term in normal_terms)),
@@ -187,12 +761,6 @@ class EnhancedEnsembleAnomalyDetector:
         text_upper = session_text.upper()
         
         features = {
-            # Session structure
-            'line_count': len(lines),
-            'total_chars': len(session_text),
-            'avg_line_length': np.mean([len(line) for line in lines]) if lines else 0,
-            'empty_lines': sum(1 for line in lines if not line.strip()),
-            
             # Error patterns
             'error_count': len(re.findall(r'error', text_lower)),
             'fail_count': len(re.findall(r'fail', text_lower)),
@@ -258,9 +826,14 @@ class EnhancedEnsembleAnomalyDetector:
                                   features['critical_hardware_patterns'] + features['communication_errors'] + 
                                   features['supervisor_patterns'] + features['recovery_operations'])
         
-        if features['line_count'] > 0:
-            features['anomaly_density_score'] = total_anomaly_indicators / features['line_count']
-            features['critical_error_density'] = (features['device_error_count'] + features['critical_m_codes']) / features['line_count']
+        # Calculate anomaly density based on total session content (words) instead of lines
+        session_words = len(session_text.split())
+        if session_words > 0:
+            features['anomaly_density_score'] = total_anomaly_indicators / session_words
+            features['critical_error_density'] = (features['device_error_count'] + features['critical_m_codes']) / session_words
+        else:
+            features['anomaly_density_score'] = 0.0
+            features['critical_error_density'] = 0.0
         
         hardware_failures = (features['critical_hardware_patterns'] + features['power_reset_count'] + 
                            features['recovery_failures'] + features['capture_failures'])
@@ -273,10 +846,11 @@ class EnhancedEnsembleAnomalyDetector:
         else:
             features['error_to_success_ratio'] = total_errors
         
-        if features['line_count'] > 0:
-            features['error_to_line_ratio'] = total_errors / features['line_count']
+        # Calculate error-to-content ratio based on word count instead of line count
+        if session_words > 0:
+            features['error_to_content_ratio'] = total_errors / session_words
         else:
-            features['error_to_line_ratio'] = 0
+            features['error_to_content_ratio'] = 0
         
         features['session_health_score'] = self._calculate_session_health_score(features, text_lower)
         
@@ -422,62 +996,71 @@ class EnhancedEnsembleAnomalyDetector:
         self.feature_names = list(sample_num_features.keys())
         self.text_feature_names = list(sample_text_features.keys())
         
-        # Train original ensemble components
-        text_vectors = self.text_vectorizer.fit_transform(texts).toarray()
+        # Train original ensemble components with BERT or TF-IDF
+        text_vectors = self._get_text_vectors(texts)
         self.svm_model.fit(text_vectors)
         
         numerical_features = np.array(numerical_features_list)
         numerical_features = self.scaler.fit_transform(numerical_features)
         self.isolation_model.fit(numerical_features)
         
-        # Train DBSCAN components
+        # Train DBSCAN components with SEMANTIC CLUSTERING
         
-        # 1. Text-based clustering (on TF-IDF vectors)
-        print("Training text-based DBSCAN...")
-        if text_vectors.shape[1] > 50:
-            # Configure PCA based on data size
-            n_components = min(50, text_vectors.shape[0] - 1, text_vectors.shape[1])
-            self.text_pca = PCA(n_components=n_components, random_state=42)
-            text_features_reduced = self.text_pca.fit_transform(text_vectors)
-        else:
-            text_features_reduced = text_vectors
+        # 1. Pure BERT Semantic Clustering (replaces both text and numerical clustering)
+        print("Training BERT semantic clustering...")
+        if self.use_bert:
+            # Use enhanced semantic preprocessing and clustering
+            semantic_embeddings = self._get_enhanced_semantic_embeddings(texts)
             
-        # Optimize text DBSCAN parameters
-        text_params = self._optimize_dbscan_parameters(text_features_reduced, 'text')
-        self.dbscan_params.update(text_params)
-        
-        self.text_dbscan = DBSCAN(
-            eps=text_params['text_eps'], 
-            min_samples=text_params['text_min_samples'], 
-            metric='cosine'
-        )
-        text_clusters = self.text_dbscan.fit_predict(text_features_reduced)
-        
-        # 2. Numerical features clustering
-        print("Training numerical DBSCAN...")
-        if numerical_features.shape[1] > 20:
-            # Configure PCA based on data size
-            n_components = min(20, numerical_features.shape[0] - 1, numerical_features.shape[1])
-            self.numerical_pca = PCA(n_components=n_components, random_state=42)
-            numerical_features_reduced = self.numerical_pca.fit_transform(numerical_features)
-        else:
-            numerical_features_reduced = numerical_features
+            # Optimize DBSCAN for semantic similarity
+            semantic_params = self._optimize_semantic_dbscan_parameters(semantic_embeddings)
+            self.dbscan_params.update(semantic_params)
             
-        numerical_params = self._optimize_dbscan_parameters(numerical_features_reduced, 'numerical')
-        self.dbscan_params.update(numerical_params)
+            self.semantic_dbscan = DBSCAN(
+                eps=semantic_params['semantic_eps'],
+                min_samples=semantic_params['semantic_min_samples'],
+                metric='cosine'
+            )
+            semantic_clusters = self.semantic_dbscan.fit_predict(semantic_embeddings)
+            
+            # Store semantic clustering results
+            self.semantic_embeddings = semantic_embeddings
+            self.semantic_clusters = semantic_clusters
+            
+        else:
+            # Fallback to text-based clustering if BERT unavailable
+            print("BERT unavailable, using text-based clustering...")
+            if text_vectors.shape[1] > 50:
+                n_components = min(50, text_vectors.shape[0] - 1, text_vectors.shape[1])
+                self.text_pca = PCA(n_components=n_components, random_state=42)
+                text_features_reduced = self.text_pca.fit_transform(text_vectors)
+            else:
+                text_features_reduced = text_vectors
+                
+            text_params = self._optimize_dbscan_parameters(text_features_reduced, 'text')
+            self.dbscan_params.update(text_params)
+            
+            self.text_dbscan = DBSCAN(
+                eps=text_params['text_eps'], 
+                min_samples=text_params['text_min_samples'], 
+                metric='cosine'
+            )
+            semantic_clusters = self.text_dbscan.fit_predict(text_features_reduced)
         
-        self.numerical_dbscan = DBSCAN(
-            eps=numerical_params['numerical_eps'],
-            min_samples=numerical_params['numerical_min_samples']
-        )
-        numerical_clusters = self.numerical_dbscan.fit_predict(numerical_features_reduced)
+        # 2. REMOVE old numerical clustering - replaced with semantic clustering above
         
-        # 3. Combined features clustering
-        print("Training combined features DBSCAN...")
+        # 3. Combined features clustering (now based on semantic + enhanced features)
+        print("Training combined semantic features DBSCAN...")
         text_features_array = np.array(text_features_list)
         text_features_scaled = StandardScaler().fit_transform(text_features_array)
         
-        combined_features = np.hstack([text_features_scaled, numerical_features])
+        if self.use_bert and hasattr(self, 'semantic_embeddings'):
+            # Combine semantic embeddings with selected engineered features
+            combined_features = np.hstack([self.semantic_embeddings, text_features_scaled])
+        else:
+            # Fallback: combine text vectors with engineered features
+            combined_features = np.hstack([text_features_scaled, numerical_features])
+            
         combined_params = self._optimize_dbscan_parameters(combined_features, 'combined')
         self.dbscan_params.update(combined_params)
         
@@ -487,23 +1070,41 @@ class EnhancedEnsembleAnomalyDetector:
         )
         combined_clusters = self.combined_dbscan.fit_predict(combined_features)
         
-        # Analyze clusters
-        text_cluster_analysis = self._analyze_clusters(
-            text_features_reduced, text_clusters, normal_sessions
-        )
-        numerical_cluster_analysis = self._analyze_clusters(
-            numerical_features_reduced, numerical_clusters, normal_sessions, self.feature_names
-        )
-        combined_cluster_analysis = self._analyze_clusters(
-            combined_features, combined_clusters, normal_sessions
-        )
+        # Analyze clusters - prioritize semantic clustering results
+        if self.use_bert and hasattr(self, 'semantic_clusters'):
+            # Primary analysis on semantic clusters
+            semantic_cluster_analysis = self._analyze_semantic_clusters(
+                self.semantic_embeddings, semantic_clusters, normal_sessions
+            )
+            
+            # Combined analysis for comparison
+            combined_cluster_analysis = self._analyze_clusters(
+                combined_features, combined_clusters, normal_sessions
+            )
+        else:
+            # Fallback analysis
+            text_cluster_analysis = self._analyze_clusters(
+                text_features_reduced, semantic_clusters, normal_sessions  # semantic_clusters from fallback
+            )
+            combined_cluster_analysis = self._analyze_clusters(
+                combined_features, combined_clusters, normal_sessions
+            )
         
-        # Store cluster profiles for anomaly detection
-        self.cluster_profiles = {
-            'text_clusters': text_cluster_analysis,
-            'numerical_clusters': numerical_cluster_analysis,
-            'combined_clusters': combined_cluster_analysis
-        }
+        # Store cluster profiles for anomaly detection - prioritize semantic clustering
+        if self.use_bert and hasattr(self, 'semantic_clusters'):
+            self.cluster_profiles = {
+                'semantic_clusters': semantic_cluster_analysis,
+                'combined_clusters': combined_cluster_analysis,
+                'clustering_method': 'semantic_bert',
+                'primary_clustering': 'semantic'
+            }
+        else:
+            self.cluster_profiles = {
+                'text_clusters': text_cluster_analysis,
+                'combined_clusters': combined_cluster_analysis,
+                'clustering_method': 'text_fallback',
+                'primary_clustering': 'text'
+            }
         
         # Calculate original ensemble statistics
         svm_scores = self.svm_model.decision_function(text_vectors)
@@ -512,13 +1113,19 @@ class EnhancedEnsembleAnomalyDetector:
         svm_probabilities = 1 / (1 + np.exp(svm_scores))
         iso_probabilities = 1 / (1 + np.exp(iso_scores))
         
-        # Calculate DBSCAN-based anomaly scores
-        text_density_scores = self._calculate_density_scores(text_clusters)
-        numerical_density_scores = self._calculate_density_scores(numerical_clusters)
-        combined_density_scores = self._calculate_density_scores(combined_clusters)
-        
-        # Ensemble density score
-        density_ensemble_scores = (text_density_scores + numerical_density_scores + combined_density_scores) / 3
+        # Calculate DBSCAN-based anomaly scores - use semantic clustering
+        if self.use_bert and hasattr(self, 'semantic_clusters'):
+            semantic_density_scores = self._calculate_density_scores(semantic_clusters)
+            combined_density_scores = self._calculate_density_scores(combined_clusters)
+            
+            # Ensemble density score prioritizing semantic clustering
+            density_ensemble_scores = (semantic_density_scores * 0.7 + combined_density_scores * 0.3)
+        else:
+            # Fallback density scores
+            text_density_scores = self._calculate_density_scores(semantic_clusters)  # using fallback semantic_clusters
+            combined_density_scores = self._calculate_density_scores(combined_clusters)
+            
+            density_ensemble_scores = (text_density_scores + combined_density_scores) / 2
         
         # Final ensemble with density component
         ensemble_scores = (self.text_weight * svm_probabilities + 
@@ -543,9 +1150,9 @@ class EnhancedEnsembleAnomalyDetector:
             'threshold': self.threshold,
             'dbscan_params': self.dbscan_params,
             'cluster_analysis': {
-                'text_clusters': text_cluster_analysis,
-                'numerical_clusters': numerical_cluster_analysis,
-                'combined_clusters': combined_cluster_analysis
+                'semantic_clusters': semantic_cluster_analysis if (self.use_bert and 'semantic_cluster_analysis' in locals()) else None,
+                'combined_clusters': combined_cluster_analysis,
+                'clustering_method': 'semantic_bert' if self.use_bert else 'text_fallback'
             }
         }
         
@@ -594,8 +1201,8 @@ class EnhancedEnsembleAnomalyDetector:
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
         
-        # Extract features
-        text_vectors = self.text_vectorizer.transform([session_text]).toarray()
+        # Extract features using BERT or TF-IDF
+        text_vectors = self._transform_text_vectors([session_text])
         num_features_dict = self.extract_numerical_features(session_text)
         text_features_dict = self.extract_text_features(session_text)
         
@@ -946,7 +1553,9 @@ class EnhancedEnsembleAnomalyDetector:
             filepath = os.path.join(self.model_dir, "enhanced_ensemble_model.pkl")
         
         model_data = {
-            'text_vectorizer': self.text_vectorizer,
+            'text_vectorizer': getattr(self, 'text_vectorizer', None),
+            'use_bert': self.use_bert,
+            'bert_model_name': getattr(self, 'bert_model_name', None),
             'svm_model': self.svm_model,
             'isolation_model': self.isolation_model,
             'scaler': self.scaler,
@@ -983,8 +1592,25 @@ class EnhancedEnsembleAnomalyDetector:
         with open(filepath, 'rb') as f:
             model_data = pickle.load(f)
         
+        # Load BERT configuration first
+        self.use_bert = model_data.get('use_bert', False)
+        
+        # Initialize BERT if needed and available
+        if self.use_bert and BERT_AVAILABLE:
+            bert_model_name = model_data.get('bert_model_name', 'distilbert-base-uncased')
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(bert_model_name)
+                self.bert_model = AutoModel.from_pretrained(bert_model_name)
+                self.bert_model.eval()
+                self.bert_model_name = bert_model_name
+                print("BERT model reloaded successfully")
+            except Exception as e:
+                print(f"Failed to reload BERT: {e}")
+                self.use_bert = False
+        
         # Load all components
-        self.text_vectorizer = model_data['text_vectorizer']
+        if not self.use_bert:
+            self.text_vectorizer = model_data.get('text_vectorizer')
         self.svm_model = model_data['svm_model']
         self.isolation_model = model_data['isolation_model']
         self.scaler = model_data['scaler']
@@ -1015,7 +1641,9 @@ class EnhancedEnsembleAnomalyDetector:
                 'text_weight': self.text_weight,
                 'statistical_weight': self.statistical_weight,
                 'density_weight': self.density_weight,
-                'threshold': self.threshold
+                'threshold': self.threshold,
+                'use_bert': self.use_bert,
+                'bert_model': getattr(self, 'bert_model_name', 'Not available') if self.use_bert else 'TF-IDF'
             },
             'feature_names': self.feature_names,
             'dbscan_params': self.dbscan_params
@@ -1090,67 +1718,101 @@ class EnhancedEnsembleAnomalyDetector:
         
         return sessions
 
-    def get_cluster_sessions(self, cluster_id: int, feature_type: str = 'combined') -> List[Dict[str, Any]]:
+    def get_cluster_sessions(self, cluster_id: int, feature_type: str = 'combined') -> Dict[str, Any]:
         """
-        Get all sessions belonging to a specific cluster
+        Get all sessions belonging to a specific cluster with enhanced metadata
         
         Args:
             cluster_id: The cluster ID to get sessions for
-            feature_type: Type of features used for clustering ('text', 'numerical', 'combined')
+            feature_type: Type of features used for clustering ('semantic', 'combined', 'text')
         
         Returns:
-            List of session dictionaries with text and metadata
+            Dictionary with sessions list and cluster characteristics
         """
         try:
             if not self.is_trained:
                 raise ValueError("Model not trained")
             
+            # Map feature_type to new semantic clustering structure
+            if feature_type == 'numerical':
+                # Redirect numerical requests to semantic clustering
+                feature_type = 'semantic' if (self.use_bert and hasattr(self, 'cluster_profiles') and 'semantic_clusters' in self.cluster_profiles) else 'combined'
+            
             # Get cluster profiles from the saved model data
             if hasattr(self, 'cluster_profiles'):
-                cluster_data = self.cluster_profiles.get(f'{feature_type}_clusters', {})
-            else:
-                raise ValueError("No cluster data available")
-            
-            # Check if any clusters exist for this feature type
-            if not cluster_data or 'cluster_profiles' not in cluster_data:
-                # Provide helpful information about available cluster types
-                available_types = []
-                if hasattr(self, 'cluster_profiles'):
-                    for key in self.cluster_profiles.keys():
-                        if key.endswith('_clusters'):
-                            cluster_type = key.replace('_clusters', '')
-                            type_data = self.cluster_profiles[key]
-                            if type_data.get('n_clusters', 0) > 0:
-                                available_types.append(f"{cluster_type} ({type_data['n_clusters']} clusters)")
-                
-                if available_types:
-                    raise ValueError(f"No clusters found for feature_type '{feature_type}'. Available types with clusters: {', '.join(available_types)}")
+                # Check for semantic clusters first (preferred)
+                if feature_type == 'semantic' and 'semantic_clusters' in self.cluster_profiles:
+                    cluster_data = self.cluster_profiles['semantic_clusters']
+                elif feature_type == 'combined' and 'combined_clusters' in self.cluster_profiles:
+                    cluster_data = self.cluster_profiles['combined_clusters']
+                elif 'combined_clusters' in self.cluster_profiles:
+                    # Fallback to combined if semantic not available
+                    cluster_data = self.cluster_profiles['combined_clusters']
+                    feature_type = 'combined'
                 else:
-                    raise ValueError(f"No clusters found for any feature type. Model may need retraining with different parameters.")
+                    raise ValueError("No cluster data available")
+            else:
+                raise ValueError("No cluster profiles available")
             
-            # Check if the requested cluster exists
-            cluster_key = f'cluster_{cluster_id}'
-            if cluster_key not in cluster_data['cluster_profiles']:
-                available_clusters = list(cluster_data['cluster_profiles'].keys())
-                raise ValueError(f"Cluster {cluster_id} not found for {feature_type} clustering. Available clusters: {available_clusters}")
+            # Check if the requested cluster exists in the data structure
+            if cluster_id not in cluster_data:
+                available_clusters = list(cluster_data.keys())
+                cluster_info = f"Available clusters for {feature_type}: {available_clusters}"
+                
+                # Also check other clustering types
+                alternative_info = []
+                if hasattr(self, 'cluster_profiles'):
+                    for cluster_type, type_data in self.cluster_profiles.items():
+                        if cluster_type.endswith('_clusters') and isinstance(type_data, dict):
+                            type_name = cluster_type.replace('_clusters', '')
+                            available_ids = list(type_data.keys()) if type_data else []
+                            if available_ids:
+                                alternative_info.append(f"{type_name}: {available_ids}")
+                
+                error_msg = f"Cluster {cluster_id} not found for {feature_type} clustering. {cluster_info}"
+                if alternative_info:
+                    error_msg += f"\nOther available cluster types: {'; '.join(alternative_info)}"
+                
+                raise ValueError(error_msg)
             
             # Get cluster profile data
-            cluster_profile = cluster_data['cluster_profiles'][cluster_key]
+            cluster_profile = cluster_data[cluster_id]
             cluster_sessions = []
+            
+            # Calculate cluster characteristics from the center values
+            cluster_characteristics = self._calculate_cluster_characteristics(cluster_profile, feature_type)
             
             # Create session data from cluster profile
             if 'sessions_sample' in cluster_profile:
                 for i, session_text in enumerate(cluster_profile['sessions_sample']):
+                    # Extract features for this session to provide rich metadata
+                    session_features = self._extract_session_features(session_text, feature_type)
+                    
+                    # Try to load original raw and processed text from stored session data
+                    raw_text, processed_text = self._get_original_session_texts(session_text)
+                    
                     session_data = {
                         'session_id': f'session_{cluster_id}_{i}',
                         'cluster_id': int(cluster_id),
                         'index': int(i),
                         'feature_type': str(feature_type),
-                        'text': str(session_text),
+                        
+                        # Text data in multiple formats
+                        'session_text': str(session_text),  # Current session text used for clustering
+                        'raw_ej_text': raw_text,  # Original raw EJ log text
+                        'processed_text': processed_text,  # BERT preprocessed text
+                        'text': str(session_text),  # Keep original field for backward compatibility
+                        'raw_text_preview': raw_text[:500] + '...' if len(raw_text) > 500 else raw_text,  # Preview for UI
+                        'bert_preprocessed_text': processed_text,  # Full preprocessed text
+                        
+                        # Session metadata
                         'confidence': float(0.85),
                         'cluster_size': int(cluster_profile.get('size', 1)),
                         'length': int(len(session_text)) if isinstance(session_text, str) else 0,
-                        'word_count': int(len(session_text.split())) if isinstance(session_text, str) else 0
+                        'word_count': int(len(session_text.split())) if isinstance(session_text, str) else 0,
+                        
+                        # Rich feature analysis for this session
+                        'features': session_features,
                     }
                     cluster_sessions.append(session_data)
             else:
@@ -1162,19 +1824,439 @@ class EnhancedEnsembleAnomalyDetector:
                         'cluster_id': int(cluster_id),
                         'index': int(i),
                         'feature_type': str(feature_type),
+                        'session_text': f'Session {i+1} from cluster {cluster_id} ({feature_type} clustering)',
+                        'raw_ej_text': f'Session {i+1} from cluster {cluster_id} ({feature_type} clustering)',
+                        'processed_text': f'Session {i+1} from cluster {cluster_id} ({feature_type} clustering)',
                         'text': f'Session {i+1} from cluster {cluster_id} ({feature_type} clustering)',
+                        'raw_text_preview': f'Session {i+1} from cluster {cluster_id} ({feature_type} clustering)',
+                        'bert_preprocessed_text': f'Session {i+1} from cluster {cluster_id} ({feature_type} clustering)',
                         'confidence': float(0.75),
                         'cluster_size': cluster_size,
                         'length': int(50),
-                        'word_count': int(8)
+                        'word_count': int(8),
+                        'features': {}
                     }
                     cluster_sessions.append(session_data)
             
-            return cluster_sessions
+            # Return comprehensive cluster data with enhanced semantic analysis
+            enhanced_data = {
+                'sessions': cluster_sessions,
+                'cluster_characteristics': cluster_characteristics,
+                'cluster_metadata': {
+                    'cluster_id': cluster_id,
+                    'feature_type': feature_type,
+                    'cluster_size': cluster_profile.get('size', 0),
+                    'total_sessions_in_cluster': len(cluster_sessions),
+                    'cluster_center': cluster_profile.get('center', []),
+                    'cluster_std': cluster_profile.get('std', [])
+                }
+            }
+            
+            # Add enhanced semantic analysis if available
+            if 'actual_text_patterns' in cluster_profile:
+                enhanced_data['actual_text_patterns'] = cluster_profile['actual_text_patterns']
+            
+            if 'cluster_name' in cluster_profile:
+                enhanced_data['cluster_name'] = cluster_profile['cluster_name']
+                
+            if 'business_meaning' in cluster_profile:
+                enhanced_data['business_meaning'] = cluster_profile['business_meaning']
+                
+            if 'contextual_error_types' in cluster_profile:
+                enhanced_data['contextual_error_types'] = cluster_profile['contextual_error_types']
+                
+            if 'semantic_patterns' in cluster_profile:
+                enhanced_data['semantic_patterns'] = cluster_profile['semantic_patterns']
+                
+            if 'clustering_reason' in cluster_profile:
+                enhanced_data['clustering_reason'] = cluster_profile['clustering_reason']
+                
+            return enhanced_data
             
         except Exception as e:
             print(f"Error getting cluster sessions: {e}")
             raise ValueError(f"Failed to get cluster sessions: {str(e)}")
+
+    def _calculate_cluster_characteristics(self, cluster_profile: Dict, feature_type: str) -> Dict[str, Any]:
+        """Calculate the common characteristics that define this cluster with semantic understanding"""
+        characteristics = {
+            'dominant_features': {},
+            'common_patterns': [],
+            'cluster_summary': {},
+            'feature_importance': {},
+            'clustering_reasons': [],
+            'distinguishing_attributes': {},
+            'business_meaning': [],
+            'semantic_patterns': {}
+        }
+        
+        try:
+            cluster_size = cluster_profile.get('size', 0)
+            
+            # Handle semantic clustering characteristics
+            if feature_type == 'semantic' and 'business_meaning' in cluster_profile:
+                characteristics['business_meaning'] = cluster_profile['business_meaning']
+                characteristics['clustering_reasons'] = [cluster_profile.get('clustering_reason', 'Semantic similarity')]
+                
+                # Add semantic patterns if available
+                if 'semantic_patterns' in cluster_profile:
+                    semantic_patterns = cluster_profile['semantic_patterns']
+                    characteristics['semantic_patterns'] = semantic_patterns
+                    
+                    # Convert semantic patterns to readable characteristics
+                    total_events = sum(semantic_patterns.values()) if semantic_patterns.values() else 1
+                    for pattern_name, count in semantic_patterns.items():
+                        if count > 0:
+                            percentage = (count / total_events) * 100
+                            pattern_display = pattern_name.replace('_', ' ').title()
+                            characteristics['dominant_features'][pattern_display] = f"{count} occurrences ({percentage:.1f}%)"
+                
+                # Add business context
+                characteristics['cluster_summary'] = {
+                    'semantic_focus': cluster_profile.get('business_meaning', ['General ATM operations'])[0] if cluster_profile.get('business_meaning') else 'Mixed operations',
+                    'cluster_size': cluster_size,
+                    'business_value': f"Represents {cluster_size} sessions with similar semantic patterns"
+                }
+                
+            else:
+                # Handle traditional clustering characteristics
+                cluster_center = cluster_profile.get('center', [])
+                cluster_std = cluster_profile.get('std', [])
+                
+                if cluster_center and len(cluster_center) > 0:
+                    # Handle numerical/traditional clustering
+                    if feature_type == 'numerical' and hasattr(self, 'feature_names'):
+                        feature_names = self.feature_names
+                        if len(cluster_center) == len(feature_names):
+                            # Calculate feature importance and identify distinguishing characteristics
+                            significant_features = []
+                            
+                            for i, (feature_name, center_val, std_val) in enumerate(zip(feature_names, cluster_center, cluster_std)):
+                                if center_val > 0.05:  # Lower threshold to catch more features
+                                    importance = center_val / (std_val + 0.001)
+                                    consistency = 1.0 / (std_val + 0.001)  # Low std = high consistency
+                                    
+                                    characteristics['dominant_features'][feature_name] = {
+                                        'center_value': float(center_val),
+                                        'std_value': float(std_val),
+                                        'importance_score': float(importance),
+                                        'consistency_score': float(consistency)
+                                    }
+                                    
+                                    # Determine what makes this feature significant
+                                    if center_val > 0.8:
+                                        level = "Very High"
+                                        significance = "CRITICAL"
+                                    elif center_val > 0.5:
+                                        level = "High" 
+                                        significance = "MAJOR"
+                                    elif center_val > 0.2:
+                                        level = "Moderate"
+                                        significance = "NOTABLE"
+                                    else:
+                                        level = "Low"
+                                        significance = "MINOR"
+                                    
+                                    feature_desc = feature_name.replace('_', ' ').title()
+                                    
+                                    # Add to clustering reasons
+                                    if std_val < 0.1:  # Very consistent across cluster
+                                        characteristics['clustering_reasons'].append(
+                                            f"🎯 {significance}: All sessions have {level.lower()} {feature_desc} ({center_val:.3f} ± {std_val:.3f})"
+                                        )
+                                    else:
+                                        characteristics['clustering_reasons'].append(
+                                            f"📊 {significance}: Sessions share {level.lower()} {feature_desc} pattern ({center_val:.3f} ± {std_val:.3f})"
+                                        )
+                            
+                            significant_features.append((feature_name, importance, center_val, std_val))
+                    
+                    # Sort by importance and get top distinguishing features
+                    significant_features.sort(key=lambda x: x[1], reverse=True)
+                    top_features = significant_features[:8]  # Top 8 features
+                    
+                    # Create distinguishing attributes summary
+                    for feature_name, importance, center_val, std_val in top_features:
+                        clean_name = feature_name.replace('_', ' ').title()
+                        
+                        # Create human-readable descriptions
+                        if 'error' in feature_name.lower():
+                            if center_val > 0.5:
+                                description = f"High error activity: {clean_name} ({center_val:.2f})"
+                                impact = "These sessions contain significant error patterns"
+                            else:
+                                description = f"Some error activity: {clean_name} ({center_val:.2f})"
+                                impact = "These sessions show minor error indicators"
+                        elif 'transaction' in feature_name.lower():
+                            description = f"Transaction pattern: {clean_name} ({center_val:.2f})"
+                            impact = "These sessions share similar transaction behaviors"
+                        elif 'health' in feature_name.lower():
+                            if center_val > 0.8:
+                                description = f"Excellent health: {clean_name} ({center_val:.2f})"
+                                impact = "These sessions represent normal, healthy operations"
+                            elif center_val > 0.5:
+                                description = f"Good health: {clean_name} ({center_val:.2f})"
+                                impact = "These sessions show generally healthy patterns"
+                            else:
+                                description = f"Poor health: {clean_name} ({center_val:.2f})"
+                                impact = "These sessions show concerning health indicators"
+                        elif 'anomaly' in feature_name.lower():
+                            if center_val > 0.3:
+                                description = f"High anomaly density: {clean_name} ({center_val:.2f})"
+                                impact = "These sessions contain multiple anomalous patterns"
+                            else:
+                                description = f"Low anomaly density: {clean_name} ({center_val:.2f})"
+                                impact = "These sessions appear relatively normal"
+                        else:
+                            description = f"{clean_name}: {center_val:.2f}"
+                            impact = f"Shared {clean_name.lower()} characteristics"
+                        
+                        characteristics['distinguishing_attributes'][feature_name] = {
+                            'description': description,
+                            'impact': impact,
+                            'value': center_val,
+                            'consistency': std_val,
+                            'rank': len(characteristics['distinguishing_attributes']) + 1
+                        }
+                    
+                    # Generate summary patterns
+                    if significant_features:
+                        top_feature = significant_features[0]
+                        characteristics['common_patterns'].append(
+                            f"Primary clustering factor: {top_feature[0].replace('_', ' ').title()} ({top_feature[2]:.3f})"
+                        )
+                        
+                        # Group similar feature types
+                        error_features = [f for f in significant_features if 'error' in f[0].lower()]
+                        health_features = [f for f in significant_features if 'health' in f[0].lower()]
+                        transaction_features = [f for f in significant_features if 'transaction' in f[0].lower()]
+                        
+                        if error_features:
+                            avg_error = sum(f[2] for f in error_features) / len(error_features)
+                            characteristics['common_patterns'].append(f"Error pattern cluster (avg: {avg_error:.3f})")
+                        
+                        if health_features:
+                            avg_health = sum(f[2] for f in health_features) / len(health_features)
+                            characteristics['common_patterns'].append(f"Health pattern cluster (avg: {avg_health:.3f})")
+                        
+                        if transaction_features:
+                            avg_transaction = sum(f[2] for f in transaction_features) / len(transaction_features)
+                            characteristics['common_patterns'].append(f"Transaction pattern cluster (avg: {avg_transaction:.3f})")
+                    
+                    characteristics['feature_importance'] = dict(significant_features[:5])
+            
+            if feature_type == 'numerical':
+                # Numerical feature clustering analysis
+                characteristics['common_patterns'].append("Numerical feature-based clustering")
+                characteristics['clustering_reasons'].append("📊 Sessions grouped by numerical characteristics")
+            elif feature_type == 'text':
+                characteristics['common_patterns'].append("Text-based semantic clustering")
+                characteristics['clustering_reasons'].append("📝 Sessions grouped by similar text content and patterns")
+                
+                if hasattr(self, 'text_feature_names') and len(cluster_center) > 0:
+                    # Analyze text features
+                    text_features = self.text_feature_names if hasattr(self, 'text_feature_names') else []
+                    significant_text_features = []
+                    
+                    for i, center_val in enumerate(cluster_center[:min(len(text_features), len(cluster_center))]):
+                        if center_val > 0.1 and i < len(text_features):
+                            feature_name = text_features[i]
+                            significant_text_features.append((feature_name, center_val))
+                    
+                    if significant_text_features:
+                        significant_text_features.sort(key=lambda x: x[1], reverse=True)
+                        for feature_name, value in significant_text_features[:5]:
+                            clean_name = feature_name.replace('_', ' ').title()
+                            characteristics['distinguishing_attributes'][feature_name] = {
+                                'description': f"Text feature: {clean_name} ({value:.3f})",
+                                'impact': f"Shared {clean_name.lower()} in session content",
+                                'value': value,
+                                'rank': len(characteristics['distinguishing_attributes']) + 1
+                            }
+                            characteristics['clustering_reasons'].append(
+                                f"📄 Text similarity: {clean_name} pattern ({value:.3f})"
+                            )
+                else:
+                    characteristics['clustering_reasons'].append("📄 Sessions clustered by semantic text similarity")
+            
+            elif feature_type == 'combined':
+                characteristics['common_patterns'].append("Multi-dimensional clustering (text + numerical)")
+                characteristics['clustering_reasons'].append("🔄 Sessions grouped by both content similarity and numerical patterns")
+                
+                # Try to analyze combined features if we have them
+                if len(cluster_center) > 0:
+                    # Assume first part is text features, second part is numerical
+                    total_features = len(cluster_center)
+                    
+                    # Find the most significant values in the combined feature vector
+                    significant_indices = []
+                    for i, val in enumerate(cluster_center):
+                        if abs(val) > 0.1:  # Significant value
+                            significant_indices.append((i, val))
+                    
+                    significant_indices.sort(key=lambda x: abs(x[1]), reverse=True)
+                    
+                    for i, (idx, val) in enumerate(significant_indices[:5]):
+                        if hasattr(self, 'feature_names') and idx < len(self.feature_names):
+                            feature_name = self.feature_names[idx]
+                        else:
+                            feature_name = f"Combined_Feature_{idx}"
+                        
+                        characteristics['distinguishing_attributes'][feature_name] = {
+                            'description': f"Combined feature: {feature_name.replace('_', ' ').title()} ({val:.3f})",
+                            'impact': f"Shared {feature_name.replace('_', ' ').lower()} characteristics",
+                            'value': float(val),
+                            'rank': i + 1
+                        }
+                        characteristics['clustering_reasons'].append(
+                            f"⚡ Combined pattern: {feature_name.replace('_', ' ').title()} ({val:.3f})"
+                        )
+            
+            # Add cluster summary with actionable insights
+            characteristics['cluster_summary'] = {
+                'size': cluster_size,
+                'feature_type': feature_type,
+                'description': f"Cluster of {cluster_size} sessions with shared characteristics",
+                'quality': self._assess_cluster_quality(cluster_center, cluster_std),
+                'interpretation': self._interpret_cluster_meaning(characteristics['distinguishing_attributes'], feature_type)
+            }
+            
+        except Exception as e:
+            print(f"Error calculating cluster characteristics: {e}")
+            characteristics['error'] = str(e)
+            characteristics['clustering_reasons'] = [f"❌ Error analyzing cluster: {str(e)}"]
+        
+        return characteristics
+    
+    def _assess_cluster_quality(self, center: list, std: list) -> str:
+        """Assess the quality of the cluster based on consistency"""
+        if not center or not std:
+            return "Unknown"
+        
+        avg_std = sum(std) / len(std) if std else 1.0
+        
+        if avg_std < 0.1:
+            return "Very High - Sessions are very similar"
+        elif avg_std < 0.3:
+            return "High - Sessions have consistent patterns"
+        elif avg_std < 0.5:
+            return "Medium - Sessions show some variation"
+        else:
+            return "Low - Sessions are quite diverse"
+    
+    def _interpret_cluster_meaning(self, attributes: dict, feature_type: str) -> str:
+        """Provide human-readable interpretation of what this cluster represents"""
+        if not attributes:
+            return f"Sessions grouped by {feature_type} similarity"
+        
+        # Look for dominant themes
+        error_attrs = [a for a in attributes.keys() if 'error' in a.lower()]
+        health_attrs = [a for a in attributes.keys() if 'health' in a.lower()]
+        transaction_attrs = [a for a in attributes.keys() if 'transaction' in a.lower()]
+        
+        if error_attrs:
+            return "This cluster represents sessions with similar error patterns or anomalous behavior"
+        elif health_attrs:
+            health_values = [attributes[a]['value'] for a in health_attrs]
+            avg_health = sum(health_values) / len(health_values) if health_values else 0.5
+            if avg_health > 0.8:
+                return "This cluster represents healthy, normal operation sessions"
+            else:
+                return "This cluster represents sessions with health or operational concerns"
+        elif transaction_attrs:
+            return "This cluster represents sessions with similar transaction patterns or behaviors"
+        else:
+            return f"This cluster represents sessions with shared {feature_type} characteristics"
+
+    def _extract_session_features(self, session_text: str, feature_type: str) -> Dict[str, Any]:
+        """Extract detailed features for a specific session"""
+        try:
+            features = {}
+            
+            # Always extract numerical features as they're most informative
+            numerical_features = self.extract_numerical_features(session_text)
+            features['numerical'] = numerical_features
+            
+            # Extract text features
+            text_features = self.extract_text_features(session_text)
+            features['text'] = text_features
+            
+            # Add session-specific analysis
+            features['analysis'] = {
+                'session_health_score': numerical_features.get('session_health_score', 0.0),
+                'anomaly_density': numerical_features.get('anomaly_density_score', 0.0),
+                'error_count': numerical_features.get('error_count', 0),
+                'critical_patterns': numerical_features.get('critical_hardware_patterns', 0),
+                'has_device_errors': numerical_features.get('device_error_count', 0) > 0,
+                'has_critical_codes': numerical_features.get('critical_m_codes', 0) > 0,
+                'transaction_complete': numerical_features.get('incomplete_transaction_ratio', 0) == 0
+            }
+            
+            return features
+            
+        except Exception as e:
+            print(f"Error extracting session features: {e}")
+            return {'error': str(e)}
+
+    def _get_original_session_texts(self, session_text: str) -> tuple:
+        """
+        Distinguish between raw EJ text and processed text for BERT
+        """
+        try:
+            # The session_text passed here is already the processed/cleaned version
+            processed_text = session_text
+            
+            # Create a more "raw" version by simulating original EJ log format
+            # Extract key components and reconstruct a raw-like format
+            raw_text = self._simulate_raw_ej_format(session_text)
+            
+            return raw_text, processed_text
+            
+        except Exception as e:
+            print(f"Error getting original session texts: {e}")
+            return session_text, session_text
+    
+    def _simulate_raw_ej_format(self, processed_text: str) -> str:
+        """
+        Simulate what the raw EJ text might have looked like before processing
+        """
+        try:
+            # For CSV-like data, add more raw formatting
+            if ',' in processed_text:
+                parts = processed_text.split(',')
+                if len(parts) > 10:  # This looks like CSV session data
+                    # Create a more "raw" EJ log-like format
+                    session_id = parts[0] if len(parts) > 0 else "UNKNOWN_SESSION"
+                    transaction_type = parts[4] if len(parts) > 4 else "UNKNOWN"
+                    amount = parts[5] if len(parts) > 5 else "0.0"
+                    auth_code = parts[-1] if len(parts) > 0 else ""
+                    
+                    # Simulate raw EJ format with timestamps and device codes
+                    raw_format = f"""[020t*{session_id}*TRANSACTION_START*
+CARD_INSERTED: {parts[7] if len(parts) > 7 else 'True'}
+PIN_ENTERED: {parts[8] if len(parts) > 8 else 'True'}
+TRANSACTION_TYPE: {transaction_type.upper()}
+AMOUNT: ${amount}
+NOTES_DISPENSED: {parts[10] if len(parts) > 10 else 'True'}
+NOTES_TAKEN: {parts[11] if len(parts) > 11 else 'True'}
+CARD_TAKEN: {parts[12] if len(parts) > 12 else 'True'}
+AUTH_CODE: {auth_code}
+[020t*TRANSACTION_END*]"""
+                    return raw_format
+            
+            # For other text, add some raw EJ formatting
+            lines = processed_text.split('\n')
+            raw_lines = []
+            for line in lines:
+                if line.strip():
+                    # Add EJ timestamp formatting
+                    raw_lines.append(f"[020t*{line.strip()}*]")
+            
+            return '\n'.join(raw_lines) if raw_lines else processed_text
+            
+        except Exception as e:
+            print(f"Error simulating raw EJ format: {e}")
+            return processed_text
 
     def label_cluster(self, cluster_id: int, label: str, feature_type: str = 'combined') -> bool:
         """
@@ -1359,16 +2441,16 @@ class EnhancedEnsembleAnomalyDetector:
         features = []
         for session in sessions:
             session_features = self.extract_numerical_features(session)
-            # Convert dict to array in consistent order
+            # Convert dict to array in consistent order - using meaningful ATM-specific features
             feature_vector = [
-                session_features.get('transaction_count', 0),
                 session_features.get('error_count', 0),
-                session_features.get('session_length', 0),
-                session_features.get('numeric_values_count', 0),
-                session_features.get('special_chars_count', 0),
-                session_features.get('capital_letters_ratio', 0),
-                session_features.get('error_rate', 0),
-                session_features.get('avg_line_length', 0)
+                session_features.get('device_error_count', 0),
+                session_features.get('critical_m_codes', 0),
+                session_features.get('communication_errors', 0),
+                session_features.get('hardware_failure_score', 0),
+                session_features.get('anomaly_density_score', 0),
+                session_features.get('session_health_score', 0),
+                session_features.get('error_to_success_ratio', 0)
             ]
             features.append(feature_vector)
         return np.array(features)
