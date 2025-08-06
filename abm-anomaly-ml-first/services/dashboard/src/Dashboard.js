@@ -28,6 +28,8 @@ const ATMDashboard = () => {
   });
   
   const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [message, setMessage] = useState('');
 
   // Get current tab from URL or state
   const getCurrentTab = useCallback(() => {
@@ -75,7 +77,41 @@ const ATMDashboard = () => {
     }
   };
 
-  // Handle clear all data
+  // Handle force process input directory
+  const handleForceProcessInput = async () => {
+    try {
+      setProcessing(true);
+      setMessage('Processing input files...');
+      
+      const response = await fetch(`${apiConfig.BASE_URL}/process/force-input`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        if (data.files_processed > 0) {
+          setMessage(`Successfully processed ${data.files_processed} EJ files`);
+          // Refresh dashboard data
+          fetchStats();
+        } else {
+          setMessage(data.message || 'No files found to process');
+        }
+      } else {
+        setMessage(`Error: ${data.detail || 'Failed to process input'}`);
+      }
+    } catch (error) {
+      console.error('Force process input error:', error);
+      setMessage('Error processing input files. Please check the console for details.');
+    } finally {
+      setProcessing(false);
+      // Clear message after 5 seconds
+      setTimeout(() => setMessage(''), 5000);
+    }
+  };  // Handle clear all data
   const handleClearAllData = async () => {
     if (!window.confirm('⚠️ WARNING: This will permanently delete ALL transactions, sessions, and training data.\n\nThis action cannot be undone!\n\nAre you sure you want to proceed?')) {
       return;
@@ -97,7 +133,8 @@ const ATMDashboard = () => {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
       }
 
       const result = await response.json();
@@ -106,7 +143,11 @@ const ATMDashboard = () => {
       // Refresh data after clearing
       await fetchStats();
       
-      alert(`✅ Data cleared successfully!\n\nRecords deleted: ${result.total_records_deleted}\nTables cleared: ${Object.keys(result.deleted_counts).length}\n\nYou can now upload new sessions for training.`);
+      if (result.status === 'success') {
+        alert(`✅ Data cleared successfully!\n\nRecords deleted: ${result.total_records_deleted || 'N/A'}\nTables cleared: ${result.deleted_counts ? Object.keys(result.deleted_counts).length : 'N/A'}\nRedis cleared: ${result.redis_cleared ? 'Yes' : 'No'}\n\nYou can now upload new sessions for training.`);
+      } else {
+        alert(`⚠️ Clear operation completed with issues:\n\n${result.message}\n\nSome data may not have been cleared properly.`);
+      }
     } catch (error) {
       console.error('Error clearing data:', error);
       alert('❌ Error clearing data: ' + error.message);
@@ -154,10 +195,10 @@ const ATMDashboard = () => {
   useEffect(() => {
     fetchStats();
     
-    // Refresh every 30 seconds
+    // Refresh every 5 minutes instead of 30 seconds to reduce API calls
     const interval = setInterval(() => {
       fetchStats();
-    }, 30000);
+    }, 300000); // 5 minutes = 300000ms
 
     return () => {
       clearInterval(interval);
@@ -166,11 +207,18 @@ const ATMDashboard = () => {
 
   useEffect(() => {
     // Update active tab based on current location
-    const currentTab = getCurrentTab();
+    const path = location.pathname;
+    let currentTab = 'overview';
+    
+    if (path === '/dashboard' || path === '/dashboard/') currentTab = 'overview';
+    else if (path.includes('/dashboard/anomalies')) currentTab = 'anomalies';
+    else if (path.includes('/dashboard/alerts')) currentTab = 'alerts';
+    else if (path.includes('/dashboard/analytics')) currentTab = 'analytics';
+    
     if (currentTab !== activeTab) {
       setActiveTab(currentTab);
     }
-  }, [location.pathname, activeTab, getCurrentTab]);
+  }, [location.pathname, activeTab]); // Removed getCurrentTab dependency
 
   const anomalyRatePercent = (stats.anomaly_rate * 100).toFixed(2);
 
@@ -270,6 +318,14 @@ const ATMDashboard = () => {
                     🔄 Refresh Data
                   </button>
                   <button
+                    onClick={handleForceProcessInput}
+                    disabled={processing}
+                    className={`px-4 py-2 ${processing ? 'bg-gray-400' : 'bg-purple-600 hover:bg-purple-700'} text-white rounded-lg`}
+                    title="Process any EJ files in the input directory"
+                  >
+                    {processing ? '⏳ Processing...' : '📁 Process Input'}
+                  </button>
+                  <button
                     onClick={handleClearAllData}
                     className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 border-2 border-red-700"
                     title="Clear all transactions and training data"
@@ -282,6 +338,20 @@ const ATMDashboard = () => {
                   </div>
                 </div>
               </div>
+              {/* Status Message */}
+              {message && (
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
+                  <div className={`p-3 rounded-lg text-sm ${
+                    message.includes('Error') || message.includes('Failed') 
+                      ? 'bg-red-100 text-red-800 border border-red-200' 
+                      : message.includes('Successfully') 
+                      ? 'bg-green-100 text-green-800 border border-green-200'
+                      : 'bg-blue-100 text-blue-800 border border-blue-200'
+                  }`}>
+                    {message}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

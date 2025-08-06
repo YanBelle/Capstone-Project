@@ -8,10 +8,20 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
+import os
+from sqlalchemy import create_engine, text
 from .ml_analyzer import MLFirstAnomalyDetector
-from .database import get_db_connection
 
 logger = logging.getLogger(__name__)
+
+# Database connection function
+def get_db_connection():
+    """Get database connection using the same pattern as main.py"""
+    db_engine = create_engine(
+        f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
+        f"@{os.getenv('POSTGRES_HOST', 'postgres')}:5432/{os.getenv('POSTGRES_DB')}"
+    )
+    return db_engine
 
 router = APIRouter(prefix="/expert-feedback", tags=["Expert Feedback"])
 
@@ -50,8 +60,7 @@ def get_ml_analyzer():
 
 @router.post("/submit", response_model=ExpertFeedbackResponse)
 async def submit_expert_feedback(
-    feedback: ExpertFeedbackRequest,
-    db=Depends(get_db_connection)
+    feedback: ExpertFeedbackRequest
 ):
     """
     Submit expert feedback for a specific session
@@ -80,7 +89,9 @@ async def submit_expert_feedback(
             raise HTTPException(status_code=404, detail=f"Session {feedback.session_id} not found")
         
         # Store feedback in database for audit trail
-        feedback_id = await store_feedback_in_db(db, feedback)
+        # Store feedback in database
+        db_engine = get_db_connection()
+        feedback_id = await store_feedback_in_db(db_engine, feedback)
         
         # Check if training was triggered
         training_triggered = len(analyzer.feedback_buffer) == 0  # Buffer is cleared after training
@@ -104,8 +115,8 @@ async def submit_expert_feedback(
         logger.error(f"Failed to submit expert feedback: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/stats", response_model=FeedbackStatsResponse)
-async def get_feedback_stats(db=Depends(get_db_connection)):
+@router.get("/stats", response_model=ExpertFeedbackStats)
+async def get_feedback_stats():
     """
     Get statistics about expert feedback and model performance
     """
@@ -113,7 +124,9 @@ async def get_feedback_stats(db=Depends(get_db_connection)):
         analyzer = get_ml_analyzer()
         
         # Get feedback statistics from database
-        feedback_stats = await get_feedback_stats_from_db(db)
+        # Get feedback statistics
+        db_engine = get_db_connection()
+        feedback_stats = await get_feedback_stats_from_db(db_engine)
         
         # Calculate model accuracy by detection method
         accuracy_by_method = {}
@@ -199,54 +212,59 @@ async def get_model_performance():
 
 # Helper functions
 
-async def store_feedback_in_db(db, feedback: ExpertFeedbackRequest) -> str:
+async def store_feedback_in_db(db_engine, feedback: ExpertFeedbackRequest) -> str:
     """Store expert feedback in database for audit trail"""
     try:
         query = """
         INSERT INTO expert_feedback (
             session_id, expert_label, expert_confidence, feedback_type,
             expert_explanation, expert_name, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ) VALUES (
+            :session_id, :expert_label, :expert_confidence, :feedback_type,
+            :expert_explanation, :expert_name, :created_at
+        )
         RETURNING id
         """
         
-        result = await db.fetchrow(
-            query,
-            feedback.session_id,
-            feedback.expert_label,
-            feedback.expert_confidence,
-            feedback.feedback_type,
-            feedback.expert_explanation,
-            feedback.expert_name,
-            datetime.now()
-        )
-        
-        return str(result['id'])
+        with db_engine.connect() as conn:
+            result = conn.execute(text(query), {
+                "session_id": feedback.session_id,
+                "expert_label": feedback.expert_label,
+                "expert_confidence": feedback.expert_confidence,
+                "feedback_type": feedback.feedback_type,
+                "expert_explanation": feedback.expert_explanation,
+                "expert_name": feedback.expert_name,
+                "created_at": datetime.now()
+            })
+            conn.commit()
+            feedback_id = result.fetchone()[0]
+            return str(feedback_id)
         
     except Exception as e:
         logger.warning(f"Failed to store feedback in database: {str(e)}")
         return "db_error"
 
-async def get_feedback_stats_from_db(db) -> Dict[str, Any]:
+async def get_feedback_stats_from_db(db_engine) -> Dict[str, Any]:
     """Get feedback statistics from database"""
     try:
-        # Total count
-        total_result = await db.fetchrow("SELECT COUNT(*) as count FROM expert_feedback")
-        total_count = total_result['count'] if total_result else 0
-        
-        # By type
-        type_results = await db.fetch("""
-            SELECT feedback_type, COUNT(*) as count 
-            FROM expert_feedback 
-            GROUP BY feedback_type
-        """)
-        
-        by_type = {row['feedback_type']: row['count'] for row in type_results}
-        
-        return {
-            'total_count': total_count,
-            'by_type': by_type
-        }
+        with db_engine.connect() as conn:
+            # Total count
+            total_result = conn.execute(text("SELECT COUNT(*) as count FROM expert_feedback")).fetchone()
+            total_count = total_result[0] if total_result else 0
+            
+            # By type
+            type_results = conn.execute(text("""
+                SELECT feedback_type, COUNT(*) as count 
+                FROM expert_feedback 
+                GROUP BY feedback_type
+            """))
+            
+            by_type = {row[0]: row[1] for row in type_results}
+            
+            return {
+                'total_count': total_count,
+                'by_type': by_type
+            }
         
     except Exception as e:
         logger.warning(f"Failed to get feedback stats from database: {str(e)}")

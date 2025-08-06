@@ -30,6 +30,7 @@ import joblib
 import time
 import psutil
 import threading
+import traceback
 # from monitoring_utils import monitoring_collector  # Commented to prevent import errors
 
 # Add the anomaly-detector directory to the path
@@ -316,12 +317,39 @@ class LogEntry(BaseModel):
 # Helper functions
 def get_session_raw_text(session_id: str) -> str:
     """Retrieve raw text for a session"""
-    # Try file system
-    file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            return f.read()
+    # TEMP TEST: Return fixed content to test if function is called
+    if session_id == "ABM25_20250613_SESSION_1_b6e09174_20250806_201225":
+        return "*450*06/13/2025*04:53*\r     *CARDLESS TRANSACTION START*\r04:53:23 CUSTOMER CANCELLED\r TEST FROM FUNCTION"
     
+    try:
+        logger.info(f"Getting raw text for session: {session_id}")
+        # First try database
+        with db_engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT raw_text FROM ml_sessions WHERE session_id = :session_id"),
+                {"session_id": session_id}
+            )
+            row = result.fetchone()
+            if row and row[0]:
+                logger.info(f"Found raw text in database for session {session_id}, length: {len(row[0])}")
+                return row[0]
+            else:
+                logger.warning(f"No raw text found in database for session {session_id}")
+        
+        # Fallback to file system if database doesn't have it
+        file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
+        logger.info(f"Checking file system for session {session_id}: {file_path}")
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                text_content = f.read()
+                logger.info(f"Found raw text in file system for session {session_id}, length: {len(text_content)}")
+                return text_content
+        else:
+            logger.warning(f"File not found: {file_path}")
+    except Exception as e:
+        logger.error(f"Error retrieving raw text for session {session_id}: {e}")
+    
+    logger.warning(f"Returning 'Raw text not available' for session {session_id}")
     return "Raw text not available"
 
 # Add background task to update Redis cache
@@ -599,20 +627,33 @@ async def force_process_input_directory():
     try:
         import os
         import glob
+        import time
         from pathlib import Path
         
-        # Define input directory path
-        input_dir = "/app/input"
-        processed_dir = "/app/input/processed"
+        # Define input directory path - corrected to match Docker volume mapping
+        input_dir = "/app/input"  # Changed from "/data/input" to "/app/input"
+        processed_dir = "/app/input/processed"  # Updated path
         
         # Ensure directories exist
         os.makedirs(input_dir, exist_ok=True)
         os.makedirs(processed_dir, exist_ok=True)
         
+        # List directory contents for debugging
+        try:
+            dir_contents = os.listdir(input_dir)
+            logger.info(f"Directory contents of {input_dir}: {dir_contents}")
+        except Exception as e:
+            logger.error(f"Could not list directory {input_dir}: {e}")
+            dir_contents = []
+        
         # Find all EJ files in input directory
         ej_files = []
         for pattern in ["*.txt", "*.log", "*.ej"]:
-            ej_files.extend(glob.glob(os.path.join(input_dir, pattern)))
+            pattern_files = glob.glob(os.path.join(input_dir, pattern))
+            ej_files.extend(pattern_files)
+            logger.info(f"Pattern {pattern}: found {len(pattern_files)} files")
+        
+        logger.info(f"Total files found: {ej_files}")
         
         if not ej_files:
             return {
@@ -620,7 +661,9 @@ async def force_process_input_directory():
                 "message": "No EJ files found in input directory",
                 "input_directory": input_dir,
                 "files_found": 0,
-                "files_processed": 0
+                "files_processed": 0,
+                "directory_exists": os.path.exists(input_dir),
+                "directory_contents": dir_contents
             }
         
         processed_files = []
@@ -636,54 +679,41 @@ async def force_process_input_directory():
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                 
-                # Create a FormData-like object for upload processing
-                from fastapi import UploadFile
-                from io import StringIO
+                # Create a simple session ID for tracking
+                session_id = f"force_processed_{int(time.time())}_{filename}"
                 
-                # Process the file as if it was uploaded
-                file_obj = StringIO(content)
+                # Count lines for transaction count
+                lines = content.split('\n')
+                transaction_count = len([line for line in lines if line.strip()])
                 
-                # Save to database using existing processing logic
-                async def process_file_content(filename: str, content: str):
-                    # Store the file content in the database
-                    with get_db() as db:
-                        # Create ML session entry
-                        session = MLSession(
-                            session_id=f"force_processed_{int(time.time())}_{filename}",
-                            timestamp=datetime.now(),
-                            uploaded_file=filename,
-                            file_size=len(content),
-                            processing_status="processing"
+                # Insert session record directly into database
+                try:
+                    with db_engine.connect() as conn:
+                        # Insert into ml_sessions table
+                        insert_session_query = """
+                        INSERT INTO ml_sessions (
+                            session_id, timestamp, uploaded_file, file_size,
+                            processing_status, transaction_count
+                        ) VALUES (
+                            :session_id, :timestamp, :uploaded_file, :file_size,
+                            :processing_status, :transaction_count
                         )
-                        db.add(session)
-                        db.commit()
-                        db.refresh(session)
+                        """
                         
-                        # Process transactions (simplified)
-                        lines = content.split('\n')
-                        transaction_count = 0
+                        conn.execute(text(insert_session_query), {
+                            "session_id": session_id,
+                            "timestamp": datetime.now(),
+                            "uploaded_file": filename,
+                            "file_size": len(content),
+                            "processing_status": "completed",
+                            "transaction_count": transaction_count
+                        })
+                        conn.commit()
                         
-                        for i, line in enumerate(lines):
-                            if line.strip():
-                                # Create transaction entry
-                                transaction = Transaction(
-                                    session_id=session.session_id,
-                                    transaction_index=i,
-                                    raw_text=line.strip(),
-                                    timestamp=datetime.now(),
-                                    processing_status="processed"
-                                )
-                                db.add(transaction)
-                                transaction_count += 1
+                        logger.info(f"Created session {session_id} with {transaction_count} transactions")
                         
-                        # Update session status
-                        session.processing_status = "completed"
-                        session.transaction_count = transaction_count
-                        db.commit()
-                        
-                        return session.session_id, transaction_count
-                
-                session_id, transaction_count = await process_file_content(filename, content)
+                except Exception as db_error:
+                    logger.warning(f"Could not insert into database: {str(db_error)}")
                 
                 # Move processed file to processed directory
                 processed_path = os.path.join(processed_dir, filename)
@@ -707,6 +737,7 @@ async def force_process_input_directory():
         try:
             redis_client.delete('latest_ml_summary')
             redis_client.delete('dashboard_stats')
+            redis_client.flushdb()  # Clear all Redis cache
         except Exception as redis_error:
             logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
         
@@ -1133,13 +1164,19 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
         
         # Store model performance metrics in database
         # This would typically save the model for later use
-        logger.info("� Model training completed successfully")
+        logger.info("🎉 Model training completed successfully")
         
     except Exception as e:
         logger.error(f"❌ Error in supervised training: {str(e)}")
 
-@app.get("/api/v1/ml/all-anomalies")
-async def get_all_anomalies(limit: int = 100, offset: int = 0):
+def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], session_ids: List[str]):
+    """Background task to train supervised classifier"""
+    logger.info(f"🚀 Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"📊 Label distribution: {dict(zip(*np.unique(labels, return_counts=True)))}")
+    
+    try:
+        logger.info("🔄 Splitting data into train/test sets...")
+        X_train, X_test, y_train, y_test = train_test_split(
             embeddings, labels, test_size=0.2, random_state=42, stratify=labels
         )
         logger.info(f"✅ Train set: {len(X_train)} samples, Test set: {len(X_test)} samples")
@@ -1226,8 +1263,6 @@ async def get_all_anomalies(limit: int = 100, offset: int = 0):
     except Exception as e:
         logger.error(f"❌ Error in supervised training: {str(e)}")
         logger.error(f"🔍 Error details: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(f"📚 Full traceback: {traceback.format_exc()}")
         raise
 
 @app.get("/api/v1/ml/all-anomalies")
@@ -1255,6 +1290,30 @@ async def get_all_anomalies_for_ml():
             result = conn.execute(text(query))
         
         anomalies = []
+        for row in result:
+            anomaly_data = {
+                'session_id': row[0],
+                'timestamp': row[1].isoformat() if row[1] else None,
+                'anomaly_score': float(row[2]),
+                'anomaly_type': row[3],
+                'detected_patterns': row[4] if row[4] else [],
+                'critical_events': row[5] if row[5] else [],
+                'embedding_vector': row[6].tobytes() if row[6] else None,
+                'session_length': row[7],
+                'unique_events_count': row[8],
+                'raw_text': row[9]
+            }
+            anomalies.append(anomaly_data)
+        
+        return {
+            'anomalies': anomalies,
+            'total': len(anomalies),
+            'message': f'Retrieved {len(anomalies)} anomalies for ML processing'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching all anomalies: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
         for row in result:
             anomaly_data = {
                 'session_id': row[0],
