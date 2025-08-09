@@ -238,6 +238,11 @@ db_engine = create_engine(
     f"@{os.getenv('POSTGRES_HOST', 'postgres')}:5432/{os.getenv('POSTGRES_DB')}"
 )
 
+# Database connection function for synchronous operations
+def get_db_connection():
+    """Get database connection using SQLAlchemy engine"""
+    return db_engine.connect()
+
 # Redis connection
 redis_client = redis.Redis(
     host=os.getenv('REDIS_HOST', 'redis'),
@@ -328,15 +333,15 @@ class LogEntry(BaseModel):
     session_id: Optional[str] = None
 
 # Helper functions
-async def get_session_raw_text(session_id: str) -> str:
+def get_session_raw_text(session_id: str) -> str:
     """Retrieve raw text for a session from database or file system"""
     try:
         # First try database
-        async with get_db_connection() as conn:
-            query = "SELECT raw_text FROM ml_sessions WHERE session_id = $1"
-            result = await conn.fetchrow(query, session_id)
-            if result and result['raw_text']:
-                return result['raw_text']
+        with db_engine.connect() as conn:
+            query = text("SELECT raw_text FROM ml_sessions WHERE session_id = :session_id")
+            result = conn.execute(query, {"session_id": session_id}).fetchone()
+            if result and result.raw_text:
+                return result.raw_text
         
         # Fallback to file system
         file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
@@ -375,28 +380,28 @@ async def get_session_raw_text(session_id: str) -> str:
     
     return "Raw text not available"
 
-async def get_session_cleaned_text(session_id: str) -> str:
+def get_session_cleaned_text(session_id: str) -> str:
     """
     Retrieve cleaned text for a session from database.
     Falls back to raw text if cleaned text not available.
     """
     try:
         # Try to get cleaned text from database
-        async with get_db_connection() as conn:
-            result = await conn.fetchrow(
-                "SELECT cleaned_text, raw_text FROM ml_sessions WHERE session_id = $1",
-                session_id
-            )
+        with db_engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT cleaned_text, raw_text FROM ml_sessions WHERE session_id = :session_id"),
+                {"session_id": session_id}
+            ).fetchone()
             if result:
-                if result['cleaned_text']:
+                if result.cleaned_text:
                     logger.info(f"Retrieved cleaned text from database for session {session_id}")
-                    return result['cleaned_text']
-                elif result['raw_text']:
+                    return result.cleaned_text
+                elif result.raw_text:
                     logger.info(f"No cleaned text available, returning raw text for session {session_id}")
-                    return result['raw_text']
+                    return result.raw_text
         
         # Fallback to raw text function
-        raw_text = await get_session_raw_text(session_id)
+        raw_text = get_session_raw_text(session_id)
         if raw_text != "Raw text not available":
             return raw_text
         
@@ -407,18 +412,18 @@ async def get_session_cleaned_text(session_id: str) -> str:
         logger.error(f"Error retrieving cleaned text for session {session_id}: {str(e)}")
         return "Cleaned text not available"
 
-async def get_session_events(session_id: str) -> List[Dict]:
+def get_session_events(session_id: str) -> List[Dict]:
     """
     Retrieve structured events for a session from database.
     """
     try:
-        async with get_db_connection() as conn:
-            result = await conn.fetchrow(
-                "SELECT processed_events FROM ml_sessions WHERE session_id = $1",
-                session_id
-            )
-            if result and result['processed_events']:
-                events_json = result['processed_events']
+        with db_engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT processed_events FROM ml_sessions WHERE session_id = :session_id"),
+                {"session_id": session_id}
+            ).fetchone()
+            if result and result.processed_events:
+                events_json = result.processed_events
                 if isinstance(events_json, str):
                     events = json.loads(events_json)
                 else:
@@ -435,8 +440,8 @@ async def get_session_events(session_id: str) -> List[Dict]:
         return []
 
 # EJ Processing and Storage Functions
-async def process_and_store_ej_session(session_id: str, raw_ej_content: str, 
-                                     additional_metadata: Dict = None) -> Dict:
+def process_and_store_ej_session(session_id: str, raw_ej_content: str, 
+                                 additional_metadata: Dict = None) -> Dict:
     """
     Process raw EJ content, clean it, and store both versions in database
     
@@ -462,46 +467,49 @@ async def process_and_store_ej_session(session_id: str, raw_ej_content: str,
             cleaned_result = ej_cleaner.clean_ej_log(raw_ej_content)
         
         # Store in database
-        async with get_db_connection() as conn:
+        with db_engine.connect() as conn:
             # Check if session already exists
-            existing = await conn.fetchrow(
-                "SELECT session_id FROM ml_sessions WHERE session_id = $1",
-                session_id
-            )
+            existing = conn.execute(
+                text("SELECT session_id FROM ml_sessions WHERE session_id = :session_id"),
+                {"session_id": session_id}
+            ).fetchone()
             
             if existing:
                 # Update existing session
-                await conn.execute("""
+                conn.execute(text("""
                     UPDATE ml_sessions 
-                    SET raw_text = $2, 
-                        cleaned_text = $3, 
-                        processed_events = $4,
+                    SET raw_text = :raw_text, 
+                        cleaned_text = :cleaned_text, 
+                        processed_events = :processed_events,
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE session_id = $1
-                """, 
-                session_id, 
-                raw_ej_content, 
-                cleaned_result['cleaned_text'],
-                cleaned_result['structured_events']
-                )
+                    WHERE session_id = :session_id
+                """), {
+                    "session_id": session_id,
+                    "raw_text": raw_ej_content,
+                    "cleaned_text": cleaned_result['cleaned_text'],
+                    "processed_events": cleaned_result['structured_events']
+                })
+                conn.commit()
                 logger.info(f"Updated existing session {session_id} with EJ content")
             else:
                 # Create new session
                 timestamp = datetime.now()
-                await conn.execute("""
+                conn.execute(text("""
                     INSERT INTO ml_sessions 
                     (session_id, raw_text, cleaned_text, processed_events, 
                      timestamp, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """, 
-                session_id, 
-                raw_ej_content, 
-                cleaned_result['cleaned_text'],
-                cleaned_result['structured_events'],
-                timestamp,
-                timestamp,
-                timestamp
-                )
+                    VALUES (:session_id, :raw_text, :cleaned_text, :processed_events, 
+                            :timestamp, :created_at, :updated_at)
+                """), {
+                    "session_id": session_id,
+                    "raw_text": raw_ej_content,
+                    "cleaned_text": cleaned_result['cleaned_text'],
+                    "processed_events": cleaned_result['structured_events'],
+                    "timestamp": timestamp,
+                    "created_at": timestamp,
+                    "updated_at": timestamp
+                })
+                conn.commit()
                 logger.info(f"Created new session {session_id} with EJ content")
         
         # Return processing results
@@ -526,7 +534,7 @@ async def process_and_store_ej_session(session_id: str, raw_ej_content: str,
             'error': str(e)
         }
 
-async def batch_process_ej_files(input_directory: str = "/app/input/processed") -> Dict:
+def batch_process_ej_files(input_directory: str = "/app/input/processed") -> Dict:
     """
     Batch process EJ files from input directory and store in database
     
@@ -572,7 +580,7 @@ async def batch_process_ej_files(input_directory: str = "/app/input/processed") 
                     continue
                 
                 # Process and store
-                result = await process_and_store_ej_session(session_id, raw_content)
+                result = process_and_store_ej_session(session_id, raw_content)
                 processed_results.append(result)
                 
                 if result['status'] == 'success':
@@ -1197,8 +1205,11 @@ async def get_dashboard_stats():
 async def process_input():
     """Process uploaded input files and store EJ sessions in database"""
     try:
+        logger.info("Starting process-input endpoint")
         # Process EJ files from the input directory
-        processing_result = await batch_process_ej_files("/app/input/processed")
+        logger.info("Calling batch_process_ej_files with /app/input")
+        processing_result = batch_process_ej_files("/app/input")
+        logger.info(f"batch_process_ej_files completed with result: {processing_result.get('status', 'unknown')}")
         
         if processing_result['status'] == 'success':
             return {
@@ -1221,7 +1232,7 @@ async def process_input():
         raise HTTPException(status_code=500, detail=str(e) if str(e) else f"Internal error: {type(e).__name__}")
 
 @app.delete("/api/v1/clear-data")
-async def clear_all_data(confirm: str = None):
+def clear_all_data(confirm: str = None):
     """Clear all data from the system with comprehensive foreign key handling"""
     logger.info(f"🔥 CLEAR DATA ENDPOINT CALLED with confirm={confirm}")
     
@@ -1386,7 +1397,7 @@ async def clear_all_data(confirm: str = None):
 
 # Expert labeling endpoints
 @app.get("/api/v1/expert/anomalies")
-async def get_anomalies_for_labeling(
+def get_anomalies_for_labeling(
     filter: str = "unlabeled",
     limit: int = 100,
     offset: int = 0
@@ -1422,7 +1433,7 @@ async def get_anomalies_for_labeling(
             
             sessions = []
             for row in result:
-                raw_text = await get_session_raw_text(row[0])
+                raw_text = get_session_raw_text(row[0])
                 
                 session = {
                     "session_id": row[0],
@@ -1466,7 +1477,7 @@ async def get_anomalies_for_labeling(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/expert/labels")
-async def get_predefined_labels():
+def get_predefined_labels():
     """Get list of predefined anomaly labels"""
     try:
         query = """
@@ -1503,7 +1514,7 @@ async def get_predefined_labels():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/expert/save-labels")
-async def save_expert_labels(request: SaveLabelsRequest):
+def save_expert_labels(request: SaveLabelsRequest):
     """Save expert labels for anomalies"""
     try:
         saved_count = 0
@@ -2316,7 +2327,7 @@ async def get_alerts(
 
 # NEW: Continuous Learning API Endpoints
 @app.post("/api/v1/continuous-learning/feedback")
-async def submit_expert_feedback(
+def submit_expert_feedback(
     session_id: str,
     expert_label: str,
     expert_confidence: float,
@@ -2561,7 +2572,7 @@ async def get_session_details_for_feedback(session_id: str):
                 raise HTTPException(status_code=404, detail="Session not found")
             
             # Get raw text
-            raw_text = await get_session_raw_text(session_id)
+            raw_text = get_session_raw_text(session_id)
             
             # Check for existing feedback
             feedback_result = conn.execute(text("""
@@ -2727,7 +2738,7 @@ async def get_sessions(
 async def get_session_full_raw_text(session_id: str):
     """Get the complete raw text for a session without truncation"""
     try:
-        raw_text = await get_session_raw_text(session_id)
+        raw_text = get_session_raw_text(session_id)
         
         if raw_text == "Raw text not available":
             raise HTTPException(status_code=404, detail="Session raw text not found")
@@ -4081,7 +4092,7 @@ async def process_ej_session_endpoint(request: Dict[str, Any]):
 async def get_session_raw_text_endpoint(session_id: str):
     """Get raw EJ text for a session"""
     try:
-        raw_text = await get_session_raw_text(session_id)
+        raw_text = get_session_raw_text(session_id)
         return {
             'status': 'success',
             'session_id': session_id,
@@ -4096,7 +4107,7 @@ async def get_session_raw_text_endpoint(session_id: str):
 async def get_session_cleaned_text_endpoint(session_id: str):
     """Get cleaned EJ text for a session"""
     try:
-        cleaned_text = await get_session_cleaned_text(session_id)
+        cleaned_text = get_session_cleaned_text(session_id)
         return {
             'status': 'success',
             'session_id': session_id,
@@ -4111,7 +4122,7 @@ async def get_session_cleaned_text_endpoint(session_id: str):
 async def get_session_events_endpoint(session_id: str):
     """Get structured events for a session"""
     try:
-        events = await get_session_events(session_id)
+        events = get_session_events(session_id)
         return {
             'status': 'success',
             'session_id': session_id,
