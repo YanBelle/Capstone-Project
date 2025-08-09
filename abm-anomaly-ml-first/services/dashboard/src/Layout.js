@@ -13,6 +13,7 @@ const Layout = ({ children }) => {
     if (path.includes('/dashboard/alerts')) return 'alerts';
     if (path.includes('/dashboard/expert-labeling')) return 'expert-labeling';
     if (path.includes('/dashboard/continuous-learning')) return 'continuous-learning';
+    if (path.includes('/dashboard/ner-training')) return 'ner-training';
     if (path.includes('/dashboard/realtime')) return 'monitoring';
     if (path.includes('/dashboard/analytics')) return 'analytics';
     if (path.includes('/dashboard/bert-analysis')) return 'bert-analysis';
@@ -86,6 +87,7 @@ const Layout = ({ children }) => {
               { key: 'alerts', label: 'Alerts', path: '/dashboard/alerts' },
               { key: 'expert-labeling', label: 'Expert Review', path: '/dashboard/expert-labeling' },
               { key: 'continuous-learning', label: 'ML Training', path: '/dashboard/continuous-learning' },
+              { key: 'ner-training', label: 'NER Fine-tuning', path: '/dashboard/ner-training' },
               { key: 'bert-analysis', label: 'BERT Analysis', path: '/dashboard/bert-analysis' },
               { key: 'deeplog', label: 'DeepLog', path: '/dashboard/deeplog' },
               { key: 'monitoring', label: 'Real-time Monitor', path: '/dashboard/realtime' },

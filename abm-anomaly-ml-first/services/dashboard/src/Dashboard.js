@@ -9,6 +9,9 @@ import ContinuousLearningInterface from './ContinuousLearningInterface';
 import MultiAnomalyView from './MultiAnomalyView';
 import RealtimeMonitoringInterface from './RealtimeMonitoringInterface';
 import SVMDebugDashboard from './SVMDebugDashboard';
+import TFIDFVisualization from './TFIDFVisualization';
+import IsolationForestVisualization from './IsolationForestVisualization';
+import EnsembleDashboard from './EnsembleDashboard';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -202,42 +205,44 @@ const ATMDashboard = () => {
 
   const DashboardContent = () => (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <Brain className="w-8 h-8 text-purple-600 mr-3" />
-              <h1 className="text-2xl font-bold text-gray-900">ML-First ABM Anomaly Detection</h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <input
-                type="file"
-                id="file-upload"
-                className="hidden"
-                accept=".txt,.log"
-                onChange={handleFileUpload}
-              />
-              <label
-                htmlFor="file-upload"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer"
-              >
-                Upload EJournal
-              </label>
-              <div className="flex items-center text-sm text-gray-500">
-                <Clock className="w-4 h-4 mr-1" />
-                Last updated: {new Date().toLocaleTimeString()}
+      {/* Header - only show when not using Layout (to avoid duplicate headers) */}
+      {!shouldUseLayout && (
+        <div className="bg-white shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center">
+                <Brain className="w-8 h-8 text-purple-600 mr-3" />
+                <h1 className="text-2xl font-bold text-gray-900">ML-First ABM Anomaly Detection</h1>
+              </div>
+              <div className="flex items-center space-x-4">
+                <input
+                  type="file"
+                  id="file-upload"
+                  className="hidden"
+                  accept=".txt,.log"
+                  onChange={handleFileUpload}
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer"
+                >
+                  Upload EJournal
+                </label>
+                <div className="flex items-center text-sm text-gray-500">
+                  <Clock className="w-4 h-4 mr-1" />
+                  Last updated: {new Date().toLocaleTimeString()}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-8">
-            {['overview', 'anomalies', 'multi-anomaly', 'alerts', 'expert-labeling', 'continuous-learning', 'monitoring', 'analytics', 'svm-debug'].map((tab) => (
+            {['overview', 'anomalies', 'multi-anomaly', 'alerts', 'expert-labeling', 'continuous-learning', 'monitoring', 'analytics', 'svm-debug', 'tfidf-analysis', 'isolation-forest', 'ensemble-model'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -251,7 +256,10 @@ const ATMDashboard = () => {
                  tab === 'continuous-learning' ? 'ML Training' : 
                  tab === 'multi-anomaly' ? 'Multi-Anomaly' : 
                  tab === 'monitoring' ? 'Real-time Monitor' : 
-                 tab === 'svm-debug' ? 'SVM Debug' : tab}
+                 tab === 'svm-debug' ? 'SVM Debug' : 
+                 tab === 'tfidf-analysis' ? 'TF-IDF Analysis' : 
+                 tab === 'isolation-forest' ? 'Isolation Forest' : 
+                 tab === 'ensemble-model' ? 'Ensemble Model' : tab}
               </button>
             ))}
           </div>
@@ -502,6 +510,18 @@ const ATMDashboard = () => {
 
         {activeTab === 'svm-debug' && (
           <SVMDebugDashboard />
+        )}
+
+        {activeTab === 'tfidf-analysis' && (
+          <TFIDFVisualization />
+        )}
+
+        {activeTab === 'isolation-forest' && (
+          <IsolationForestVisualization />
+        )}
+
+        {activeTab === 'ensemble-model' && (
+          <EnsembleDashboard />
         )}
 
         {activeTab === 'analytics' && (

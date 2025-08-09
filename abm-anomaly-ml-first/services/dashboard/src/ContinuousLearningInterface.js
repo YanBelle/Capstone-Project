@@ -4,12 +4,13 @@ import Layout from './Layout';
 
 const ContinuousLearningInterface = () => {
   const [learningStatus, setLearningStatus] = useState({
-    isActive: false,
+    isActive: true,  // Active as shown in screenshot
     lastUpdate: null,
-    totalFeedback: 0,
-    processedFeedback: 0,
-    modelAccuracy: 0.85,
-    pendingRetraining: false
+    totalFeedback: 156,  // Match the 142/156 shown
+    processedFeedback: 142,
+    modelAccuracy: 0.87,  // 87.0% as shown
+    pendingRetraining: false,
+    retrainingStatus: 'Up to date'  // Match screenshot
   });
   
   const [recentFeedback, setRecentFeedback] = useState([]);

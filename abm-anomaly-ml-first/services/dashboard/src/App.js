@@ -33,7 +33,7 @@ class ErrorBoundary extends React.Component {
 
 // Lazy load components to catch import errors
 // Lazy load components to catch import errors
-const Dashboard = React.lazy(() => import('./SimplifiedDashboard').catch(err => {
+const Dashboard = React.lazy(() => import('./Dashboard').catch(err => {
   console.error('Error loading Dashboard:', err);
   return { default: () => <div>Error loading Dashboard component</div> };
 }));
@@ -58,6 +58,11 @@ const ContinuousLearningInterface = React.lazy(() => import('./ContinuousLearnin
   return { default: () => <div>Error loading ContinuousLearningInterface component</div> };
 }));
 
+const NERFineTuningInterface = React.lazy(() => import('./NERFineTuningInterface').catch(err => {
+  console.error('Error loading NERFineTuningInterface:', err);
+  return { default: () => <div>Error loading NERFineTuningInterface component</div> };
+}));
+
 const DataViewer = React.lazy(() => import('./DataViewer').catch(err => {
   console.error('Error loading DataViewer:', err);
   return { default: () => <div>Error loading DataViewer component</div> };
@@ -78,6 +83,11 @@ const DBSCANVisualization = React.lazy(() => import('./DBSCANVisualization').cat
   return { default: () => <div>Error loading DBSCANVisualization component</div> };
 }));
 
+const EnsembleDashboard = React.lazy(() => import('./EnsembleDashboard').catch(err => {
+  console.error('Error loading EnsembleDashboard:', err);
+  return { default: () => <div>Error loading EnsembleDashboard component</div> };
+}));
+
 function App() {
   console.log('🟢 App component loaded successfully!');
   
@@ -95,10 +105,12 @@ function App() {
             <Route path="/dashboard/multi-anomaly" element={<MultiAnomalyView />} />
             <Route path="/dashboard/expert-labeling" element={<ExpertLabelingInterface />} />
             <Route path="/dashboard/continuous-learning" element={<ContinuousLearningInterface />} />
+            <Route path="/dashboard/ner-training" element={<NERFineTuningInterface />} />
             <Route path="/dashboard/data-viewer" element={<DataViewer />} />
             <Route path="/dashboard/bert-analysis" element={<BertAnalysisInterface />} />
             <Route path="/dashboard/deeplog" element={<DeepLogDashboard />} />
             <Route path="/dashboard/dbscan" element={<DBSCANVisualization />} />
+            <Route path="/dashboard/ensemble" element={<EnsembleDashboard />} />
             <Route path="/" element={<Dashboard />} />
           </Routes>
         </React.Suspense>

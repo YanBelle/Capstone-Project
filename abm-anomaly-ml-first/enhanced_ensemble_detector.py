@@ -495,6 +495,154 @@ class EnhancedEnsembleDetector:
             'threshold': float(threshold)
         }
     
+    def get_tfidf_analysis_for_session(self, session_text: str, session_id: str = None) -> Dict[str, Any]:
+        """
+        Get detailed TF-IDF analysis for a specific session
+        
+        Args:
+            session_text: Raw session text
+            session_id: Optional session ID
+            
+        Returns:
+            Dictionary with TF-IDF analysis results
+        """
+        if not self.is_trained:
+            raise ValueError("Model must be trained before analysis")
+        
+        # Transform text to TF-IDF features
+        tfidf_features = self.tfidf_vectorizer.transform([session_text]).toarray()[0]
+        feature_names = self.tfidf_vectorizer.get_feature_names_out()
+        
+        # Get top features by TF-IDF score
+        top_indices = np.argsort(tfidf_features)[-20:][::-1]  # Top 20, descending
+        
+        top_features = []
+        for idx in top_indices:
+            if tfidf_features[idx] > 0:  # Only include non-zero features
+                top_features.append({
+                    'word': feature_names[idx],
+                    'tfidf_score': float(tfidf_features[idx]),
+                    'importance': float(tfidf_features[idx] / np.max(tfidf_features)) if np.max(tfidf_features) > 0 else 0.0
+                })
+        
+        # Categorize words
+        word_categories = self._categorize_tfidf_words(top_features)
+        
+        # Get prediction for this session
+        prediction_result = self.predict_single_session(session_text, session_id)
+        
+        return {
+            'session_id': session_id,
+            'tfidf_analysis': top_features,
+            'word_categories': word_categories,
+            'prediction_result': prediction_result,
+            'vocabulary_size': len(feature_names),
+            'analysis_timestamp': datetime.now().isoformat()
+        }
+    
+    def predict_single_session(self, session_text: str, session_id: str = None) -> Dict[str, Any]:
+        """
+        Predict anomaly for a single session
+        
+        Args:
+            session_text: Raw session text
+            session_id: Optional session ID
+            
+        Returns:
+            Prediction results
+        """
+        if not self.is_trained:
+            raise ValueError("Model must be trained before making predictions")
+        
+        # Create session dict
+        session = {
+            'raw_text': session_text,
+            'session_id': session_id or f'session_{datetime.now().timestamp()}',
+            'transactions': []  # Will be populated by feature extraction
+        }
+        
+        # Extract features
+        text_features, numerical_features = self.extract_features([session])
+        
+        # Scale features
+        text_features_scaled = self.text_scaler.transform(text_features)
+        numerical_features_scaled = self.numerical_scaler.transform(numerical_features)
+        
+        # Create combined features
+        combined_features = np.hstack([text_features_scaled, numerical_features_scaled])
+        combined_features_pca = self.pca_reducer.transform(combined_features)
+        combined_features_scaled = self.combined_scaler.transform(combined_features_pca)
+        
+        # Get predictions from models
+        svm_score = self.one_class_svm.decision_function(text_features_scaled)[0]
+        isolation_score = self.isolation_forest.decision_function(combined_features_scaled)[0]
+        
+        # Get clustering predictions
+        text_cluster = self.dbscan_text.fit_predict(text_features_scaled)[0]
+        numerical_cluster = self.dbscan_numerical.fit_predict(numerical_features_scaled)[0]
+        combined_cluster = self.dbscan_combined.fit_predict(combined_features_scaled)[0]
+        
+        # Calculate ensemble score
+        svm_score_norm = 1 / (1 + np.exp(svm_score))  # Sigmoid transform
+        isolation_score_norm = 1 / (1 + np.exp(isolation_score))
+        
+        # Density-based scoring
+        density_score = 0.3 * (1.0 if text_cluster == -1 else 0.0) + \
+                       0.3 * (1.0 if numerical_cluster == -1 else 0.0) + \
+                       0.4 * (1.0 if combined_cluster == -1 else 0.0)
+        
+        # Final ensemble score
+        ensemble_score = 0.3 * svm_score_norm + 0.3 * isolation_score_norm + 0.4 * density_score
+        
+        # Determine if anomaly
+        is_anomaly = ensemble_score > 0.5
+        
+        return {
+            'session_id': session_id,
+            'is_anomaly': bool(is_anomaly),
+            'ensemble_score': float(ensemble_score),
+            'svm_score': float(svm_score),
+            'isolation_score': float(isolation_score),
+            'density_score': float(density_score),
+            'text_cluster': int(text_cluster),
+            'numerical_cluster': int(numerical_cluster),
+            'combined_cluster': int(combined_cluster),
+            'prediction_timestamp': datetime.now().isoformat()
+        }
+    
+    def _categorize_tfidf_words(self, tfidf_features: List[Dict]) -> Dict[str, List[Dict]]:
+        """Categorize TF-IDF words into logical groups"""
+        categories = {
+            'error_terms': [],
+            'hardware_terms': [],
+            'transaction_terms': [],
+            'status_terms': [],
+            'other_terms': []
+        }
+        
+        # Define category patterns
+        category_patterns = {
+            'error_terms': ['error', 'fail', 'timeout', 'abort', 'reject', 'invalid', 'malfunction'],
+            'hardware_terms': ['power', 'reset', 'hardware', 'device', 'component', 'cim', 'recovery'],
+            'transaction_terms': ['transaction', 'withdraw', 'deposit', 'balance', 'pin', 'card', 'cash'],
+            'status_terms': ['start', 'end', 'success', 'complete', 'activated', 'taken', 'inserted']
+        }
+        
+        for feature in tfidf_features:
+            word = feature['word'].lower()
+            categorized = False
+            
+            for category, patterns in category_patterns.items():
+                if any(pattern in word for pattern in patterns):
+                    categories[category].append(feature)
+                    categorized = True
+                    break
+            
+            if not categorized:
+                categories['other_terms'].append(feature)
+        
+        return categories
+
     def get_model_info(self) -> Dict[str, Any]:
         """
         Get comprehensive model information

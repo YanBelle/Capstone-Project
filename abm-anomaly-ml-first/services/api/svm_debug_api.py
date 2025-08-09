@@ -98,6 +98,118 @@ async def debug_svm_session(request: SVMDebugRequest):
         if hasattr(analyzer, 'feature_names') and analyzer.feature_names:
             for i, name in enumerate(analyzer.feature_names[:10]):  # Top 10 features
                 if i < len(embedding_scaled[0]):
+                    feature_contributions[name] = float(embedding_scaled[0][i])
+        
+        # Calculate processing time
+        processing_time = (datetime.now() - start_time).total_seconds() * 1000
+        
+        # Determine prediction label and confidence
+        is_anomaly = prediction == -1
+        confidence = abs(decision_score)
+        
+        # Generate visualization if requested
+        visualization_url = None
+        if request.include_visualization and OneClassSVMVisualizer:
+            try:
+                visualizer = OneClassSVMVisualizer()
+                visualization_url = visualizer.create_session_visualization(
+                    session.embedding_vector, decision_score, request.session_id
+                )
+            except Exception as e:
+                logger.warning(f"Could not generate visualization: {e}")
+        
+        return SVMDebugResponse(
+            session_id=request.session_id,
+            decision_score=decision_score,
+            prediction="anomaly" if is_anomaly else "normal",
+            confidence=confidence,
+            support_vectors_used=analyzer.one_class_svm.n_support_[0] if hasattr(analyzer.one_class_svm, 'n_support_') else 0,
+            feature_contributions=feature_contributions,
+            visualization_url=visualization_url,
+            processing_time_ms=processing_time
+        )
+        
+    except Exception as e:
+        logger.error(f"Error analyzing session {request.session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+@router.post("/tfidf-analysis")
+async def get_tfidf_analysis(request: SVMDebugRequest):
+    """Get detailed TF-IDF feature analysis for outlier sessions"""
+    
+    try:
+        # Import One-Class SVM detector
+        sys.path.append('/app/services/anomaly-detector')
+        from oneclass_svm_detector import OneClassSVMAnomalyDetector
+        
+        # Initialize detector
+        detector = OneClassSVMAnomalyDetector()
+        
+        # Check if model exists and load it
+        model_path = os.path.join(detector.model_dir, 'oneclass_svm_model.pkl')
+        if not os.path.exists(model_path):
+            # Try to train with sample data or return error
+            raise HTTPException(status_code=400, detail="SVM model not trained. Please train the model first.")
+        
+        detector.load_model()
+        
+        # Get complete outlier analysis with TF-IDF
+        analysis_result = detector.get_outlier_analysis(
+            session_text=request.raw_text,
+            session_id=request.session_id
+        )
+        
+        return {
+            'session_id': request.session_id,
+            'is_anomaly': analysis_result.get('is_anomaly', False),
+            'decision_score': analysis_result.get('decision_score', 0.0),
+            'tfidf_analysis': analysis_result.get('tfidf_analysis', []),
+            'word_categories': analysis_result.get('word_categories', {}),
+            'feature_analysis': analysis_result.get('feature_analysis', {}),
+            'processing_timestamp': datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in TF-IDF analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"TF-IDF analysis failed: {str(e)}")
+
+@router.get("/model-tfidf-vocab")
+async def get_model_vocabulary():
+    """Get the TF-IDF vocabulary from the trained model"""
+    
+    try:
+        sys.path.append('/app/services/anomaly-detector')
+        from oneclass_svm_detector import OneClassSVMAnomalyDetector
+        
+        detector = OneClassSVMAnomalyDetector()
+        
+        # Load model
+        model_path = os.path.join(detector.model_dir, 'oneclass_svm_model.pkl')
+        if not os.path.exists(model_path):
+            raise HTTPException(status_code=400, detail="SVM model not trained")
+        
+        detector.load_model()
+        
+        # Get vocabulary
+        if hasattr(detector, 'vectorizer') and detector.vectorizer:
+            vocab = detector.vectorizer.get_feature_names_out()
+            vocab_size = len(vocab)
+            
+            return {
+                'vocabulary_size': vocab_size,
+                'top_100_words': vocab[:100].tolist(),  # First 100 words
+                'feature_extraction_config': {
+                    'max_features': detector.vectorizer.max_features,
+                    'ngram_range': detector.vectorizer.ngram_range,
+                    'stop_words': detector.vectorizer.stop_words
+                }
+            }
+        else:
+            raise HTTPException(status_code=500, detail="TF-IDF vectorizer not available")
+            
+    except Exception as e:
+        logger.error(f"Error getting vocabulary: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Vocabulary retrieval failed: {str(e)}")
                     contribution = float(embedding_scaled[0][i] * decision_score)
                     feature_contributions[name] = contribution
         else:
