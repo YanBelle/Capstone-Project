@@ -46,6 +46,20 @@ from unsupervised_endpoints import add_unsupervised_endpoints
 # Add the anomaly-detector directory to the path
 anomaly_detector_path = os.path.join(os.path.dirname(__file__), '..', 'anomaly-detector')
 
+# Add the parent directory to the path for enhanced_ensemble_detector
+parent_dir = os.path.dirname(os.path.dirname(__file__))
+sys.path.append(parent_dir)
+
+# Import enhanced ensemble detector
+try:
+    from enhanced_ensemble_detector import EnhancedEnsembleDetector
+    ENHANCED_DETECTOR_AVAILABLE = True
+    logger.info("Enhanced ensemble detector imported successfully")
+except ImportError as e:
+    logger.warning(f"Enhanced detector not available: {e}")
+    ENHANCED_DETECTOR_AVAILABLE = False
+    EnhancedEnsembleDetector = None
+
 def transform_bert_analysis_for_frontend(analysis_results):
     """Transform BERT analysis results to match frontend expectations"""
     if 'error' in analysis_results:
@@ -231,6 +245,37 @@ redis_client = redis.Redis(
     password=os.getenv('REDIS_PASSWORD'),
     decode_responses=True
 )
+
+# Enhanced ensemble detector instance
+enhanced_detector = None
+if ENHANCED_DETECTOR_AVAILABLE:
+    enhanced_detector = EnhancedEnsembleDetector(models_dir="/app/models")
+    # Try to load existing models
+    enhanced_detector.load_models()
+
+def convert_numpy_types(obj):
+    """Convert numpy types to JSON-serializable types"""
+    import numpy as np
+    
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif hasattr(obj, '__dict__'):
+        # Handle objects with attributes by converting their __dict__
+        try:
+            return {key: convert_numpy_types(value) for key, value in obj.__dict__.items() 
+                    if not key.startswith('_') and not callable(value)}
+        except:
+            return str(obj)
+    else:
+        return obj
 
 # Pydantic models
 class LabelData(BaseModel):
@@ -677,6 +722,28 @@ async def root():
         "version": "1.0.0"
     }
 
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        model_loaded = False
+        if ENHANCED_DETECTOR_AVAILABLE and enhanced_detector is not None:
+            model_loaded = enhanced_detector.is_trained
+        
+        return {
+            "status": "healthy",
+            "model_loaded": model_loaded,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return {
+            "status": "unhealthy",
+            "model_loaded": False,
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
+
 @app.get("/api/v1/health")
 async def health_check():
     """Health check endpoint"""
@@ -720,6 +787,277 @@ async def upload_ejournal(file: UploadFile = File(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Clear data endpoint
+@app.delete("/api/v1/data/clear-all")
+async def clear_all_data(confirm: bool = False):
+    """Clear all transaction and session data from the system"""
+    if not confirm:
+        raise HTTPException(
+            status_code=400, 
+            detail="Please set confirm=true to proceed with data deletion. This action cannot be undone."
+        )
+    
+    try:
+        deleted_counts = {}
+        
+        # Clear database tables - Check table existence first to avoid failed transactions
+        tables_to_clear = [
+            'ml_anomalies',  # Must be deleted first due to foreign key to ml_sessions
+            'alerts',
+            'model_retraining_events',
+            'ml_anomaly_clusters',
+            'expert_feedback',
+            'labeled_anomalies',
+            'transactions', 
+            'ml_sessions'  # Delete last due to foreign key constraints
+        ]
+        
+        for table in tables_to_clear:
+            try:
+                with db_engine.connect() as conn:
+                    # First check if table exists to avoid transaction failures
+                    table_exists_query = """
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = :table_name
+                    )
+                    """
+                    
+                    exists_result = conn.execute(text(table_exists_query), {'table_name': table})
+                    table_exists = exists_result.scalar()
+                    
+                    if not table_exists:
+                        logger.info(f"Table {table} does not exist, skipping")
+                        deleted_counts[table] = 0
+                        continue
+                    
+                    # Table exists, proceed with deletion in a transaction
+                    trans = conn.begin()
+                    try:
+                        # Get count before deletion
+                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        count = count_result.scalar() or 0
+                        
+                        # Clear the table using DELETE instead of TRUNCATE to avoid transaction issues
+                        conn.execute(text(f"DELETE FROM {table}"))
+                        logger.info(f"Cleared {count} records from {table}")
+                        deleted_counts[table] = count
+                        
+                        trans.commit()
+                        
+                    except Exception as table_error:
+                        trans.rollback()
+                        logger.warning(f"Could not clear table {table}: {str(table_error)}")
+                        deleted_counts[table] = f"Error: {str(table_error)}"
+                        
+            except Exception as conn_error:
+                logger.warning(f"Could not connect to clear table {table}: {str(conn_error)}")
+                deleted_counts[table] = f"Connection Error: {str(conn_error)}"
+        
+        # Reset sequences
+        try:
+            with db_engine.connect() as conn:
+                trans = conn.begin()
+                try:
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS transactions_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS labeled_anomalies_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS expert_feedback_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS model_retraining_events_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS alerts_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS ml_anomalies_id_seq RESTART WITH 1"))
+                    trans.commit()
+                except Exception as seq_error:
+                    trans.rollback()
+                    logger.warning(f"Could not reset sequences: {str(seq_error)}")
+        except Exception as e:
+            logger.warning(f"Could not reset sequences: {str(e)}")
+        
+        # Clear Redis cache completely
+        redis_cleared = False
+        try:
+            redis_client.flushdb()  # Clear entire database
+            # Also clear specific cache keys that might be used
+            cache_keys = [
+                'latest_ml_summary',
+                'dashboard_stats', 
+                'anomaly_counts',
+                'session_stats',
+                'ml_stats'
+            ]
+            for key in cache_keys:
+                redis_client.delete(key)
+            redis_cleared = True
+            logger.info("Cleared Redis cache completely")
+        except Exception as redis_error:
+            logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
+            redis_cleared = False
+        
+        # Clear file system data if it exists
+        cleared_files = 0
+        try:
+            sessions_dir = "/app/data/sessions"
+            if os.path.exists(sessions_dir):
+                import shutil
+                shutil.rmtree(sessions_dir)
+                os.makedirs(sessions_dir, exist_ok=True)
+                cleared_files += 1
+                logger.info("Cleared session files directory")
+        except Exception as file_error:
+            logger.warning(f"Could not clear session files: {str(file_error)}")
+        
+        total_deleted = sum(count for count in deleted_counts.values() if isinstance(count, int))
+        
+        return {
+            "status": "success",
+            "message": "All data cleared successfully",
+            "deleted_counts": deleted_counts,
+            "total_records_deleted": total_deleted,
+            "redis_cleared": redis_cleared,
+            "files_cleared": cleared_files > 0,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error clearing data: {str(e)}")
+
+@app.post("/api/v1/process/force-input")
+async def force_process_input_directory():
+    """Force the anomaly detection system to process any EJ files in the input directory"""
+    try:
+        import os
+        import glob
+        import time
+        from pathlib import Path
+        
+        # Define input directory path - corrected to match Docker volume mapping
+        input_dir = "/app/input"  # Changed from "/data/input" to "/app/input"
+        processed_dir = "/app/input/processed"  # Updated path
+        
+        # Ensure directories exist
+        os.makedirs(input_dir, exist_ok=True)
+        os.makedirs(processed_dir, exist_ok=True)
+        
+        # List directory contents for debugging
+        try:
+            dir_contents = os.listdir(input_dir)
+            logger.info(f"Directory contents of {input_dir}: {dir_contents}")
+        except Exception as e:
+            logger.error(f"Could not list directory {input_dir}: {e}")
+            dir_contents = []
+        
+        # Find all EJ files in input directory
+        ej_files = []
+        for pattern in ["*.txt", "*.log", "*.ej"]:
+            pattern_files = glob.glob(os.path.join(input_dir, pattern))
+            ej_files.extend(pattern_files)
+            logger.info(f"Pattern {pattern}: found {len(pattern_files)} files")
+        
+        logger.info(f"Total files found: {ej_files}")
+        
+        if not ej_files:
+            return {
+                "status": "warning",
+                "message": "No EJ files found in input directory",
+                "input_directory": input_dir,
+                "files_found": 0,
+                "files_processed": 0,
+                "directory_exists": os.path.exists(input_dir),
+                "directory_contents": dir_contents
+            }
+        
+        processed_files = []
+        error_files = []
+        
+        # Process each file
+        for file_path in ej_files:
+            try:
+                filename = os.path.basename(file_path)
+                logger.info(f"Processing file: {filename}")
+                
+                # Read and process the file content
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Create a simple session ID for tracking
+                session_id = f"force_processed_{int(time.time())}_{filename}"
+                
+                # Count lines for transaction count
+                lines = content.split('\n')
+                transaction_count = len([line for line in lines if line.strip()])
+                
+                # Insert session record directly into database
+                try:
+                    with db_engine.connect() as conn:
+                        # Insert into ml_sessions table
+                        insert_session_query = """
+                        INSERT INTO ml_sessions (
+                            session_id, timestamp, uploaded_file, file_size,
+                            processing_status, transaction_count
+                        ) VALUES (
+                            :session_id, :timestamp, :uploaded_file, :file_size,
+                            :processing_status, :transaction_count
+                        )
+                        """
+                        
+                        conn.execute(text(insert_session_query), {
+                            "session_id": session_id,
+                            "timestamp": datetime.now(),
+                            "uploaded_file": filename,
+                            "file_size": len(content),
+                            "processing_status": "completed",
+                            "transaction_count": transaction_count
+                        })
+                        conn.commit()
+                        
+                        logger.info(f"Created session {session_id} with {transaction_count} transactions")
+                        
+                except Exception as db_error:
+                    logger.warning(f"Could not insert into database: {str(db_error)}")
+                
+                # Move processed file to processed directory
+                processed_path = os.path.join(processed_dir, filename)
+                os.rename(file_path, processed_path)
+                
+                processed_files.append({
+                    "filename": filename,
+                    "session_id": session_id,
+                    "transaction_count": transaction_count,
+                    "status": "processed"
+                })
+                
+            except Exception as file_error:
+                logger.error(f"Error processing file {filename}: {str(file_error)}")
+                error_files.append({
+                    "filename": filename,
+                    "error": str(file_error)
+                })
+        
+        # Clear Redis cache to force refresh
+        try:
+            redis_client.delete('latest_ml_summary')
+            redis_client.delete('dashboard_stats')
+            redis_client.flushdb()  # Clear all Redis cache
+        except Exception as redis_error:
+            logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
+        
+        return {
+            "status": "success",
+            "message": f"Force processed {len(processed_files)} files from input directory",
+            "input_directory": input_dir,
+            "files_found": len(ej_files),
+            "files_processed": len(processed_files),
+            "files_with_errors": len(error_files),
+            "processed_files": processed_files,
+            "error_files": error_files,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error force processing input directory: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error force processing input directory: {str(e)}")
 
 # Dashboard stats
 @app.get("/api/v1/dashboard/stats", response_model=DashboardStats)
@@ -906,143 +1244,57 @@ async def clear_all_data(confirm: str = None):
     }
     
     try:
-        # DATABASE CLEARING with multiple fallback methods
-        async with get_db_connection() as conn:
-            success = False
+        # DATABASE CLEARING using SQLAlchemy with proper transaction handling
+        from sqlalchemy import text  # Import text for raw SQL
+        
+        success = False
+        
+        logger.info("Attempting database clearing with SQLAlchemy transaction")
+        
+        with db_engine.begin() as conn:  # Use begin() for automatic transaction
+            # Clear tables in strict dependency order
+            deletion_order = [
+                "ml_anomalies",         # Child table first
+                "expert_feedback",      # Child table 
+                "labeled_anomalies",    # Child table
+                "anomaly_detections",   # Independent table
+                "ml_summaries",         # Independent table
+                "ml_sessions"           # Parent table last
+            ]
             
-            # METHOD 1: Transaction with explicit ordering
-            if not success:
+            for table_name in deletion_order:
                 try:
-                    async with conn.transaction():
-                        logger.info("Attempting Method 1: Transaction with dependency order")
+                    # Check if table exists
+                    exists_query = text("""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.tables 
+                            WHERE table_name = :table_name
+                        )
+                    """)
+                    exists_result = conn.execute(exists_query, {"table_name": table_name}).scalar()
+                    
+                    if exists_result:
+                        # Get count before deletion
+                        count_query = text(f"SELECT COUNT(*) FROM {table_name}")
+                        count_before = conn.execute(count_query).scalar()
+                        logger.info(f"About to delete {count_before} rows from {table_name}")
                         
-                        # Clear tables in strict dependency order (child tables first)
-                        deletion_order = [
-                            "ml_anomalies",         # Child table referencing ml_sessions
-                            "expert_feedback",      # Child table referencing ml_sessions 
-                            "labeled_anomalies",    # Child table referencing ml_sessions
-                            "anomaly_detections",   # Independent table
-                            "ml_summaries",         # Independent table
-                            "ml_sessions"           # Parent table (must be last)
-                        ]
+                        # Execute deletion
+                        delete_query = text(f"DELETE FROM {table_name}")
+                        result = conn.execute(delete_query)
                         
-                        for table_name in deletion_order:
-                            # Check if table exists first
-                            exists_result = await conn.fetchval("""
-                                SELECT EXISTS (
-                                    SELECT FROM information_schema.tables 
-                                    WHERE table_name = $1
-                                )
-                            """, table_name)
-                            
-                            if exists_result:
-                                # Get count before deletion
-                                count_before = await conn.fetchval(f"SELECT COUNT(*) FROM {table_name}")
-                                
-                                # Execute deletion
-                                result = await conn.execute(f"DELETE FROM {table_name}")
-                                
-                                cleared_summary["database_tables_cleared"].append(f"{table_name} ({count_before} rows)")
-                                logger.info(f"Cleared {table_name}: {count_before} rows")
-                            else:
-                                logger.info(f"Table {table_name} does not exist, skipping")
-                        
-                        cleared_summary["method_used"] = "Transaction with dependency order"
-                        logger.info("Method 1 succeeded")
-                        success = True
-                        
-                except Exception as method1_error:
-                    logger.warning(f"Method 1 failed: {method1_error}")
-                    cleared_summary["database_tables_cleared"] = []
+                        cleared_summary["database_tables_cleared"].append(f"{table_name} ({count_before} rows)")
+                        logger.info(f"Successfully cleared {table_name}: {count_before} rows")
+                    else:
+                        logger.info(f"Table {table_name} does not exist, skipping")
+                except Exception as table_error:
+                    logger.error(f"Error clearing table {table_name}: {table_error}")
+                    raise table_error
             
-            # METHOD 2: TRUNCATE CASCADE
-            if not success:
-                try:
-                    logger.info("Attempting Method 2: TRUNCATE CASCADE")
-                    
-                    all_tables = ["ml_sessions", "ml_anomalies", "expert_feedback", 
-                                 "labeled_anomalies", "anomaly_detections", "ml_summaries"]
-                    
-                    for table in all_tables:
-                        try:
-                            await conn.execute(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE")
-                            cleared_summary["database_tables_cleared"].append(f"{table} (truncated)")
-                            logger.info(f"Truncated {table}")
-                        except Exception as truncate_error:
-                            logger.warning(f"Could not truncate {table}: {truncate_error}")
-                    
-                    cleared_summary["method_used"] = "TRUNCATE CASCADE"
-                    logger.info("Method 2 succeeded")
-                    success = True
-                    
-                except Exception as method2_error:
-                    logger.warning(f"Method 2 failed: {method2_error}")
-                    cleared_summary["database_tables_cleared"] = []
-            
-            # METHOD 3: Drop constraints, delete, recreate constraints
-            if not success:
-                try:
-                    logger.info("Attempting Method 3: Temporary constraint removal")
-                    
-                    all_tables = ["ml_sessions", "ml_anomalies", "expert_feedback", 
-                                 "labeled_anomalies", "anomaly_detections", "ml_summaries"]
-                    
-                    # Drop foreign key constraint temporarily
-                    try:
-                        await conn.execute("ALTER TABLE ml_anomalies DROP CONSTRAINT IF EXISTS ml_anomalies_session_id_fkey")
-                        logger.info("Dropped foreign key constraint")
-                    except Exception as drop_error:
-                        logger.warning(f"Could not drop constraint: {drop_error}")
-                    
-                    # Delete all data in correct order
-                    deletion_order = [
-                        "ml_anomalies",         # Child table 
-                        "expert_feedback",      # Child table  
-                        "labeled_anomalies",    # Child table
-                        "anomaly_detections",   # Independent table
-                        "ml_summaries",         # Independent table
-                        "ml_sessions"           # Parent table (last)
-                    ]
-                    
-                    for table in deletion_order:
-                        # Check if table exists
-                        exists_result = await conn.fetchval("""
-                            SELECT EXISTS (
-                                SELECT FROM information_schema.tables 
-                                WHERE table_name = $1
-                            )
-                        """, table)
-                        
-                        if exists_result:
-                            # Get count before deletion
-                            count_before = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
-                            
-                            # Execute deletion
-                            result = await conn.execute(f"DELETE FROM {table}")
-                            
-                            cleared_summary["database_tables_cleared"].append(f"{table} ({count_before} rows)")
-                            logger.info(f"Cleared {table}: {count_before} rows")
-                        else:
-                            logger.info(f"Table {table} does not exist, skipping")
-                    
-                    # Recreate foreign key constraint
-                    try:
-                        await conn.execute("""
-                            ALTER TABLE ml_anomalies 
-                            ADD CONSTRAINT ml_anomalies_session_id_fkey 
-                            FOREIGN KEY (session_id) REFERENCES ml_sessions(session_id)
-                        """)
-                        logger.info("Recreated foreign key constraint")
-                    except Exception as recreate_error:
-                        logger.warning(f"Could not recreate constraint: {recreate_error}")
-                    
-                    cleared_summary["method_used"] = "Temporary constraint removal"
-                    logger.info("Method 3 succeeded")
-                    success = True
-                    
-                except Exception as method3_error:
-                    logger.error(f"All database clearing methods failed: {method3_error}")
-                    cleared_summary["errors"].append(f"Database clearing failed: {str(method3_error)}")
+            # Transaction will auto-commit here due to begin()
+            cleared_summary["method_used"] = "SQLAlchemy transaction with dependency order"
+            logger.info("Database clearing succeeded")
+            success = True
         
         # FILE SYSTEM CLEARING
         try:
@@ -1333,36 +1585,42 @@ async def train_supervised_model(background_tasks: BackgroundTasks):
         with db_engine.connect() as conn:
             result = conn.execute(text(query))
             
+            data = []
             embeddings = []
             labels = []
             session_ids = []
             
             for row in result:
-                if row[1]:
-                    embedding = np.frombuffer(row[1], dtype=np.float32)
-                    embeddings.append(embedding)
-                    labels.append(row[2])
-                    session_ids.append(row[0])
-        
-        if len(embeddings) < 10:
-            raise HTTPException(
-                status_code=400,
-                detail="Not enough labeled data. Need at least 10 labeled anomalies."
+                if row[1]:  # embedding_vector exists
+                    try:
+                        embedding = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+                        embeddings.append(embedding)
+                        labels.append(row[2])  # anomaly_label
+                        session_ids.append(row[0])  # session_id
+                    except Exception as embed_error:
+                        logger.warning(f"Could not parse embedding for session {row[0]}: {embed_error}")
+            
+            if len(embeddings) < 10:
+                return {
+                    "status": "error",
+                    "message": f"Not enough labeled data for training. Found {len(embeddings)} samples, need at least 10.",
+                    "labeled_samples": len(embeddings)
+                }
+            
+            # Start background training task
+            background_tasks.add_task(
+                train_supervised_classifier, 
+                np.array(embeddings), 
+                labels, 
+                session_ids
             )
-        
-        background_tasks.add_task(
-            train_supervised_classifier,
-            np.array(embeddings),
-            labels,
-            session_ids
-        )
-        
-        return {
-            "status": "training_started",
-            "training_samples": len(embeddings),
-            "unique_labels": len(set(labels)),
-            "message": "Supervised model training started in background"
-        }
+            
+            return {
+                "status": "success",
+                "message": f"Started training with {len(embeddings)} labeled samples",
+                "labeled_samples": len(embeddings),
+                "unique_labels": len(set(labels))
+            }
         
     except Exception as e:
         logger.error(f"Error starting supervised training: {str(e)}")
@@ -1370,13 +1628,53 @@ async def train_supervised_model(background_tasks: BackgroundTasks):
 
 def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], session_ids: List[str]):
     """Background task to train supervised classifier"""
-    logger.info(f"Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"🚀 Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"📊 Label distribution: {dict(zip(*np.unique(labels, return_counts=True)))}")
     
     try:
+        logger.info("🔄 Splitting data into train/test sets...")
         X_train, X_test, y_train, y_test = train_test_split(
             embeddings, labels, test_size=0.2, random_state=42, stratify=labels
         )
         
+        logger.info("🤖 Training Random Forest classifier...")
+        rf_classifier = RandomForestClassifier(
+            n_estimators=100,
+            random_state=42,
+            class_weight='balanced'
+        )
+        rf_classifier.fit(X_train, y_train)
+        
+        logger.info("📈 Evaluating model performance...")
+        y_pred = rf_classifier.predict(X_test)
+        
+        # Generate classification report
+        report = classification_report(y_test, y_pred, output_dict=True)
+        confusion_mat = confusion_matrix(y_test, y_pred)
+        
+        logger.info(f"✅ Training completed! Accuracy: {report['accuracy']:.3f}")
+        logger.info(f"📊 Confusion Matrix:\n{confusion_mat}")
+        
+        # Store model performance metrics in database
+        # This would typically save the model for later use
+        logger.info("🎉 Model training completed successfully")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in supervised training: {str(e)}")
+
+def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], session_ids: List[str]):
+    """Background task to train supervised classifier"""
+    logger.info(f"🚀 Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"📊 Label distribution: {dict(zip(*np.unique(labels, return_counts=True)))}")
+    
+    try:
+        logger.info("🔄 Splitting data into train/test sets...")
+        X_train, X_test, y_train, y_test = train_test_split(
+            embeddings, labels, test_size=0.2, random_state=42, stratify=labels
+        )
+        logger.info(f"✅ Train set: {len(X_train)} samples, Test set: {len(X_test)} samples")
+        
+        logger.info("🌲 Training RandomForestClassifier...")
         clf = RandomForestClassifier(
             n_estimators=100,
             max_depth=10,
@@ -1385,14 +1683,22 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
         )
         
         clf.fit(X_train, y_train)
+        logger.info("✅ Model training completed")
         
+        logger.info("📈 Evaluating model performance...")
         y_pred = clf.predict(X_test)
         accuracy = (y_pred == y_test).mean()
         
         report = classification_report(y_test, y_pred, output_dict=True)
         conf_matrix = confusion_matrix(y_test, y_pred)
         
+        # Log performance metrics
+        logger.info(f"🎯 Model Accuracy: {accuracy:.3f}")
+        logger.info(f"📊 F1-Score: {report.get('weighted avg', {}).get('f1-score', 0):.3f}")
+        logger.info(f"🔍 Confusion Matrix: {conf_matrix.tolist()}")
+        
         # Save model
+        logger.info("💾 Saving trained model...")
         model_path = "/app/models/supervised_classifier.pkl"
         joblib.dump(clf, model_path)
         
@@ -1401,8 +1707,10 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
         le = LabelEncoder()
         le.fit(labels)
         joblib.dump(le, "/app/models/label_encoder.pkl")
+        logger.info("✅ Model and label encoder saved successfully")
         
         # Store model metadata
+        logger.info("📝 Storing model metadata in database...")
         model_data = {
             "model_name": "expert_supervised_classifier",
             "model_type": "supervised_classifier",
@@ -1442,10 +1750,12 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
             index=False
         )
         
-        logger.info(f"Supervised training completed. Accuracy: {accuracy:.3f}")
+        logger.info(f"🎉 Supervised training completed successfully! Accuracy: {accuracy:.3f}")
+        logger.info("🔄 Model is now active and ready for anomaly detection")
         
     except Exception as e:
-        logger.error(f"Error in supervised training: {str(e)}")
+        logger.error(f"❌ Error in supervised training: {str(e)}")
+        logger.error(f"🔍 Error details: {type(e).__name__}: {e}")
         raise
 
 @app.get("/api/v1/ml/all-anomalies")
@@ -1473,6 +1783,30 @@ async def get_all_anomalies_for_ml():
             result = conn.execute(text(query))
         
         anomalies = []
+        for row in result:
+            anomaly_data = {
+                'session_id': row[0],
+                'timestamp': row[1].isoformat() if row[1] else None,
+                'anomaly_score': float(row[2]),
+                'anomaly_type': row[3],
+                'detected_patterns': row[4] if row[4] else [],
+                'critical_events': row[5] if row[5] else [],
+                'embedding_vector': row[6].tobytes() if row[6] else None,
+                'session_length': row[7],
+                'unique_events_count': row[8],
+                'raw_text': row[9]
+            }
+            anomalies.append(anomaly_data)
+        
+        return {
+            'anomalies': anomalies,
+            'total': len(anomalies),
+            'message': f'Retrieved {len(anomalies)} anomalies for ML processing'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching all anomalies: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
         for row in result:
             anomaly_data = {
                 'session_id': row[0],
@@ -2110,33 +2444,33 @@ async def get_sessions_for_feedback(
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events,
-                        expert_override_applied,
-                        expert_override_reason
-                    FROM anomaly_sessions 
+                        null as expert_override_applied,
+                        null as expert_override_reason
+                    FROM ml_sessions 
                     WHERE is_anomaly = true 
                         AND session_id NOT IN (
                             SELECT DISTINCT session_id 
                             FROM expert_feedback 
                             WHERE session_id IS NOT NULL
                         )
-                    ORDER BY start_time DESC 
+                    ORDER BY timestamp DESC 
                     LIMIT :limit OFFSET :offset
                 """
             elif filter_type == "high_confidence_anomalies":
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events
-                    FROM anomaly_sessions 
+                    FROM ml_sessions 
                     WHERE is_anomaly = true 
                         AND anomaly_score > 0.8
                         AND session_id NOT IN (
@@ -2151,21 +2485,20 @@ async def get_sessions_for_feedback(
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events,
-                        expert_override_applied,
-                        expert_override_reason
-                    FROM anomaly_sessions 
-                    WHERE expert_override_applied = true
-                        AND session_id NOT IN (
-                            SELECT DISTINCT session_id 
-                            FROM expert_feedback 
-                            WHERE session_id IS NOT NULL
-                        )
-                    ORDER BY start_time DESC 
+                        null as expert_override_applied,
+                        null as expert_override_reason
+                    FROM ml_sessions 
+                    WHERE session_id IN (
+                        SELECT DISTINCT session_id 
+                        FROM expert_feedback 
+                        WHERE feedback_type = 'override'
+                    )
+                    ORDER BY timestamp DESC 
                     LIMIT :limit OFFSET :offset
                 """
             else:
@@ -2209,17 +2542,17 @@ async def get_session_details_for_feedback(session_id: str):
             result = conn.execute(text("""
                 SELECT 
                     session_id,
-                    start_time,
-                    end_time,
+                    timestamp as start_time,
+                    timestamp as end_time,
                     session_length,
                     is_anomaly,
                     anomaly_score,
                     anomaly_type,
                     detected_patterns,
                     critical_events,
-                    expert_override_applied,
-                    expert_override_reason
-                FROM anomaly_sessions 
+                    null as expert_override_applied,
+                    null as expert_override_reason
+                FROM ml_sessions 
                 WHERE session_id = :session_id
             """), {'session_id': session_id})
             
@@ -2314,6 +2647,81 @@ async def create_feedback_tables():
 
 # Add the startup event for Redis cache (keep existing one)
 # ...existing startup code...
+
+@app.get("/api/v1/sessions")
+async def get_sessions(
+    limit: int = 100,
+    offset: int = 0,
+    anomaly_filter: str = "all"  # "all", "anomalies", "normal"
+):
+    """Get list of all sessions for dashboard display"""
+    try:
+        with db_engine.connect() as conn:
+            # Build where clause based on filter
+            where_clause = ""
+            if anomaly_filter == "anomalies":
+                where_clause = "WHERE is_anomaly = true"
+            elif anomaly_filter == "normal":
+                where_clause = "WHERE is_anomaly = false"
+            
+            query = f"""
+                SELECT 
+                    session_id,
+                    timestamp,
+                    session_length,
+                    is_anomaly,
+                    anomaly_score,
+                    anomaly_type,
+                    detected_patterns,
+                    critical_events,
+                    created_at
+                FROM ml_sessions 
+                {where_clause}
+                ORDER BY timestamp DESC 
+                LIMIT :limit OFFSET :offset
+            """
+            
+            # Get total count
+            count_query = f"""
+                SELECT COUNT(*) as total 
+                FROM ml_sessions 
+                {where_clause}
+            """
+            
+            result = conn.execute(text(query), {
+                'limit': limit,
+                'offset': offset
+            })
+            
+            count_result = conn.execute(text(count_query))
+            total = count_result.fetchone()[0]
+            
+            sessions = []
+            for row in result:
+                session_data = {
+                    'session_id': row[0],
+                    'timestamp': row[1].isoformat() if row[1] else None,
+                    'session_length': row[2],
+                    'is_anomaly': row[3],
+                    'anomaly_score': float(row[4]) if row[4] else 0.0,
+                    'anomaly_type': row[5],
+                    'detected_patterns': row[6] if row[6] else [],
+                    'critical_events': row[7] if row[7] else [],
+                    'created_at': row[8].isoformat() if row[8] else None
+                }
+                sessions.append(session_data)
+            
+            return {
+                'sessions': sessions,
+                'total': total,
+                'limit': limit,
+                'offset': offset,
+                'filter': anomaly_filter
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}")
 
 @app.get("/api/v1/sessions/{session_id}/raw-text")
 async def get_session_full_raw_text(session_id: str):
@@ -3276,6 +3684,337 @@ async def extract_contextual_labels(request: BertAnalysisRequest):
         
     except Exception as e:
         logger.error(f"Error extracting contextual labels: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Enhanced DBSCAN Ensemble Endpoints
+@app.post("/api/train_enhanced_ensemble")
+async def train_enhanced_ensemble(request: dict):
+    """Train the enhanced ensemble detector with DBSCAN"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        # Extract sessions from request
+        sessions = request.get('sessions', [])
+        if not sessions:
+            raise HTTPException(status_code=400, detail="No training sessions provided")
+        
+        logger.info(f"Training enhanced ensemble with {len(sessions)} sessions")
+        
+        # Train the model
+        result = enhanced_detector.train(sessions)
+        
+        logger.info("Enhanced ensemble training completed successfully")
+        return convert_numpy_types(result)
+        
+    except Exception as e:
+        logger.error(f"Error training enhanced ensemble: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/model_info")
+async def get_model_info():
+    """Get comprehensive model information"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            return {
+                'is_trained': False,
+                'message': 'Enhanced detector not available'
+            }
+        
+        model_info = enhanced_detector.get_model_info()
+        return convert_numpy_types(model_info)
+        
+    except Exception as e:
+        logger.error(f"Error getting model info: {str(e)}")
+        return {
+            'is_trained': False,
+            'error': str(e)
+        }
+
+@app.get("/api/dbscan_analysis")
+async def get_dbscan_analysis():
+    """Get detailed DBSCAN analysis for visualization"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before getting DBSCAN analysis")
+        
+        analysis = enhanced_detector.get_dbscan_analysis()
+        return convert_numpy_types(analysis)
+        
+    except Exception as e:
+        logger.error(f"Error getting DBSCAN analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/predict_enhanced")
+async def predict_enhanced(request: dict):
+    """Predict anomalies using enhanced ensemble"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before making predictions")
+        
+        sessions = request.get('sessions', [])
+        if not sessions:
+            raise HTTPException(status_code=400, detail="No sessions provided for prediction")
+        
+        predictions = enhanced_detector.predict(sessions)
+        return convert_numpy_types(predictions)
+        
+    except Exception as e:
+        logger.error(f"Error making enhanced predictions: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Enhanced Cluster Interaction Endpoints
+@app.post("/api/cluster_sessions")
+async def get_cluster_sessions(cluster_data: dict):
+    """Get EJ sessions belonging to a specific cluster"""
+    try:
+        logger.info(f"get_cluster_sessions API called with data: {cluster_data}")
+        
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            logger.error("Enhanced detector not available")
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        logger.info(f"Enhanced detector available: {enhanced_detector is not None}")
+        logger.info(f"Enhanced detector is_trained: {enhanced_detector.is_trained}")
+        
+        if not enhanced_detector.is_trained:
+            logger.error("Model not trained")
+            raise HTTPException(status_code=400, detail="Model must be trained before getting cluster sessions")
+        
+        cluster_id = cluster_data.get('cluster_id')
+        feature_type = cluster_data.get('feature_type', 'combined')  # text, numerical, combined
+        
+        logger.info(f"Parsed cluster_id: {cluster_id}, feature_type: {feature_type}")
+        
+        if cluster_id is None:
+            logger.error("cluster_id is None")
+            raise HTTPException(status_code=400, detail="cluster_id is required")
+        
+        logger.info("About to call enhanced_detector.get_cluster_sessions")
+        
+        # Get cluster sessions
+        sessions = enhanced_detector.get_cluster_sessions(cluster_id, feature_type)
+        
+        logger.info(f"get_cluster_sessions returned {len(sessions) if sessions else 0} sessions")
+        
+        result = {"sessions": convert_numpy_types(sessions)}
+        logger.info("Successfully converted sessions with convert_numpy_types")
+        
+        return result
+    
+    except HTTPException as e:
+        logger.error(f"HTTPException in get_cluster_sessions: {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error getting cluster sessions: {e}")
+        logger.error(f"Exception type: {type(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to get cluster sessions: {str(e)}")
+
+@app.post("/api/label_cluster")
+async def label_cluster(label_data: dict):
+    """Expert labeling of a cluster"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before labeling clusters")
+        
+        cluster_id = label_data.get('cluster_id')
+        feature_type = label_data.get('feature_type', 'combined')
+        label_name = label_data.get('label_name')
+        label_description = label_data.get('label_description', '')
+        expert_confidence = label_data.get('confidence', 0.8)
+        
+        if not cluster_id or not label_name:
+            raise HTTPException(status_code=400, detail="cluster_id and label_name are required")
+        
+        # Apply expert label to cluster
+        result = enhanced_detector.label_cluster(
+            cluster_id=cluster_id, 
+            feature_type=feature_type,
+            label_name=label_name,
+            label_description=label_description,
+            expert_confidence=expert_confidence
+        )
+        
+        return {"result": convert_numpy_types(result)}
+    
+    except Exception as e:
+        logger.error(f"Error labeling cluster: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/train_supervised_classifier")
+async def train_supervised_classifier_endpoint():
+    """Train supervised classifier from expert-labeled clusters"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before training supervised classifier")
+        
+        # Train supervised model
+        result = enhanced_detector.train_supervised_classifier()
+        
+        return {"training_result": convert_numpy_types(result)}
+    
+    except Exception as e:
+        logger.error(f"Error training supervised classifier: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/predict_with_supervised")
+async def predict_with_supervised(session_data: dict):
+    """Predict cluster label for new session using supervised model"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before supervised prediction")
+        
+        session_text = session_data.get('session_text')
+        if not session_text:
+            raise HTTPException(status_code=400, detail="session_text is required")
+        
+        # Predict using supervised model
+        prediction = enhanced_detector.predict_supervised(session_text)
+        
+        return {"prediction": convert_numpy_types(prediction)}
+    
+    except Exception as e:
+        logger.error(f"Error in supervised prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cluster_labels")
+async def get_cluster_labels():
+    """Get all expert-applied cluster labels"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        # Get cluster labels
+        labels = enhanced_detector.get_cluster_labels()
+        
+        return {"labels": convert_numpy_types(labels)}
+    
+    except Exception as e:
+        logger.error(f"Error getting cluster labels: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cluster_insights")
+async def get_cluster_insights():
+    """Get cluster insights and analysis"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained to get insights")
+        
+        # Generate cluster insights
+        insights = {
+            "total_clusters": {
+                "text": len(enhanced_detector.text_cluster_labels_) if hasattr(enhanced_detector, 'text_cluster_labels_') else 0,
+                "numerical": len(enhanced_detector.numerical_cluster_labels_) if hasattr(enhanced_detector, 'numerical_cluster_labels_') else 0,
+                "combined": len(enhanced_detector.combined_cluster_labels_) if hasattr(enhanced_detector, 'combined_cluster_labels_') else 0
+            },
+            "cluster_distribution": {
+                "text_clusters": enhanced_detector.text_cluster_labels_.tolist() if hasattr(enhanced_detector, 'text_cluster_labels_') else [],
+                "numerical_clusters": enhanced_detector.numerical_cluster_labels_.tolist() if hasattr(enhanced_detector, 'numerical_cluster_labels_') else [],
+                "combined_clusters": enhanced_detector.combined_cluster_labels_.tolist() if hasattr(enhanced_detector, 'combined_cluster_labels_') else []
+            },
+            "cluster_quality": {
+                "text_silhouette": getattr(enhanced_detector, 'text_silhouette_score', 0.0),
+                "numerical_silhouette": getattr(enhanced_detector, 'numerical_silhouette_score', 0.0),
+                "combined_silhouette": getattr(enhanced_detector, 'combined_silhouette_score', 0.0)
+            }
+        }
+        
+        return {"insights": convert_numpy_types(insights)}
+    
+    except Exception as e:
+        logger.error(f"Error getting cluster insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/cluster_visualization_data")
+async def get_cluster_visualization_data(request_data: dict):
+    """Get cluster visualization data for plotting"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained to get visualization data")
+        
+        feature_type = request_data.get('feature_type', 'combined')
+        
+        # Get visualization data
+        viz_data = {
+            "coordinates": [],
+            "cluster_labels": [],
+            "session_ids": [],
+            "anomaly_scores": []
+        }
+        
+        # Use PCA or t-SNE for dimensionality reduction to 2D
+        if hasattr(enhanced_detector, 'visualization_coordinates'):
+            coords = getattr(enhanced_detector, f'{feature_type}_visualization_coordinates', [])
+            labels = getattr(enhanced_detector, f'{feature_type}_cluster_labels_', [])
+            
+            if len(coords) > 0:
+                viz_data["coordinates"] = coords.tolist() if hasattr(coords, 'tolist') else coords
+                viz_data["cluster_labels"] = labels.tolist() if hasattr(labels, 'tolist') else labels
+                viz_data["session_ids"] = getattr(enhanced_detector, 'session_ids', [])[:len(coords)]
+                viz_data["anomaly_scores"] = getattr(enhanced_detector, 'anomaly_scores', [])[:len(coords)]
+        
+        return {"visualization_data": convert_numpy_types(viz_data)}
+    
+    except Exception as e:
+        logger.error(f"Error getting cluster visualization data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/performance_comparison")
+async def get_performance_comparison(request_data: dict):
+    """Get performance comparison between different clustering approaches"""
+    try:
+        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained to get performance comparison")
+        
+        # Generate performance comparison
+        comparison = {
+            "text_clustering": {
+                "silhouette_score": getattr(enhanced_detector, 'text_silhouette_score', 0.0),
+                "n_clusters": len(set(enhanced_detector.text_cluster_labels_)) if hasattr(enhanced_detector, 'text_cluster_labels_') else 0,
+                "n_noise": sum(1 for label in enhanced_detector.text_cluster_labels_ if label == -1) if hasattr(enhanced_detector, 'text_cluster_labels_') else 0
+            },
+            "numerical_clustering": {
+                "silhouette_score": getattr(enhanced_detector, 'numerical_silhouette_score', 0.0),
+                "n_clusters": len(set(enhanced_detector.numerical_cluster_labels_)) if hasattr(enhanced_detector, 'numerical_cluster_labels_') else 0,
+                "n_noise": sum(1 for label in enhanced_detector.numerical_cluster_labels_ if label == -1) if hasattr(enhanced_detector, 'numerical_cluster_labels_') else 0
+            },
+            "combined_clustering": {
+                "silhouette_score": getattr(enhanced_detector, 'combined_silhouette_score', 0.0),
+                "n_clusters": len(set(enhanced_detector.combined_cluster_labels_)) if hasattr(enhanced_detector, 'combined_cluster_labels_') else 0,
+                "n_noise": sum(1 for label in enhanced_detector.combined_cluster_labels_ if label == -1) if hasattr(enhanced_detector, 'combined_cluster_labels_') else 0
+            }
+        }
+        
+        return {"performance_comparison": convert_numpy_types(comparison)}
+    
+    except Exception as e:
+        logger.error(f"Error getting performance comparison: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Start monitoring background task

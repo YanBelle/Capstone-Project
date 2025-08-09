@@ -83,9 +83,9 @@ const DeepLogDashboard = React.lazy(() => import('./DeepLogDashboard').catch(err
   return { default: () => <div>Error loading DeepLogDashboard component</div> };
 }));
 
-const UnsupervisedAnalysisDashboard = React.lazy(() => import('./UnsupervisedAnalysisDashboard').catch(err => {
-  console.error('Error loading UnsupervisedAnalysisDashboard:', err);
-  return { default: () => <div>Error loading UnsupervisedAnalysisDashboard component</div> };
+const DBSCANVisualization = React.lazy(() => import('./DBSCANVisualization').catch(err => {
+  console.error('Error loading DBSCANVisualization:', err);
+  return { default: () => <div>Error loading DBSCANVisualization component</div> };
 }));
 
 function App() {
@@ -107,10 +107,9 @@ function App() {
             <Route path="/dashboard/realtime" element={<RealtimeMonitoringInterface />} />
             <Route path="/dashboard/data-viewer" element={<Layout><DataViewer /></Layout>} />
             <Route path="/dashboard/bert-analysis" element={<BertAnalysisInterface />} />
-            <Route path="/dashboard/deeplog" element={<Layout><DeepLogDashboard /></Layout>} />
-            <Route path="/dashboard/unsupervised" element={<UnsupervisedAnalysisDashboard />} />
-            <Route path="/dashboard/unsupervised-analysis" element={<UnsupervisedAnalysisDashboard />} />
-            <Route path="/" element={<SimpleDashboard />} />
+            <Route path="/dashboard/deeplog" element={<DeepLogDashboard />} />
+            <Route path="/dashboard/dbscan" element={<DBSCANVisualization />} />
+            <Route path="/" element={<Dashboard />} />
           </Routes>
         </React.Suspense>
       </Router>

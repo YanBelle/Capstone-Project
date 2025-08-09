@@ -12,6 +12,7 @@ const SEVERITY_COLORS = {
 
 const MultiAnomalyView = ({ anomalies: anomaliesProp }) => {
   const [anomalies, setAnomalies] = useState(anomaliesProp || []);
+  const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({
     multiAnomalyCount: 0,
     singleAnomalyCount: 0,
@@ -23,65 +24,38 @@ const MultiAnomalyView = ({ anomalies: anomaliesProp }) => {
     combinationPatterns: []
   });
 
+  // Separate effect for fetching data - only runs once
   useEffect(() => {
-    console.log('MultiAnomalyView received anomalies:', anomalies);
-    
-    // Fetch anomalies data if not provided as prop
-    const fetchAnomalies = async () => {
-      try {
-        console.log('Fetching anomalies data from API...');
-        // For now, use mock data since the API endpoints aren't implemented
-        const mockAnomalies = [
-          {
-            session_id: "ABM250_20250726_SESSION_001",
-            is_anomaly: true,
-            anomaly_count: 2,
-            anomaly_types: ["dispense_failure", "timeout_error"],
-            detection_methods: ["isolation_forest", "one_class_svm"],
-            max_severity: "high",
-            anomaly_score: 0.89,
-            overall_anomaly_score: 0.89,
-            critical_anomalies_count: 0,
-            high_severity_anomalies_count: 2
-          },
-          {
-            session_id: "ABM250_20250726_SESSION_002", 
-            is_anomaly: true,
-            anomaly_count: 1,
-            anomaly_type: "hardware_error",
-            anomaly_types: ["hardware_error"],
-            detection_methods: ["isolation_forest"],
-            max_severity: "critical",
-            anomaly_score: 0.95,
-            overall_anomaly_score: 0.95,
-            critical_anomalies_count: 1,
-            high_severity_anomalies_count: 0
-          },
-          {
-            session_id: "ABM250_20250726_SESSION_003",
-            is_anomaly: true,
-            anomaly_count: 3,
-            anomaly_types: ["dispense_failure", "timeout_error", "network_error"],
-            detection_methods: ["isolation_forest", "one_class_svm", "expert_rules"],
-            max_severity: "critical",
-            anomaly_score: 0.92,
-            overall_anomaly_score: 0.92,
-            critical_anomalies_count: 2,
-            high_severity_anomalies_count: 1
+    // Only fetch if no anomalies prop was provided and we haven't already loaded data
+    if (!anomaliesProp && anomalies.length === 0 && !loading) {
+      const fetchAnomalies = async () => {
+        setLoading(true);
+        try {
+          console.log('Fetching anomalies data from API...');
+          const response = await fetch('/api/v1/anomalies?unlimited=true');
+          if (response.ok) {
+            const data = await response.json();
+            console.log('API response:', data);
+            setAnomalies(data.anomalies || []);
+          } else {
+            console.warn('API request failed, using empty data');
+            setAnomalies([]);
           }
-        ];
-        setAnomalies(mockAnomalies);
-      } catch (error) {
-        console.error('Error fetching anomalies:', error);
-        setAnomalies([]);
-      }
-    };
-    
-    // If no anomalies prop was provided, fetch the data
-    if (!anomaliesProp && anomalies.length === 0) {
+        } catch (error) {
+          console.error('Error fetching anomalies:', error);
+          setAnomalies([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
       fetchAnomalies();
-      return;
     }
+  }, [anomaliesProp]); // Only depend on anomaliesProp, not anomalies
+
+  // Separate effect for calculating stats - only runs when anomalies data changes
+  useEffect(() => {
+    console.log('MultiAnomalyView calculating stats for anomalies:', anomalies?.length || 0);
     
     const calculateMultiAnomalyStats = () => {
       if (!anomalies || !Array.isArray(anomalies)) {
@@ -229,7 +203,7 @@ const MultiAnomalyView = ({ anomalies: anomaliesProp }) => {
     } else {
       console.log('No anomaly data available');
     }
-  }, [anomalies, anomaliesProp]);
+  }, [anomalies]); // Only depend on anomalies data, not anomaliesProp
 
   const getMultiAnomalySessions = () => {
     if (!anomalies || !Array.isArray(anomalies)) {
@@ -278,7 +252,25 @@ const MultiAnomalyView = ({ anomalies: anomaliesProp }) => {
       </div>
 
         {/* Debug Information when no data */}
-        {(!anomalies || anomalies.length === 0 || stats.totalAnomalySessions === 0) && (
+        {loading && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <Activity className="h-5 w-5 text-blue-400 animate-spin" />
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-blue-800">
+                  Loading Multi-Anomaly Data...
+                </h3>
+                <p className="mt-1 text-sm text-blue-700">
+                  Fetching anomaly data from the API...
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(!loading && (!anomalies || anomalies.length === 0 || stats.totalAnomalySessions === 0)) && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
             <div className="flex">
               <div className="flex-shrink-0">

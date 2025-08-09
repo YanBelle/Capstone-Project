@@ -325,7 +325,8 @@ class BertDeepLogAnalyzer:
                 
                 # Sequence prediction loss (predict next embedding)
                 if batch_X.size(1) > 1:
-                    sequence_targets = batch_X[:, 1:, :]  # Next embeddings
+                    # Project the target embeddings to match prediction dimensions (64-dim)
+                    sequence_targets = self.model.bert_projection(batch_X[:, 1:, :])
                     sequence_preds = outputs['sequence_predictions'][:, :-1, :]
                     sequence_loss = sequence_criterion(sequence_preds, sequence_targets)
                 else:

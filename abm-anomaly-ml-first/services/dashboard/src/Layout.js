@@ -45,85 +45,66 @@ const Layout = ({ children }) => {
     }
   };
 
-  const handleProcessInput = async () => {
-    try {
-      setIsProcessing(true);
-      const response = await fetch('/api/v1/process-input', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (response.ok) {
-        alert('Input processing started successfully.');
-      } else {
-        alert('Failed to start processing.');
-      }
-    } catch (error) {
-      console.error('Process error:', error);
-      alert('Failed to start processing.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
+  // Handle clear all data
   const handleClearAllData = async () => {
-    const firstConfirm = window.confirm('Are you sure you want to clear all data? This action cannot be undone.');
-    if (!firstConfirm) {
-      return;
-    }
-    
-    const secondConfirm = window.confirm('FINAL WARNING: This will permanently delete ALL data, sessions, files, and cache. Type "CONFIRM" in the next dialog to proceed.');
-    if (!secondConfirm) {
-      return;
-    }
-    
-    const finalConfirm = window.prompt('Type "CONFIRM" to permanently clear all data:');
-    if (finalConfirm !== 'CONFIRM') {
-      alert('❌ Clear data cancelled. Data was not cleared.');
+    const firstConfirm = window.confirm('⚠️ Are you sure you want to clear ALL data? This will permanently remove all transactions, training data, and reset the system.');
+    if (!firstConfirm) return;
+
+    const secondConfirm = window.prompt('🔴 FINAL CONFIRMATION: Type "CLEAR ALL" to confirm you want to clear all data:');
+    if (secondConfirm !== 'CLEAR ALL') {
+      alert('❌ Operation cancelled. Data was not cleared.');
       return;
     }
 
     try {
-      const response = await fetch('/api/v1/clear-data?confirm=true', {
+      const response = await fetch('/api/v1/data/clear-all?confirm=true', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
-      
+
       if (response.ok) {
-        const result = await response.json();
-        let message = '✅ All data cleared successfully!\n\n';
-        
-        if (result.database_tables_cleared && result.database_tables_cleared.length > 0) {
-          message += `📊 Database tables cleared: ${result.total_tables}\n`;
-          message += `   ${result.database_tables_cleared.join(', ')}\n\n`;
-        }
-        
-        if (result.files_cleared && result.files_cleared.length > 0) {
-          message += `📁 File groups cleared: ${result.total_file_groups}\n`;
-          message += `   ${result.files_cleared.join(', ')}\n\n`;
-        }
-        
-        if (result.redis_cleared) {
-          message += `🔄 Redis cache cleared: Yes\n\n`;
-        }
-        
-        if (result.method_used) {
-          message += `🔧 Method used: ${result.method_used}\n`;
-        }
-        
-        if (result.errors && result.errors.length > 0) {
-          message += `\n⚠️ Some warnings occurred:\n${result.errors.join('\n')}`;
-        }
-        
-        alert(message);
+        alert('✅ All data has been successfully cleared. The system has been reset.');
         window.location.reload();
       } else {
-        const errorText = await response.text();
-        alert(`❌ Failed to clear data: ${errorText}`);
+        const error = await response.text();
+        alert(`❌ Failed to clear data: ${error}`);
       }
     } catch (error) {
       console.error('Clear data error:', error);
-      alert(`❌ Failed to clear data: ${error.message}`);
+      alert('❌ Failed to clear data. Please try again.');
+    }
+  };
+
+  // Handle force process input directory
+  const handleForceProcessInput = async () => {
+    const confirm = window.confirm('🔄 Force process any EJ files in the input directory? This will scan for and process any unprocessed files.');
+    if (!confirm) return;
+
+    try {
+      const response = await fetch('/api/v1/process/force-input', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.files_processed > 0) {
+          alert(`✅ Successfully processed ${result.files_processed} files from input directory.`);
+        } else {
+          alert(`ℹ️ ${result.message}`);
+        }
+        window.location.reload();
+      } else {
+        const error = await response.text();
+        alert(`❌ Failed to process input directory: ${error}`);
+      }
+    } catch (error) {
+      console.error('Force process error:', error);
+      alert('❌ Failed to process input directory. Please try again.');
     }
   };
 
@@ -152,17 +133,18 @@ const Layout = ({ children }) => {
                 Upload EJournal
               </label>
               <button
-                onClick={handleProcessInput}
-                disabled={isProcessing}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed"
+                onClick={handleForceProcessInput}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 border-2 border-purple-700"
+                title="Force process any EJ files in input directory"
               >
-                {isProcessing ? 'Processing...' : 'Process Input'}
+                🔄 Process Input
               </button>
               <button
                 onClick={handleClearAllData}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 border-2 border-red-700"
+                title="Clear all transactions and training data"
               >
-                Clear All Data
+                🗑️ Clear All Data
               </button>
               <div className="flex items-center text-sm text-gray-500">
                 <Clock className="w-4 h-4 mr-1" />

@@ -129,6 +129,9 @@ class BertDeepLogAnalyzer:
         self.bert_model_name = bert_model_name
         os.makedirs(model_dir, exist_ok=True)
         
+        # Initialize device first before any model operations
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
         # Initialize BERT components
         if BERTVIZ_AVAILABLE:
             self.bert_analyzer = BertVisualizationAnalyzer(model_name=bert_model_name)
@@ -190,7 +193,6 @@ class BertDeepLogAnalyzer:
             self.bert_model.eval()
         
         # Initialize DeepLog model
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = BertDeepLogLSTM().to(self.device)
         self.model_trained = False
         
@@ -693,7 +695,8 @@ class BertDeepLogAnalyzer:
                 
                 # Sequence prediction loss (predict next embedding)
                 if batch_X.size(1) > 1:
-                    sequence_targets = batch_X[:, 1:, :]  # Next embeddings
+                    # Project the target embeddings to match prediction dimensions (64-dim)
+                    sequence_targets = self.model.bert_projection(batch_X[:, 1:, :])
                     sequence_preds = outputs['sequence_predictions'][:, :-1, :]
                     sequence_loss = sequence_criterion(sequence_preds, sequence_targets)
                 else:

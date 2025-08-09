@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { AlertCircle, Activity, TrendingUp, Database } from 'lucide-react';
+import { AlertCircle, Activity, TrendingUp, Clock, Database, Brain } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import apiConfig from './config/api';
 import ExpertLabelingInterface from './ExpertLabelingInterface';
@@ -8,6 +8,10 @@ import ContinuousLearningInterface from './ContinuousLearningInterface';
 import MultiAnomalyView from './MultiAnomalyView';
 import RealtimeMonitoringInterface from './RealtimeMonitoringInterface';
 import SVMDebugDashboard from './SVMDebugDashboard';
+import AnomaliesPage from './AnomaliesPage';
+import AlertsPage from './AlertsPage';
+
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const ATMDashboard = () => {
   const location = useLocation();
@@ -21,11 +25,14 @@ const ATMDashboard = () => {
     problematic_terminals: []
   });
   
-  const [anomalies, setAnomalies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [message, setMessage] = useState('');
 
-  // Get current tab from URL
-  const getCurrentTab = () => {
+  // Get current tab from URL or state
+  const getCurrentTab = useCallback(() => {
+    if (activeTab && activeTab !== 'overview') return activeTab;
+    
     const path = location.pathname;
     if (path === '/dashboard' || path === '/dashboard/') return 'overview';
     if (path.includes('/dashboard/anomalies')) return 'anomalies';
@@ -37,11 +44,125 @@ const ATMDashboard = () => {
     if (path.includes('/dashboard/analytics')) return 'analytics';
     if (path.includes('/dashboard/svm-debug')) return 'svm-debug';
     return 'overview';
+  }, [activeTab, location.pathname]);
+
+  // Handle file upload
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setLoading(true);
+      console.log('Uploading file to:', apiConfig.endpoint('/api/v1/upload'));
+      const response = await fetch(apiConfig.endpoint('/api/v1/upload'), {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('File upload result:', result);
+      
+      // Refresh data after upload
+      await fetchStats();
+      alert('File uploaded successfully!');
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Error uploading file: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle force process input directory
+  const handleForceProcessInput = async () => {
+    try {
+      setProcessing(true);
+      setMessage('Processing input files...');
+      
+      const response = await fetch(`${apiConfig.BASE_URL}/process/force-input`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        if (data.files_processed > 0) {
+          setMessage(`Successfully processed ${data.files_processed} EJ files`);
+          // Refresh dashboard data
+          fetchStats();
+        } else {
+          setMessage(data.message || 'No files found to process');
+        }
+      } else {
+        setMessage(`Error: ${data.detail || 'Failed to process input'}`);
+      }
+    } catch (error) {
+      console.error('Force process input error:', error);
+      setMessage('Error processing input files. Please check the console for details.');
+    } finally {
+      setProcessing(false);
+      // Clear message after 5 seconds
+      setTimeout(() => setMessage(''), 5000);
+    }
+  };  // Handle clear all data
+  const handleClearAllData = async () => {
+    if (!window.confirm('⚠️ WARNING: This will permanently delete ALL transactions, sessions, and training data.\n\nThis action cannot be undone!\n\nAre you sure you want to proceed?')) {
+      return;
+    }
+
+    if (!window.confirm('🔴 FINAL CONFIRMATION: Are you absolutely certain you want to clear all data? This will remove everything and reset the system.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log('Clearing all data...');
+      
+      const response = await fetch(apiConfig.endpoint('/api/v1/data/clear-all?confirm=true'), {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('Clear data result:', result);
+      
+      // Refresh data after clearing
+      await fetchStats();
+      
+      if (result.status === 'success') {
+        alert(`✅ Data cleared successfully!\n\nRecords deleted: ${result.total_records_deleted || 'N/A'}\nTables cleared: ${result.deleted_counts ? Object.keys(result.deleted_counts).length : 'N/A'}\nRedis cleared: ${result.redis_cleared ? 'Yes' : 'No'}\n\nYou can now upload new sessions for training.`);
+      } else {
+        alert(`⚠️ Clear operation completed with issues:\n\n${result.message}\n\nSome data may not have been cleared properly.`);
+      }
+    } catch (error) {
+      console.error('Error clearing data:', error);
+      alert('❌ Error clearing data: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Fetch dashboard stats
   const fetchStats = async () => {
     try {
+      setLoading(true);
       console.log('Fetching dashboard stats from:', apiConfig.endpoint('/api/v1/dashboard/stats'));
       const response = await fetch(apiConfig.endpoint('/api/v1/dashboard/stats'));
       
@@ -54,64 +175,53 @@ const ATMDashboard = () => {
       setStats(data);
     } catch (error) {
       console.error('Error fetching stats:', error);
-      setStats({
+      // Show actual error instead of misleading mock data
+      alert(`Failed to fetch dashboard data: ${error.message}`);
+      // Use empty data structure to reflect actual state
+      const emptyData = {
         total_transactions: 0,
         total_anomalies: 0,
-        anomaly_rate: 0,
+        anomaly_rate: 0.0,
         high_risk_count: 0,
         recent_alerts: [],
         hourly_trend: [],
         problematic_terminals: []
-      });
-    }
-  };
-
-  // Fetch anomalies
-  const fetchAnomalies = async () => {
-    try {
-      console.log('Fetching anomalies from:', apiConfig.endpoint('/api/v1/anomalies?limit=50'));
-      const response = await fetch(apiConfig.endpoint('/api/v1/anomalies?limit=50'));
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      console.log('Anomalies received:', data);
-      setAnomalies(data.anomalies || []);
-    } catch (error) {
-      console.error('Error fetching anomalies:', error);
-      setAnomalies([]);
+      };
+      setStats(emptyData);
     } finally {
       setLoading(false);
     }
   };
 
+  // Fetch anomalies - removed as it's now handled by individual components
+
   useEffect(() => {
     fetchStats();
-    fetchAnomalies();
     
-    // Refresh every 30 seconds
+    // Refresh every 5 minutes instead of 30 seconds to reduce API calls
     const interval = setInterval(() => {
       fetchStats();
-      fetchAnomalies();
-    }, 30000);
+    }, 300000); // 5 minutes = 300000ms
 
     return () => {
       clearInterval(interval);
     };
   }, []);
 
-  if (loading && getCurrentTab() === 'overview') {
-    return (
-      <div className="flex items-center justify-center min-h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    // Update active tab based on current location
+    const path = location.pathname;
+    let currentTab = 'overview';
+    
+    if (path === '/dashboard' || path === '/dashboard/') currentTab = 'overview';
+    else if (path.includes('/dashboard/anomalies')) currentTab = 'anomalies';
+    else if (path.includes('/dashboard/alerts')) currentTab = 'alerts';
+    else if (path.includes('/dashboard/analytics')) currentTab = 'analytics';
+    
+    if (currentTab !== activeTab) {
+      setActiveTab(currentTab);
+    }
+  }, [location.pathname, activeTab]); // Removed getCurrentTab dependency
 
   const anomalyRatePercent = (stats.anomaly_rate * 100).toFixed(2);
 
@@ -158,42 +268,158 @@ const ATMDashboard = () => {
     </div>
   );
 
-  // Always render content without Layout wrapper since routing handles it
-  return (
-    <>
-      {getCurrentTab() === 'overview' && (
-        <div className="space-y-6">
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              title="Total Sessions"
-              value={stats.total_transactions.toLocaleString()}
-              icon={Activity}
-              color="bg-blue-600"
-              subtitle="Processed today"
-            />
-            <StatCard
-              title="Anomalies Detected"
-              value={stats.total_anomalies.toLocaleString()}
-              icon={AlertCircle}
-              color="bg-red-600"
-              subtitle={`${anomalyRatePercent}% anomaly rate`}
-            />
-            <StatCard
-              title="High Risk Alerts"
-              value={stats.high_risk_count.toLocaleString()}
-              icon={TrendingUp}
-              color="bg-yellow-600"
-              subtitle="Requires immediate attention"
-            />
-            <StatCard
-              title="Active Alerts"
-              value={stats.recent_alerts.length}
-              icon={Database}
-              color="bg-purple-600"
-              subtitle="Unresolved issues"
-            />
+  if (loading && getCurrentTab() === 'overview') {
+    return (
+      <Layout>
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading dashboard...</p>
           </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Check if we're using Layout or direct rendering based on tabs
+  const shouldUseLayout = location.pathname.includes('/dashboard');
+
+  const DashboardContent = () => (
+    <div className={shouldUseLayout ? '' : 'min-h-screen bg-gray-100'}>
+      {/* Only render header and navigation if not using Layout wrapper */}
+      {!shouldUseLayout && (
+        <>
+          {/* Header */}
+          <div className="bg-white shadow-sm">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex justify-between items-center py-4">
+                <div className="flex items-center">
+                  <Brain className="w-8 h-8 text-purple-600 mr-3" />
+                  <h1 className="text-2xl font-bold text-gray-900">ML-First ABM Anomaly Detection</h1>
+                </div>
+                <div className="flex items-center space-x-4">
+                  <input
+                    type="file"
+                    id="file-upload"
+                    className="hidden"
+                    accept=".txt,.log"
+                    onChange={handleFileUpload}
+                  />
+                  <label
+                    htmlFor="file-upload"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer"
+                  >
+                    Upload EJournal
+                  </label>
+                  <button
+                    onClick={() => {
+                      console.log('🔄 Force refreshing dashboard data...');
+                      fetchStats();
+                    }}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  >
+                    🔄 Refresh Data
+                  </button>
+                  <button
+                    onClick={handleForceProcessInput}
+                    disabled={processing}
+                    className={`px-4 py-2 ${processing ? 'bg-gray-400' : 'bg-purple-600 hover:bg-purple-700'} text-white rounded-lg`}
+                    title="Process any EJ files in the input directory"
+                  >
+                    {processing ? '⏳ Processing...' : '📁 Process Input'}
+                  </button>
+                  <button
+                    onClick={handleClearAllData}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 border-2 border-red-700"
+                    title="Clear all transactions and training data"
+                  >
+                    🗑️ Clear All Data
+                  </button>
+                  <div className="flex items-center text-sm text-gray-500">
+                    <Clock className="w-4 h-4 mr-1" />
+                    Last updated: {new Date().toLocaleTimeString()}
+                  </div>
+                </div>
+              </div>
+              {/* Status Message */}
+              {message && (
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
+                  <div className={`p-3 rounded-lg text-sm ${
+                    message.includes('Error') || message.includes('Failed') 
+                      ? 'bg-red-100 text-red-800 border border-red-200' 
+                      : message.includes('Successfully') 
+                      ? 'bg-green-100 text-green-800 border border-green-200'
+                      : 'bg-blue-100 text-blue-800 border border-blue-200'
+                  }`}>
+                    {message}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Navigation Tabs */}
+          <div className="bg-white border-b">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex space-x-8">
+                {['overview', 'anomalies', 'multi-anomaly', 'alerts', 'expert-labeling', 'continuous-learning', 'monitoring', 'analytics', 'svm-debug'].map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`py-3 px-1 border-b-2 font-medium text-sm capitalize ${
+                      activeTab === tab
+                        ? 'border-purple-600 text-purple-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {tab === 'expert-labeling' ? 'Expert Review' : 
+                     tab === 'continuous-learning' ? 'ML Training' : 
+                     tab === 'multi-anomaly' ? 'Multi-Anomaly' : 
+                     tab === 'monitoring' ? 'Real-time Monitor' : 
+                     tab === 'svm-debug' ? 'SVM Debug' : tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Main Content */}
+      <div className={shouldUseLayout ? '' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'}>
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                title="Total Sessions"
+                value={stats.total_transactions.toLocaleString()}
+                icon={Activity}
+                color="bg-blue-600"
+                subtitle="Processed today"
+              />
+              <StatCard
+                title="Anomalies Detected"
+                value={stats.total_anomalies.toLocaleString()}
+                icon={AlertCircle}
+                color="bg-red-600"
+                subtitle={`${anomalyRatePercent}% anomaly rate`}
+              />
+              <StatCard
+                title="High Risk Alerts"
+                value={stats.high_risk_count.toLocaleString()}
+                icon={TrendingUp}
+                color="bg-yellow-600"
+                subtitle="Requires immediate attention"
+              />
+              <StatCard
+                title="Active Alerts"
+                value={stats.recent_alerts.length}
+                icon={Database}
+                color="bg-purple-600"
+                subtitle="Unresolved issues"
+              />
+            </div>
 
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -253,98 +479,33 @@ const ATMDashboard = () => {
             </div>
           </div>
 
-          {/* Recent Alerts */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Recent Alerts</h3>
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {stats.recent_alerts.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No active alerts</p>
-              ) : (
-                stats.recent_alerts.map((alert, index) => (
-                  <AlertItem key={alert.id || index} alert={alert} />
-                ))
-              )}
+            {/* Recent Alerts */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-semibold mb-4">Recent Alerts</h3>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {stats.recent_alerts.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No active alerts</p>
+                ) : (
+                  stats.recent_alerts.map((alert, index) => (
+                    <AlertItem key={alert.id || index} alert={alert} />
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {getCurrentTab() === 'anomalies' && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold mb-4">Detected Anomalies</h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Time
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Session ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Patterns
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Score
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {anomalies.map((anomaly, index) => (
-                  <tr key={anomaly.id || index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {anomaly.timestamp ? new Date(anomaly.timestamp).toLocaleString() : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                      {anomaly.session_id}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {anomaly.anomaly_type || 'Unknown'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {anomaly.detected_patterns?.join(', ') || 'None'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        anomaly.anomaly_score > 0.8 
-                          ? 'bg-red-100 text-red-800'
-                          : anomaly.anomaly_score > 0.6
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {anomaly.anomaly_score.toFixed(3)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        {activeTab === 'multi-anomaly' && (
+          <MultiAnomalyView />
+        )}
 
-      {getCurrentTab() === 'multi-anomaly' && <MultiAnomalyView />}
+        {activeTab === 'anomalies' && (
+          <AnomaliesPage />
+        )}
 
-      {getCurrentTab() === 'alerts' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Active Alerts</h3>
-            <div className="space-y-3">
-              {stats.recent_alerts.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No active alerts</p>
-              ) : (
-                stats.recent_alerts.map((alert, index) => (
-                  <AlertItem key={alert.id || index} alert={alert} />
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+        {activeTab === 'alerts' && (
+          <AlertsPage />
+        )}
 
       {getCurrentTab() === 'expert-labeling' && <ExpertLabelingInterface />}
 

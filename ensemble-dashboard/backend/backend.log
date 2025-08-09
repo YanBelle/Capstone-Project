@@ -1,0 +1,68 @@
+INFO:     Started server process [12038]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8002 (Press CTRL+C to quit)
+Starting backend application...
+Warning: BERT dependencies not available. Falling back to TF-IDF.
+Using Enhanced Ensemble Detector with DBSCAN
+Using TF-IDF for text vectorization
+Ensemble Dashboard API starting up...
+Failed to load existing model: 'text_dbscan'
+cluster_sessions called with cluster_id=15, feature_type=combined
+Using enhanced mock data with meaningful cluster names...
+Using enhanced mock data for cluster 15: 'Standard EMV Transaction Flow'
+Attempting to get real cluster sessions...
+Error getting cluster sessions: Model not trained
+Could not get real sessions, using mock: Failed to get cluster sessions: Model not trained
+Using mock session data...
+Converting sessions to structured format...
+First session converted: <class 'dict'> -> structured dict
+Converted 3 sessions to structured objects
+Added enhanced field 'cluster_name': Standard EMV Transaction Flow
+Added enhanced field 'business_meaning': This cluster represents the most common successful transaction pattern with EMV chip authentication and successful cash dispensing.
+Added enhanced field 'actual_text_patterns': ['TRANSACTION_START CARD_INSERTED ATR_RECEIVED', 'OPCODE_FI CardNumber PIN_ENTERED', 'NOTES_STACKED CASH_DISPENSED_SUMMARY RECEIPT_PRINTED']
+Added enhanced field 'contextual_error_types': []
+Final response includes enhanced fields: ['cluster_characteristics', 'cluster_metadata', 'cluster_name', 'business_meaning', 'actual_text_patterns', 'contextual_error_types']
+Response data built, attempting JSON round-trip...
+JSON round-trip successful!
+INFO:     127.0.0.1:61829 - "POST /api/cluster_sessions HTTP/1.1" 200 OK
+cluster_sessions called with cluster_id=15, feature_type=combined
+Using enhanced mock data with meaningful cluster names...
+Using enhanced mock data for cluster 15: 'Standard EMV Transaction Flow'
+Attempting to get real cluster sessions...
+Error getting cluster sessions: Model not trained
+Could not get real sessions, using mock: Failed to get cluster sessions: Model not trained
+Using mock session data...
+Converting sessions to structured format...
+First session converted: <class 'dict'> -> structured dict
+Converted 3 sessions to structured objects
+Added enhanced field 'cluster_name': Standard EMV Transaction Flow
+Added enhanced field 'business_meaning': This cluster represents the most common successful transaction pattern with EMV chip authentication and successful cash dispensing.
+Added enhanced field 'actual_text_patterns': ['TRANSACTION_START CARD_INSERTED ATR_RECEIVED', 'OPCODE_FI CardNumber PIN_ENTERED', 'NOTES_STACKED CASH_DISPENSED_SUMMARY RECEIPT_PRINTED']
+Added enhanced field 'contextual_error_types': []
+Final response includes enhanced fields: ['cluster_characteristics', 'cluster_metadata', 'cluster_name', 'business_meaning', 'actual_text_patterns', 'contextual_error_types']
+Response data built, attempting JSON round-trip...
+JSON round-trip successful!
+INFO:     127.0.0.1:49616 - "POST /api/cluster_sessions HTTP/1.1" 200 OK
+cluster_sessions called with cluster_id=15, feature_type=combined
+Using enhanced mock data with meaningful cluster names...
+Using enhanced mock data for cluster 15: 'Standard EMV Transaction Flow'
+Attempting to get real cluster sessions...
+Error getting cluster sessions: Model not trained
+Could not get real sessions, using mock: Failed to get cluster sessions: Model not trained
+Using mock session data...
+Converting sessions to structured format...
+First session converted: <class 'dict'> -> structured dict
+Converted 3 sessions to structured objects
+Added enhanced field 'cluster_name': Standard EMV Transaction Flow
+Added enhanced field 'business_meaning': This cluster represents the most common successful transaction pattern with EMV chip authentication and successful cash dispensing.
+Added enhanced field 'actual_text_patterns': ['TRANSACTION_START CARD_INSERTED ATR_RECEIVED', 'OPCODE_FI CardNumber PIN_ENTERED', 'NOTES_STACKED CASH_DISPENSED_SUMMARY RECEIPT_PRINTED']
+Added enhanced field 'contextual_error_types': []
+Final response includes enhanced fields: ['cluster_characteristics', 'cluster_metadata', 'cluster_name', 'business_meaning', 'actual_text_patterns', 'contextual_error_types']
+Response data built, attempting JSON round-trip...
+JSON round-trip successful!
+INFO:     127.0.0.1:62637 - "POST /api/cluster_sessions HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12038]

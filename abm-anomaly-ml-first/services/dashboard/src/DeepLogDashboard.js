@@ -9,8 +9,19 @@ import {
 } from 'lucide-react';
 
 const apiEndpoint = (path) => {
-  const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-  return `${baseURL}/api/v1/bert-deeplog${path}`;
+  // Handle different API URL configurations
+  const baseURL = process.env.REACT_APP_API_URL || '';
+  
+  if (!baseURL) {
+    // No base URL set, use relative path through nginx proxy
+    return `/api/v1/bert-deeplog${path}`;
+  } else if (baseURL.endsWith('/api')) {
+    // Base URL already includes /api, just append the deeplog path
+    return `${baseURL}/v1/bert-deeplog${path}`;
+  } else {
+    // Base URL doesn't include /api, append full path
+    return `${baseURL}/api/v1/bert-deeplog${path}`;
+  }
 };
 
 const DeepLogDashboard = () => {
