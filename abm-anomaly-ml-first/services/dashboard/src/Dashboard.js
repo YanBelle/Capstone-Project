@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { AlertCircle, Activity, TrendingUp, Clock, Database, Brain } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
-import Layout from './Layout';
 import apiConfig from './config/api';
 import ExpertLabelingInterface from './ExpertLabelingInterface';
 import ContinuousLearningInterface from './ContinuousLearningInterface';
@@ -16,7 +15,6 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const ATMDashboard = () => {
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState({
     total_transactions: 0,
     total_anomalies: 0,
@@ -38,8 +36,13 @@ const ATMDashboard = () => {
     const path = location.pathname;
     if (path === '/dashboard' || path === '/dashboard/') return 'overview';
     if (path.includes('/dashboard/anomalies')) return 'anomalies';
+    if (path.includes('/dashboard/multi-anomaly')) return 'multi-anomaly';
     if (path.includes('/dashboard/alerts')) return 'alerts';
+    if (path.includes('/dashboard/expert-labeling')) return 'expert-labeling';
+    if (path.includes('/dashboard/continuous-learning')) return 'continuous-learning';
+    if (path.includes('/dashboard/realtime')) return 'monitoring';
     if (path.includes('/dashboard/analytics')) return 'analytics';
+    if (path.includes('/dashboard/svm-debug')) return 'svm-debug';
     return 'overview';
   }, [activeTab, location.pathname]);
 
@@ -418,104 +421,63 @@ const ATMDashboard = () => {
               />
             </div>
 
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Hourly Trend Chart */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">24-Hour Transaction Trend</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={stats.hourly_trend}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="hour" 
-                      tickFormatter={(value) => new Date(value).getHours() + ':00'}
-                    />
-                    <YAxis />
-                    <Tooltip 
-                      labelFormatter={(value) => new Date(value).toLocaleString()}
-                    />
-                    <Legend />
-                    <Line 
-                      type="monotone" 
-                      dataKey="transactions" 
-                      stroke="#8b5cf6" 
-                      name="Sessions"
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="anomalies" 
-                      stroke="#ef4444" 
-                      name="Anomalies"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Pie Chart */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Session Distribution</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {pieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Hourly Trend Chart */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-semibold mb-4">24-Hour Transaction Trend</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={stats.hourly_trend}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="hour" 
+                    tickFormatter={(value) => new Date(value).getHours() + ':00'}
+                  />
+                  <YAxis />
+                  <Tooltip 
+                    labelFormatter={(value) => new Date(value).toLocaleString()}
+                  />
+                  <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="transactions" 
+                    stroke="#8b5cf6" 
+                    name="Sessions"
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="anomalies" 
+                    stroke="#ef4444" 
+                    name="Anomalies"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
 
-            {/* Most Affected ATMs/Locations */}
-            {stats.problematic_terminals && stats.problematic_terminals.length > 0 && (
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Most Affected ATMs/Locations</h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ATM ID</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anomalies</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Critical</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Risk Score</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {stats.problematic_terminals.map((terminal, idx) => (
-                        <tr key={idx}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{terminal.terminal_id}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{terminal.location}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{terminal.total_anomalies}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{terminal.critical_count}</td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              terminal.avg_score > 0.8 
-                                ? 'bg-red-100 text-red-800'
-                                : terminal.avg_score > 0.6
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-green-100 text-green-800'
-                            }`}>
-                              {terminal.avg_score.toFixed(2)}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            {/* Pie Chart */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-semibold mb-4">Session Distribution</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
 
             {/* Recent Alerts */}
             <div className="bg-white rounded-lg shadow-md p-6">
@@ -545,99 +507,67 @@ const ATMDashboard = () => {
           <AlertsPage />
         )}
 
-        {activeTab === 'expert-labeling' && (
-          <ExpertLabelingInterface />
-        )}
+      {getCurrentTab() === 'expert-labeling' && <ExpertLabelingInterface />}
 
-        {activeTab === 'continuous-learning' && (
-          <ContinuousLearningInterface />
-        )}
+      {getCurrentTab() === 'continuous-learning' && <ContinuousLearningInterface />}
 
-        {activeTab === 'monitoring' && (
-          <RealtimeMonitoringInterface />
-        )}
+      {getCurrentTab() === 'monitoring' && <RealtimeMonitoringInterface />}
 
-        {activeTab === 'svm-debug' && (
-          <SVMDebugDashboard />
-        )}
+      {getCurrentTab() === 'svm-debug' && <SVMDebugDashboard />}
 
-        {activeTab === 'analytics' && (
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-lg font-semibold mb-4">ML Analytics Dashboard</h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="text-md font-medium mb-3">Model Status</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Isolation Forest</span>
-                      <span className="text-sm font-medium text-green-600">Active</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">One-Class SVM</span>
-                      <span className="text-sm font-medium text-green-600">Active</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Autoencoder</span>
-                      <span className="text-sm font-medium text-green-600">Active</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">BERT Embeddings</span>
-                      <span className="text-sm font-medium text-green-600">Active</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Supervised Classifier</span>
-                      <span className="text-sm font-medium text-gray-400">Not Trained</span>
-                    </div>
+      {getCurrentTab() === 'analytics' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h3 className="text-lg font-semibold mb-4">ML Analytics Dashboard</h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-md font-medium mb-3">Model Status</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Isolation Forest</span>
+                    <span className="text-sm font-medium text-green-600">Active</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">One-Class SVM</span>
+                    <span className="text-sm font-medium text-green-600">Active</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Autoencoder</span>
+                    <span className="text-sm font-medium text-green-600">Active</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">BERT Embeddings</span>
+                    <span className="text-sm font-medium text-green-600">Active</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Supervised Classifier</span>
+                    <span className="text-sm font-medium text-gray-400">Not Trained</span>
                   </div>
                 </div>
-                <div>
-                  <h4 className="text-md font-medium mb-3">Processing Stats</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Processing Mode</span>
-                      <span className="text-sm font-medium">ML-First</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Average Processing Time</span>
-                      <span className="text-sm font-medium">1.2s/session</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Model Update Interval</span>
-                      <span className="text-sm font-medium">1 hour</span>
-                    </div>
+              </div>
+              <div>
+                <h4 className="text-md font-medium mb-3">Processing Stats</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Processing Mode</span>
+                    <span className="text-sm font-medium">ML-First</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Average Processing Time</span>
+                    <span className="text-sm font-medium">1.2s/session</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Model Update Interval</span>
+                    <span className="text-sm font-medium">1 hour</span>
                   </div>
                 </div>
               </div>
             </div>
-
-            {/* Debug Info for Development */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="bg-gray-100 border-l-4 border-blue-500 p-4">
-                <p className="text-sm text-gray-700">
-                  <strong>Debug Info:</strong> API URL: {API_URL}
-                </p>
-                <p className="text-sm text-gray-600">
-                  Last fetch: {new Date().toLocaleString()}
-                </p>
-              </div>
-            )}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
-
-  // Return with or without Layout based on routing
-  if (shouldUseLayout) {
-    return (
-      <Layout>
-        <DashboardContent />
-      </Layout>
-    );
-  }
-
-  return <DashboardContent />;
 };
 
 export default ATMDashboard;

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { AlertTriangle, Shield, Activity, TrendingUp, Database } from 'lucide-react';
-import Layout from './Layout';
 
 const SEVERITY_COLORS = {
   'critical': '#dc2626',
@@ -245,13 +244,12 @@ const MultiAnomalyView = ({ anomalies: anomaliesProp }) => {
   };
 
   return (
-    <Layout>
-      <div className="p-6 space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Multi-Anomaly Analysis</h1>
-          <p className="text-gray-600 mt-1">Advanced analysis of sessions with multiple concurrent anomalies</p>
-        </div>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Multi-Anomaly Analysis</h1>
+        <p className="text-gray-600 mt-1">Advanced analysis of sessions with multiple concurrent anomalies</p>
+      </div>
 
         {/* Debug Information when no data */}
         {loading && (
@@ -491,7 +489,6 @@ const MultiAnomalyView = ({ anomalies: anomaliesProp }) => {
           </div>
         )}
       </div>
-    </Layout>
   );
 };
 

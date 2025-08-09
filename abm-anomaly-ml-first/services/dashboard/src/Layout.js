@@ -20,6 +20,9 @@ const Layout = ({ children }) => {
     return 'overview';
   };
 
+  const [liveDataActive, setLiveDataActive] = React.useState(true);
+  const [isProcessing, setIsProcessing] = React.useState(false);
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -151,6 +154,35 @@ const Layout = ({ children }) => {
           </div>
         </div>
       </div>
+
+      {/* Live Data Active Notification */}
+      {liveDataActive && (
+        <div className="bg-green-100 border-l-4 border-green-500 p-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></div>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-green-700 font-medium">
+                    🟢 Live Data Active
+                  </p>
+                  <p className="text-xs text-green-600">
+                    Real-time monitoring: 84 new transactions, 5g anomalies detected. Data updated.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setLiveDataActive(false)}
+                className="text-green-500 hover:text-green-700"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="bg-white border-b">

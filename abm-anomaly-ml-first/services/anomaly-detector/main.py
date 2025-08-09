@@ -527,6 +527,11 @@ class MLFirstEJProcessor:
         """Check if file has already been processed recently"""
         file_name = os.path.basename(file_path)
         
+        # Force processing for development/testing - temporarily disable skip logic
+        # TODO: Re-enable file skip logic for production
+        logger.info(f"Force processing enabled for {file_name}")
+        return False
+        
         # Check if we have a record of processing this file in the last 24 hours
         try:
             check_query = text("""
