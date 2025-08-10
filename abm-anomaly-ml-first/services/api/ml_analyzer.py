@@ -623,6 +623,25 @@ class MLFirstAnomalyDetector:
             raw_content = file.read()
         return raw_content
     
+    def _apply_bertviz_cleaning(self, raw_text: str) -> str:
+        """
+        Apply BertViz _preprocess_text method to clean EJ text
+        Falls back to original text if BertViz is not available
+        """
+        try:
+            # Import BertViz analyzer
+            from bertviz_analyzer import BertVisualizationAnalyzer
+            bert_analyzer = BertVisualizationAnalyzer()
+            cleaned_text = bert_analyzer._preprocess_text(raw_text)
+            logger.info("Applied BertViz preprocessing to session text")
+            return cleaned_text
+        except ImportError:
+            logger.warning("BertViz analyzer not available, using original text")
+            return raw_text
+        except Exception as e:
+            logger.error(f"Error applying BertViz cleaning: {str(e)}, using original text")
+            return raw_text
+
     def split_into_sessions(self, raw_logs: str, file_path: str = None) -> List[TransactionSession]:
         """Step 2: Split logs into transaction sessions with unique IDs
         
@@ -683,6 +702,9 @@ class MLFirstAnomalyDetector:
                 
                 session_text = match.group(0)
                 
+                # Clean the raw text using BertViz _preprocess_text method
+                cleaned_session_text = self._apply_bertviz_cleaning(session_text)
+                
                 # Generate unique session ID with file info and timestamp
                 session_id = f"{file_identifier}_TXN_{trans_num}_{date_str.replace('/', '')}_{time_str.replace(':', '')}_{timestamp_suffix}_{i}"
                 
@@ -704,7 +726,7 @@ class MLFirstAnomalyDetector:
                 
                 session = TransactionSession(
                     session_id=session_id,
-                    raw_text=session_text,
+                    raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
                     end_time=end_time
                 )
@@ -752,9 +774,12 @@ class MLFirstAnomalyDetector:
                 # Extract end time from the session content
                 end_time = self.extract_timestamp(session_text, "end")
                 
+                # Clean the raw text using BertViz _preprocess_text method before creating the session
+                cleaned_session_text = self._apply_bertviz_cleaning(session_text)
+                
                 session = TransactionSession(
                     session_id=session_id,
-                    raw_text=session_text,
+                    raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
                     end_time=end_time
                 )

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, FileText, AlertTriangle, CheckCircle, Clock, Filter } from 'lucide-react';
+import { Search, FileText, AlertTriangle, CheckCircle, Clock, Filter, ThumbsUp, ThumbsDown, Edit3, Save, X } from 'lucide-react';
 
 const SessionReview = () => {
   const [sessions, setSessions] = useState([]);
@@ -7,12 +7,79 @@ const SessionReview = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [selectedSession, setSelectedSession] = useState(null);
+  const [detailedSession, setDetailedSession] = useState(null);
+  const [sessionTextsLoading, setSessionTextsLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [sessionsPerPage] = useState(20);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackStatus, setFeedbackStatus] = useState('');
 
   useEffect(() => {
     fetchSessions();
   }, []);
+
+  const submitFeedback = async (sessionId, feedbackType, expertLabel, confidence = 1.0, explanation = '') => {
+    setFeedbackSubmitting(true);
+    setFeedbackStatus('');
+    
+    try {
+      const response = await fetch('/api/v1/continuous-learning/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          expert_label: expertLabel,
+          expert_confidence: confidence,
+          feedback_type: feedbackType,
+          expert_explanation: explanation
+        })
+      });
+
+      if (response.ok) {
+        setFeedbackStatus(`✅ Feedback submitted successfully for ${sessionId}`);
+        // Refresh sessions to show updated status
+        fetchSessions();
+      } else {
+        const errorData = await response.json();
+        setFeedbackStatus(`❌ Error: ${errorData.detail || 'Failed to submit feedback'}`);
+      }
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      setFeedbackStatus(`❌ Error: ${error.message}`);
+    } finally {
+      setFeedbackSubmitting(false);
+      // Clear status after 5 seconds
+      setTimeout(() => setFeedbackStatus(''), 5000);
+    }
+  };
+
+  const confirmCorrect = (session) => {
+    const feedbackType = 'confirmation';
+    const expertLabel = session.is_anomaly ? (session.anomaly_type || 'anomaly') : 'normal';
+    const explanation = session.is_anomaly 
+      ? `Expert confirmed anomaly detection for ${session.anomaly_type}`
+      : 'Expert confirmed normal transaction';
+    
+    submitFeedback(session.session_id, feedbackType, expertLabel, 1.0, explanation);
+  };
+
+  const markAsNormal = (session) => {
+    const feedbackType = 'correction';
+    const expertLabel = 'normal';
+    const explanation = `Expert corrected false positive - this is actually a normal transaction`;
+    
+    submitFeedback(session.session_id, feedbackType, expertLabel, 1.0, explanation);
+  };
+
+  const markAsAnomaly = (session, anomalyType = 'unknown_anomaly') => {
+    const feedbackType = 'correction';
+    const expertLabel = anomalyType;
+    const explanation = `Expert corrected false negative - this is actually an anomaly of type: ${anomalyType}`;
+    
+    submitFeedback(session.session_id, feedbackType, expertLabel, 1.0, explanation);
+  };
 
   const fetchSessions = async () => {
     try {
@@ -30,6 +97,26 @@ const SessionReview = () => {
       setSessions([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch detailed session data including raw and cleaned text
+  const fetchSessionDetails = async (sessionId) => {
+    setSessionTextsLoading(true);
+    try {
+      const response = await fetch(`/api/v1/sessions/${sessionId}/texts`);
+      if (response.ok) {
+        const data = await response.json();
+        setDetailedSession(data);
+      } else {
+        console.error('Failed to fetch session details');
+        setDetailedSession(null);
+      }
+    } catch (error) {
+      console.error('Error fetching session details:', error);
+      setDetailedSession(null);
+    } finally {
+      setSessionTextsLoading(false);
     }
   };
 
@@ -72,7 +159,25 @@ const SessionReview = () => {
   };
 
   const SessionModal = ({ session, onClose }) => {
+    const [feedbackForm, setFeedbackForm] = useState({
+      feedbackType: 'confirmation',
+      expertLabel: session?.is_anomaly ? (session.anomaly_type || 'anomaly') : 'normal',
+      confidence: 1.0,
+      explanation: ''
+    });
+
     if (!session) return null;
+
+    const handleCustomFeedback = () => {
+      submitFeedback(
+        session.session_id,
+        feedbackForm.feedbackType,
+        feedbackForm.expertLabel,
+        feedbackForm.confidence,
+        feedbackForm.explanation
+      );
+      onClose();
+    };
 
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -115,12 +220,195 @@ const SessionReview = () => {
               )}
             </div>
 
-            <div>
-              <h3 className="font-semibold mb-2">Raw Session Data</h3>
-              <div className="bg-gray-100 p-4 rounded max-h-96 overflow-y-auto">
-                <pre className="text-xs whitespace-pre-wrap font-mono">
-                  {session.raw_text || 'No raw data available'}
-                </pre>
+            {/* Session Text Data */}
+            <div className="space-y-4">
+              {sessionTextsLoading ? (
+                <div className="bg-gray-100 p-8 rounded text-center">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <p className="mt-2 text-gray-600">Loading session details...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Raw EJ Text */}
+                  <div>
+                    <h3 className="font-semibold mb-2">Raw EJ Log</h3>
+                    <div className="bg-gray-100 p-4 rounded max-h-96 overflow-y-auto">
+                      <pre className="text-xs whitespace-pre-wrap font-mono">
+                        {detailedSession?.raw_text || session.raw_text || 'No raw EJ data available'}
+                      </pre>
+                    </div>
+                    {detailedSession?.text_lengths?.raw && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Raw text length: {detailedSession.text_lengths.raw.toLocaleString()} characters
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Cleaned EJ Text */}
+                  <div>
+                    <h3 className="font-semibold mb-2">Cleaned EJ Text</h3>
+                    <div className="bg-blue-50 p-4 rounded max-h-96 overflow-y-auto">
+                      <pre className="text-xs whitespace-pre-wrap font-mono">
+                        {detailedSession?.cleaned_text || 'Cleaned text not available'}
+                      </pre>
+                    </div>
+                    {detailedSession?.text_lengths?.cleaned && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Cleaned text length: {detailedSession.text_lengths.cleaned.toLocaleString()} characters
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Structured Events (if available) */}
+                  {detailedSession?.structured_events && detailedSession.structured_events.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold mb-2">Structured Events ({detailedSession.structured_events.length})</h3>
+                      <div className="bg-green-50 p-4 rounded max-h-96 overflow-y-auto">
+                        <pre className="text-xs whitespace-pre-wrap font-mono">
+                          {JSON.stringify(detailedSession.structured_events, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Expert Feedback Section */}
+            <div className="border-t pt-6">
+              <h3 className="font-semibold mb-4">Expert Feedback</h3>
+              
+              {/* Quick Actions */}
+              <div className="mb-4">
+                <h4 className="font-medium mb-2">Quick Actions:</h4>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => { 
+                      confirmCorrect(session); 
+                      onClose(); 
+                      setDetailedSession(null);
+                    }}
+                    disabled={feedbackSubmitting}
+                    className="inline-flex items-center px-3 py-2 border border-green-300 text-sm leading-4 font-medium rounded text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50"
+                  >
+                    <ThumbsUp className="w-4 h-4 mr-2" />
+                    Confirm Correct
+                  </button>
+                  
+                  {session.is_anomaly ? (
+                    <button
+                      onClick={() => { 
+                        markAsNormal(session); 
+                        onClose(); 
+                        setDetailedSession(null);
+                      }}
+                      disabled={feedbackSubmitting}
+                      className="inline-flex items-center px-3 py-2 border border-red-300 text-sm leading-4 font-medium rounded text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Mark as Normal
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { 
+                        markAsAnomaly(session, 'expert_identified_anomaly'); 
+                        onClose(); 
+                        setDetailedSession(null);
+                      }}
+                      disabled={feedbackSubmitting}
+                      className="inline-flex items-center px-3 py-2 border border-orange-300 text-sm leading-4 font-medium rounded text-orange-700 bg-orange-50 hover:bg-orange-100 disabled:opacity-50"
+                    >
+                      <ThumbsDown className="w-4 h-4 mr-2" />
+                      Mark as Anomaly
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Custom Feedback Form */}
+              <div className="border-t pt-4">
+                <h4 className="font-medium mb-3">Custom Feedback:</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Feedback Type
+                    </label>
+                    <select
+                      value={feedbackForm.feedbackType}
+                      onChange={(e) => setFeedbackForm({...feedbackForm, feedbackType: e.target.value})}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="confirmation">Confirmation</option>
+                      <option value="correction">Correction</option>
+                      <option value="new_discovery">New Discovery</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Expert Label
+                    </label>
+                    <select
+                      value={feedbackForm.expertLabel}
+                      onChange={(e) => setFeedbackForm({...feedbackForm, expertLabel: e.target.value})}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="hardware_error">Hardware Error</option>
+                      <option value="dispense_failure">Dispense Failure</option>
+                      <option value="host_decline">Host Decline</option>
+                      <option value="incomplete_transaction">Incomplete Transaction</option>
+                      <option value="timeout_error">Timeout Error</option>
+                      <option value="card_retained">Card Retained</option>
+                      <option value="supervisor_activity">Supervisor Activity</option>
+                      <option value="cash_handling_issue">Cash Handling Issue</option>
+                      <option value="system_reset">System Reset</option>
+                      <option value="unknown_anomaly">Unknown Anomaly</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Confidence
+                    </label>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="1.0"
+                      step="0.1"
+                      value={feedbackForm.confidence}
+                      onChange={(e) => setFeedbackForm({...feedbackForm, confidence: parseFloat(e.target.value)})}
+                      className="w-full"
+                    />
+                    <div className="text-sm text-gray-500 mt-1">
+                      {(feedbackForm.confidence * 100).toFixed(0)}%
+                    </div>
+                  </div>
+                  
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Explanation
+                    </label>
+                    <textarea
+                      value={feedbackForm.explanation}
+                      onChange={(e) => setFeedbackForm({...feedbackForm, explanation: e.target.value})}
+                      placeholder="Explain your classification decision..."
+                      rows={3}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                
+                <div className="mt-4">
+                  <button
+                    onClick={handleCustomFeedback}
+                    disabled={feedbackSubmitting}
+                    className="inline-flex items-center px-4 py-2 border border-blue-300 text-sm font-medium rounded text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Submit Custom Feedback
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -142,6 +430,13 @@ const SessionReview = () => {
 
   return (
     <div className="space-y-6">
+      {/* Feedback Status */}
+      {feedbackStatus && (
+        <div className={`p-4 rounded-lg ${feedbackStatus.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+          {feedbackStatus}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-900">Session Review</h2>
@@ -247,6 +542,9 @@ const SessionReview = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Feedback
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -277,11 +575,49 @@ const SessionReview = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <button
-                      onClick={() => setSelectedSession(session)}
+                      onClick={() => {
+                        setSelectedSession(session);
+                        fetchSessionDetails(session.session_id);
+                      }}
                       className="text-blue-600 hover:text-blue-900"
                     >
                       View Details
                     </button>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => confirmCorrect(session)}
+                        disabled={feedbackSubmitting}
+                        className="inline-flex items-center px-2 py-1 border border-green-300 text-xs leading-4 font-medium rounded text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50"
+                        title="Confirm this classification is correct"
+                      >
+                        <ThumbsUp className="w-3 h-3 mr-1" />
+                        Correct
+                      </button>
+                      
+                      {session.is_anomaly ? (
+                        <button
+                          onClick={() => markAsNormal(session)}
+                          disabled={feedbackSubmitting}
+                          className="inline-flex items-center px-2 py-1 border border-red-300 text-xs leading-4 font-medium rounded text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+                          title="Mark as normal (false positive)"
+                        >
+                          <X className="w-3 h-3 mr-1" />
+                          Normal
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => markAsAnomaly(session, 'expert_identified_anomaly')}
+                          disabled={feedbackSubmitting}
+                          className="inline-flex items-center px-2 py-1 border border-orange-300 text-xs leading-4 font-medium rounded text-orange-700 bg-orange-50 hover:bg-orange-100 disabled:opacity-50"
+                          title="Mark as anomaly (false negative)"
+                        >
+                          <ThumbsDown className="w-3 h-3 mr-1" />
+                          Anomaly
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -359,7 +695,10 @@ const SessionReview = () => {
       {selectedSession && (
         <SessionModal 
           session={selectedSession} 
-          onClose={() => setSelectedSession(null)} 
+          onClose={() => {
+            setSelectedSession(null);
+            setDetailedSession(null);
+          }} 
         />
       )}
     </div>

@@ -383,9 +383,19 @@ def get_session_raw_text(session_id: str) -> str:
 def get_session_cleaned_text(session_id: str) -> str:
     """
     Retrieve cleaned text for a session from database.
+    Uses BertViz _preprocess_text method to clean raw text if needed.
     Falls back to raw text if cleaned text not available.
     """
     try:
+        # Import BertViz analyzer for text preprocessing
+        try:
+            from bertviz_analyzer import BertVisualizationAnalyzer
+            bert_analyzer = BertVisualizationAnalyzer()
+            bertviz_available = True
+        except ImportError:
+            logger.warning("BertViz analyzer not available, using basic cleaning")
+            bertviz_available = False
+        
         # Try to get cleaned text from database
         with db_engine.connect() as conn:
             result = conn.execute(
@@ -397,13 +407,25 @@ def get_session_cleaned_text(session_id: str) -> str:
                     logger.info(f"Retrieved cleaned text from database for session {session_id}")
                     return result.cleaned_text
                 elif result.raw_text:
-                    logger.info(f"No cleaned text available, returning raw text for session {session_id}")
-                    return result.raw_text
+                    logger.info(f"No cleaned text available, cleaning raw text with BertViz for session {session_id}")
+                    # Use BertViz _preprocess_text method to clean the raw text
+                    if bertviz_available:
+                        cleaned_text = bert_analyzer._preprocess_text(result.raw_text)
+                        logger.info(f"Applied BertViz preprocessing to raw text for session {session_id}")
+                        return cleaned_text
+                    else:
+                        return result.raw_text
         
         # Fallback to raw text function
         raw_text = get_session_raw_text(session_id)
         if raw_text != "Raw text not available":
-            return raw_text
+            # Apply BertViz cleaning to fallback raw text as well
+            if bertviz_available:
+                cleaned_text = bert_analyzer._preprocess_text(raw_text)
+                logger.info(f"Applied BertViz preprocessing to fallback raw text for session {session_id}")
+                return cleaned_text
+            else:
+                return raw_text
         
         logger.warning(f"No cleaned or raw text found for session {session_id}")
         return "Cleaned text not available"
@@ -443,7 +465,7 @@ def get_session_events(session_id: str) -> List[Dict]:
 def process_and_store_ej_session(session_id: str, raw_ej_content: str, 
                                  additional_metadata: Dict = None) -> Dict:
     """
-    Process raw EJ content, clean it, and store both versions in database
+    Process raw EJ content, clean it with BertViz preprocessing, and store both versions in database
     
     Args:
         session_id: Unique session identifier
@@ -454,17 +476,33 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
         Dictionary with processing results
     """
     try:
+        # Apply BertViz preprocessing to raw EJ content before any other processing
+        try:
+            from bertviz_analyzer import BertVisualizationAnalyzer
+            bert_analyzer = BertVisualizationAnalyzer()
+            # Clean the raw EJ content using BertViz _preprocess_text method
+            bertviz_cleaned_content = bert_analyzer._preprocess_text(raw_ej_content)
+            logger.info(f"Applied BertViz preprocessing to raw EJ content for session {session_id}")
+            # Use the cleaned content for further processing
+            processed_raw_content = bertviz_cleaned_content
+        except ImportError:
+            logger.warning("BertViz analyzer not available, using original raw content")
+            processed_raw_content = raw_ej_content
+        except Exception as e:
+            logger.error(f"Error applying BertViz cleaning: {str(e)}, using original raw content")
+            processed_raw_content = raw_ej_content
+        
         if not EJ_CLEANER_AVAILABLE:
-            logger.warning("EJ Cleaner not available, storing raw content only")
+            logger.warning("EJ Cleaner not available, storing processed raw content only")
             cleaned_result = {
-                'cleaned_text': raw_ej_content,
-                'normalized_tokens': raw_ej_content,
+                'cleaned_text': processed_raw_content,
+                'normalized_tokens': processed_raw_content,
                 'structured_events': '[]',
                 'cleaning_stats': json.dumps({'error': 'EJ Cleaner not available'})
             }
         else:
-            # Clean the EJ content
-            cleaned_result = ej_cleaner.clean_ej_log(raw_ej_content)
+            # Clean the processed EJ content with the EJ cleaner
+            cleaned_result = ej_cleaner.clean_ej_log(processed_raw_content)
         
         # Store in database
         with db_engine.connect() as conn:
@@ -485,12 +523,12 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
                     WHERE session_id = :session_id
                 """), {
                     "session_id": session_id,
-                    "raw_text": raw_ej_content,
+                    "raw_text": processed_raw_content,  # Store BertViz-cleaned content as raw_text
                     "cleaned_text": cleaned_result['cleaned_text'],
                     "processed_events": cleaned_result['structured_events']
                 })
                 conn.commit()
-                logger.info(f"Updated existing session {session_id} with EJ content")
+                logger.info(f"Updated existing session {session_id} with BertViz-cleaned EJ content")
             else:
                 # Create new session
                 timestamp = datetime.now()
@@ -502,7 +540,7 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
                             :timestamp, :created_at, :updated_at)
                 """), {
                     "session_id": session_id,
-                    "raw_text": raw_ej_content,
+                    "raw_text": processed_raw_content,  # Store BertViz-cleaned content as raw_text
                     "cleaned_text": cleaned_result['cleaned_text'],
                     "processed_events": cleaned_result['structured_events'],
                     "timestamp": timestamp,
@@ -510,7 +548,7 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
                     "updated_at": timestamp
                 })
                 conn.commit()
-                logger.info(f"Created new session {session_id} with EJ content")
+                logger.info(f"Created new session {session_id} with BertViz-cleaned EJ content")
         
         # Return processing results
         processing_stats = json.loads(cleaned_result['cleaning_stats'])
@@ -519,11 +557,13 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
             'status': 'success',
             'session_id': session_id,
             'original_length': len(raw_ej_content),
+            'bertviz_cleaned_length': len(processed_raw_content),
             'cleaned_length': len(cleaned_result['cleaned_text']),
             'normalized_length': len(cleaned_result['normalized_tokens']),
             'events_extracted': processing_stats.get('structured_events_count', 0),
             'compression_ratio': processing_stats.get('compression_ratio', 0.0),
-            'cleaning_stats': processing_stats
+            'cleaning_stats': processing_stats,
+            'bertviz_applied': processed_raw_content != raw_ej_content
         }
         
     except Exception as e:
@@ -2885,6 +2925,37 @@ async def get_session_full_raw_text(session_id: str):
     except Exception as e:
         logger.error(f"Error getting full raw text for session {session_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting raw text: {str(e)}")
+
+@app.get("/api/v1/sessions/{session_id}/texts")
+async def get_session_texts(session_id: str):
+    """Get both raw and cleaned text for a session"""
+    try:
+        # Get raw text
+        raw_text = get_session_raw_text(session_id)
+        
+        # Get cleaned text
+        cleaned_text = get_session_cleaned_text(session_id)
+        
+        # Get structured events if available
+        events = get_session_events(session_id)
+        
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "raw_text": raw_text,
+            "cleaned_text": cleaned_text,
+            "structured_events": events,
+            "text_lengths": {
+                "raw": len(raw_text) if raw_text != "Raw text not available" else 0,
+                "cleaned": len(cleaned_text) if cleaned_text != "Cleaned text not available" else 0,
+                "events_count": len(events)
+            },
+            "message": "Session texts retrieved successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting session texts for {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting session texts: {str(e)}")
 
 # Real-time monitoring management
 monitoring_connections = []
