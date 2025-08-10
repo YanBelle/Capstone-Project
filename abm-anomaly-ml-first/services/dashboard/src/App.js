@@ -88,6 +88,11 @@ const DBSCANVisualization = React.lazy(() => import('./DBSCANVisualization').cat
   return { default: () => <div>Error loading DBSCANVisualization component</div> };
 }));
 
+const SessionReview = React.lazy(() => import('./SessionReview').catch(err => {
+  console.error('Error loading SessionReview:', err);
+  return { default: () => <div>Error loading SessionReview component</div> };
+}));
+
 function App() {
   console.log('🟢 App component loaded successfully!');
   
@@ -103,11 +108,12 @@ function App() {
             <Route path="/dashboard/analytics" element={<Layout><Dashboard /></Layout>} />
             <Route path="/dashboard/multi-anomaly" element={<Layout><MultiAnomalyView /></Layout>} />
             <Route path="/dashboard/expert-labeling" element={<Layout><ExpertLabelingInterface /></Layout>} />
-            <Route path="/dashboard/continuous-learning" element={<ContinuousLearningInterface />} />
-            <Route path="/dashboard/realtime" element={<RealtimeMonitoringInterface />} />
+            <Route path="/dashboard/continuous-learning" element={<Layout><ContinuousLearningInterface /></Layout>} />
+            <Route path="/dashboard/session-review" element={<Layout><SessionReview /></Layout>} />
+            <Route path="/dashboard/realtime" element={<Layout><RealtimeMonitoringInterface /></Layout>} />
             <Route path="/dashboard/data-viewer" element={<Layout><DataViewer /></Layout>} />
-            <Route path="/dashboard/bert-analysis" element={<BertAnalysisInterface />} />
-            <Route path="/dashboard/deeplog" element={<DeepLogDashboard />} />
+            <Route path="/dashboard/bert-analysis" element={<Layout><BertAnalysisInterface /></Layout>} />
+            <Route path="/dashboard/deeplog" element={<Layout><DeepLogDashboard /></Layout>} />
             <Route path="/dashboard/dbscan" element={<DBSCANVisualization />} />
             <Route path="/" element={<Dashboard />} />
           </Routes>

@@ -43,7 +43,7 @@ def get_unlabeled_anomalies():
     """Fetch unlabeled anomalies from the API."""
     print("Fetching unlabeled anomalies...")
     try:
-        response = requests.get(API_BASE_URL + "/api/v1/expert/anomalies?filter=unlabeled&limit=100")
+        response = requests.get(API_BASE_URL + "/api/v1/expert/anomalies?filter=unlabeled&limit=10000")
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:

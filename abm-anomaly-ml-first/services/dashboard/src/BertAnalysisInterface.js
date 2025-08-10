@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Layout from './Layout';
 import apiConfig from './config/api';
 
 const BertAnalysisInterface = () => {
@@ -341,7 +340,7 @@ const BertAnalysisInterface = () => {
   };
 
   return (
-    <Layout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg p-6 text-white">
@@ -505,7 +504,7 @@ const BertAnalysisInterface = () => {
           </div>
         )}
       </div>
-    </Layout>
+    </>
   );
 };
 

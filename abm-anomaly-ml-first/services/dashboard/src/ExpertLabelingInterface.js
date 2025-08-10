@@ -21,7 +21,8 @@ const ExpertLabelingInterface = () => {
   const fetchAnomalies = async () => {
     setLoading(true);
     try {
-      const response = await fetch(apiConfig.endpoint(`/api/v1/expert/anomalies?filter=${filter}`));
+      // Fetch all anomalies by setting a high limit to avoid pagination issues
+      const response = await fetch(apiConfig.endpoint(`/api/v1/expert/anomalies?filter=${filter}&limit=10000`));
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -230,8 +231,9 @@ const ExpertLabelingInterface = () => {
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4">
           <div className="bg-gray-50 p-4 rounded">
-            <p className="text-sm text-gray-600">Total Anomalies</p>
+            <p className="text-sm text-gray-600">Total Anomaly Sessions</p>
             <p className="text-2xl font-bold">{stats.total}</p>
+            <p className="text-xs text-gray-500">Sessions with anomalies</p>
           </div>
           <div className="bg-green-50 p-4 rounded">
             <p className="text-sm text-gray-600">Labeled</p>
@@ -282,7 +284,12 @@ const ExpertLabelingInterface = () => {
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">
-                Session {currentIndex + 1} of {sessions.length}
+                Session {currentIndex + 1} of {sessions.length} 
+                {sessions.length < stats.total && (
+                  <span className="text-sm text-gray-500 ml-2">
+                    (Showing {sessions.length} of {stats.total} total)
+                  </span>
+                )}
               </h2>
               <span className={`px-3 py-1 rounded text-sm font-medium ${
                 currentSession.anomaly_type?.startsWith('cluster_') 

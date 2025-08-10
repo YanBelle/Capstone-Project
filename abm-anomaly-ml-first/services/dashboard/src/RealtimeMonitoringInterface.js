@@ -19,7 +19,6 @@ import {
   Square
 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import Layout from './Layout';
 import apiConfig from './config/api';
 
 const RealtimeMonitoringInterface = () => {
@@ -149,7 +148,7 @@ const RealtimeMonitoringInterface = () => {
 
   const fetchMonitoringData = async () => {
     try {
-      const response = await fetch(apiConfig.endpoint('/v1/monitoring/status'));
+      const response = await fetch(apiConfig.endpoint('/api/v1/monitoring/status'));
       if (response.ok) {
         const data = await response.json();
         
@@ -157,17 +156,19 @@ const RealtimeMonitoringInterface = () => {
         const mappedData = {
           parsing: {
             status: data.parsing?.status || 'idle',
-            files_processed: data.parsing?.processed || 0,
-            current_file: null,
-            lines_processed: data.parsing?.processed || 0,
+            processed: data.parsing?.processed || 0,
+            total_files: data.parsing?.total_files || 0,
+            current_file: data.parsing?.current_file || null,
             processing_rate: data.parsing?.rate || 0,
             errors: data.parsing?.errors || 0,
+            progress_percent: data.parsing?.progress_percent || 0,
+            eta_seconds: data.parsing?.eta_seconds || null,
             last_error: null
           },
           sessionization: {
             status: data.sessionization?.status || 'idle',
             sessions_created: data.sessionization?.sessions_created || 0,
-            current_session: null,
+            current_session: data.sessionization?.current_session || null,
             avg_session_length: 0,
             sessionization_rate: data.sessionization?.rate || 0,
             errors: 0,
@@ -175,12 +176,16 @@ const RealtimeMonitoringInterface = () => {
           },
           ml_training: {
             status: data.ml_training?.status || 'idle',
-            model_status: 'loaded',
-            embeddings_generated: 0,
-            training_progress: data.ml_training?.accuracy || 0,
+            model_type: data.ml_training?.model_type || null,
+            training_progress: data.ml_training?.training_progress || 0,
+            current_epoch: data.ml_training?.current_epoch || 0,
+            total_epochs: data.ml_training?.total_epochs || 0,
             current_accuracy: data.ml_training?.accuracy || 0,
+            current_loss: data.ml_training?.current_loss || 0,
+            best_accuracy: data.ml_training?.best_accuracy || 0,
+            training_samples: data.ml_training?.training_samples || 0,
             training_time: data.ml_training?.training_time || 0,
-            models_trained: data.ml_training?.models_trained || 0,
+            eta_seconds: data.ml_training?.eta_seconds || null,
             errors: 0,
             last_error: null
           },
@@ -221,17 +226,19 @@ const RealtimeMonitoringInterface = () => {
       const mappedData = {
         parsing: {
           status: data.parsing?.status || 'idle',
-          files_processed: data.parsing?.processed || 0,
-          current_file: null,
-          lines_processed: data.parsing?.processed || 0,
+          processed: data.parsing?.processed || 0,
+          total_files: data.parsing?.total_files || 0,
+          current_file: data.parsing?.current_file || null,
           processing_rate: data.parsing?.rate || 0,
           errors: data.parsing?.errors || 0,
+          progress_percent: data.parsing?.progress_percent || 0,
+          eta_seconds: data.parsing?.eta_seconds || null,
           last_error: null
         },
         sessionization: {
           status: data.sessionization?.status || 'idle',
           sessions_created: data.sessionization?.sessions_created || 0,
-          current_session: null,
+          current_session: data.sessionization?.current_session || null,
           avg_session_length: 0,
           sessionization_rate: data.sessionization?.rate || 0,
           errors: 0,
@@ -239,12 +246,16 @@ const RealtimeMonitoringInterface = () => {
         },
         ml_training: {
           status: data.ml_training?.status || 'idle',
-          model_status: 'loaded',
-          embeddings_generated: 0,
-          training_progress: data.ml_training?.accuracy || 0,
+          model_type: data.ml_training?.model_type || null,
+          training_progress: data.ml_training?.training_progress || 0,
+          current_epoch: data.ml_training?.current_epoch || 0,
+          total_epochs: data.ml_training?.total_epochs || 0,
           current_accuracy: data.ml_training?.accuracy || 0,
+          current_loss: data.ml_training?.current_loss || 0,
+          best_accuracy: data.ml_training?.best_accuracy || 0,
+          training_samples: data.ml_training?.training_samples || 0,
           training_time: data.ml_training?.training_time || 0,
-          models_trained: data.ml_training?.models_trained || 0,
+          eta_seconds: data.ml_training?.eta_seconds || null,
           errors: 0,
           last_error: null
         },
@@ -361,8 +372,7 @@ const RealtimeMonitoringInterface = () => {
   });
 
   return (
-    <Layout>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <div className="flex justify-between items-center">
@@ -414,7 +424,7 @@ const RealtimeMonitoringInterface = () => {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center">
               <FileText className="w-6 h-6 text-blue-600 mr-2" />
-              <h3 className="text-lg font-semibold">Parsing</h3>
+              <h3 className="text-lg font-semibold">EJ File Processing</h3>
             </div>
             {getStatusIcon(monitoringData.parsing.status)}
           </div>
@@ -422,18 +432,47 @@ const RealtimeMonitoringInterface = () => {
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-sm text-gray-600">Files Processed:</span>
-              <span className="text-sm font-medium">{monitoringData.parsing.files_processed || 0}</span>
+              <span className="text-sm font-medium">
+                {monitoringData.parsing.processed || 0}
+                {monitoringData.parsing.total_files > 0 && `/${monitoringData.parsing.total_files}`}
+              </span>
             </div>
+            
+            {/* Progress bar for file processing */}
+            {monitoringData.parsing.progress_percent > 0 && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Progress</span>
+                  <span>{(monitoringData.parsing.progress_percent || 0).toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ width: `${monitoringData.parsing.progress_percent || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+            
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Lines/sec:</span>
-              <span className="text-sm font-medium">{(monitoringData.parsing.processing_rate || 0).toFixed(1)}</span>
+              <span className="text-sm text-gray-600">Processing Rate:</span>
+              <span className="text-sm font-medium">{(monitoringData.parsing.processing_rate || 0).toFixed(1)}/sec</span>
             </div>
+            
+            {monitoringData.parsing.eta_seconds && monitoringData.parsing.eta_seconds > 0 && (
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">ETA:</span>
+                <span className="text-sm font-medium">{Math.round(monitoringData.parsing.eta_seconds)}s</span>
+              </div>
+            )}
+            
             <div className="flex justify-between">
               <span className="text-sm text-gray-600">Errors:</span>
               <span className={`text-sm font-medium ${(monitoringData.parsing.errors || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {monitoringData.parsing.errors || 0}
               </span>
             </div>
+            
             {monitoringData.parsing.current_file && (
               <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
                 Current: {monitoringData.parsing.current_file}
@@ -479,30 +518,66 @@ const RealtimeMonitoringInterface = () => {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center">
               <Brain className="w-6 h-6 text-purple-600 mr-2" />
-              <h3 className="text-lg font-semibold">ML Training</h3>
+              <h3 className="text-lg font-semibold">Model Training</h3>
             </div>
             {getStatusIcon(monitoringData.ml_training.status)}
           </div>
           
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Model Status:</span>
-              <span className="text-sm font-medium capitalize">{monitoringData.ml_training.model_status.replace('_', ' ')}</span>
+              <span className="text-sm text-gray-600">Model Type:</span>
+              <span className="text-sm font-medium">{monitoringData.ml_training.model_type || 'None'}</span>
             </div>
+            
+            {/* Training progress bar */}
+            {monitoringData.ml_training.training_progress > 0 && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Training Progress</span>
+                  <span>{(monitoringData.ml_training.training_progress || 0).toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-purple-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ width: `${monitoringData.ml_training.training_progress || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+            
+            {monitoringData.ml_training.current_epoch > 0 && (
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Epoch:</span>
+                <span className="text-sm font-medium">
+                  {monitoringData.ml_training.current_epoch}
+                  {monitoringData.ml_training.total_epochs > 0 && `/${monitoringData.ml_training.total_epochs}`}
+                </span>
+              </div>
+            )}
+            
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Embeddings:</span>
-              <span className="text-sm font-medium">{monitoringData.ml_training.embeddings_generated || 0}</span>
+              <span className="text-sm text-gray-600">Accuracy:</span>
+              <span className="text-sm font-medium">{(monitoringData.ml_training.current_accuracy || 0).toFixed(3)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Progress:</span>
-              <span className="text-sm font-medium">{(monitoringData.ml_training.training_progress || 0).toFixed(1)}%</span>
-            </div>
-            {(monitoringData.ml_training.training_progress || 0) > 0 && (
-              <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                <div 
-                  className="bg-purple-600 h-2 rounded-full" 
-                  style={{ width: `${monitoringData.ml_training.training_progress || 0}%` }}
-                ></div>
+            
+            {monitoringData.ml_training.current_loss > 0 && (
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Loss:</span>
+                <span className="text-sm font-medium">{(monitoringData.ml_training.current_loss || 0).toFixed(3)}</span>
+              </div>
+            )}
+            
+            {monitoringData.ml_training.training_samples > 0 && (
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Training Samples:</span>
+                <span className="text-sm font-medium">{monitoringData.ml_training.training_samples}</span>
+              </div>
+            )}
+            
+            {monitoringData.ml_training.eta_seconds && monitoringData.ml_training.eta_seconds > 0 && (
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">ETA:</span>
+                <span className="text-sm font-medium">{Math.round(monitoringData.ml_training.eta_seconds)}s</span>
               </div>
             )}
           </div>
@@ -642,8 +717,7 @@ const RealtimeMonitoringInterface = () => {
           <div ref={logsEndRef} />
         </div>
       </div>
-      </div>
-    </Layout>
+    </div>
   );
 };
 
