@@ -136,6 +136,7 @@ class MLFirstEJProcessor:
                 'detected_patterns': json.dumps(row['detected_patterns']),
                 'critical_events': json.dumps(row['critical_events']),
                 'embedding_vector': embedding.tobytes() if embedding is not None else None,
+                'raw_text': raw_text,  # Store raw text in database
                 
                 # Multi-anomaly fields
                 'anomaly_count': row.get('anomaly_count', 0),
@@ -483,6 +484,7 @@ class MLFirstEJProcessor:
                             detected_patterns = :detected_patterns,
                             critical_events = :critical_events,
                             embedding_vector = :embedding_vector,
+                            raw_text = :raw_text,
                             created_at = :created_at
                         WHERE session_id = :session_id
                     """)
@@ -497,10 +499,10 @@ class MLFirstEJProcessor:
                     insert_query = text("""
                         INSERT INTO ml_sessions 
                         (session_id, timestamp, session_length, is_anomaly, anomaly_score, 
-                         anomaly_type, detected_patterns, critical_events, embedding_vector, created_at)
+                         anomaly_type, detected_patterns, critical_events, embedding_vector, raw_text, created_at)
                         VALUES 
                         (:session_id, :timestamp, :session_length, :is_anomaly, :anomaly_score,
-                         :anomaly_type, :detected_patterns, :critical_events, :embedding_vector, :created_at)
+                         :anomaly_type, :detected_patterns, :critical_events, :embedding_vector, :raw_text, :created_at)
                     """)
                     
                     with self.db_engine.connect() as conn:
@@ -524,6 +526,11 @@ class MLFirstEJProcessor:
     def should_skip_file(self, file_path: str) -> bool:
         """Check if file has already been processed recently"""
         file_name = os.path.basename(file_path)
+        
+        # Force processing for development/testing - temporarily disable skip logic
+        # TODO: Re-enable file skip logic for production
+        logger.info(f"Force processing enabled for {file_name}")
+        return False
         
         # Check if we have a record of processing this file in the last 24 hours
         try:

@@ -1282,3 +1282,38 @@
   color: #7f8c8d;
   font-size: 14px;
 }
+
+/* Session text preview styles */
+.session-summary {
+  margin: 15px 0;
+  padding: 15px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+}
+
+.session-text-preview {
+  margin-bottom: 10px;
+}
+
+.session-text-preview strong {
+  color: #495057;
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.text-preview-content {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #212529;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}

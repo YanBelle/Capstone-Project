@@ -10,6 +10,9 @@ RUN npm ci
 # Copy source
 COPY . .
 
+# Ensure fix script is present
+RUN ls -la public/fix-dashboard-live.js || echo "Warning: Fix script not found"
+
 # Inject REACT_APP_API_URL from build arg and build the app
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=$REACT_APP_API_URL

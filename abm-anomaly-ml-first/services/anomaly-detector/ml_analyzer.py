@@ -44,6 +44,9 @@ from tensorflow.keras.optimizers import Adam
 # Import simple embeddings fallback
 from simple_embeddings import SimpleEmbeddingGenerator
 
+# Enhanced unsupervised analyzer
+from unsupervised_analyzer import EnhancedUnsupervisedEJAnalyzer
+
 # Additional ML imports for sentiment and negative text detection
 from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -218,6 +221,14 @@ class MLFirstAnomalyDetector:
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
         self.bert_model = BertModel.from_pretrained(model_name)
         self.bert_model.eval()
+        
+        # Initialize enhanced unsupervised analyzer
+        try:
+            self.unsupervised_analyzer = EnhancedUnsupervisedEJAnalyzer()
+            logger.info("Enhanced unsupervised analyzer initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize enhanced unsupervised analyzer: {e}")
+            self.unsupervised_analyzer = None
         
         # Initialize unsupervised models
         self.isolation_forest = IsolationForest(

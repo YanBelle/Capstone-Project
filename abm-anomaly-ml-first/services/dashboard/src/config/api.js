@@ -1,8 +1,8 @@
 // Simple API configuration for local development
 class ApiConfig {
   constructor() {
-    // Use localhost for development (will be proxied through nginx)
-    this.baseUrl = 'http://localhost';
+    // Use relative URLs for production (proxied through nginx) or localhost:8000 for development
+    this.baseUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000';
   }
 
   getApiUrl() {

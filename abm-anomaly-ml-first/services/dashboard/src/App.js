@@ -38,6 +38,16 @@ const Dashboard = React.lazy(() => import('./Dashboard').catch(err => {
   return { default: () => <div>Error loading Dashboard component</div> };
 }));
 
+const SimpleDashboard = React.lazy(() => import('./SimpleDashboard').catch(err => {
+  console.error('Error loading SimpleDashboard:', err);
+  return { default: () => <div>Error loading SimpleDashboard component</div> };
+}));
+
+const Layout = React.lazy(() => import('./Layout').catch(err => {
+  console.error('Error loading Layout:', err);
+  return { default: () => <div>Error loading Layout component</div> };
+}));
+
 const RealtimeMonitoringInterface = React.lazy(() => import('./RealtimeMonitoringInterface').catch(err => {
   console.error('Error loading RealtimeMonitoringInterface:', err);
   return { default: () => <div>Error loading RealtimeMonitoringInterface component</div> };
@@ -96,17 +106,17 @@ function App() {
       <Router>
         <React.Suspense fallback={<div style={{ padding: '20px' }}>Loading...</div>}>
           <Routes>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/dashboard/" element={<Dashboard />} />
-            <Route path="/dashboard/anomalies" element={<Dashboard />} />
-            <Route path="/dashboard/alerts" element={<Dashboard />} />
-            <Route path="/dashboard/analytics" element={<Dashboard />} />
-            <Route path="/dashboard/realtime" element={<RealtimeMonitoringInterface />} />
-            <Route path="/dashboard/multi-anomaly" element={<MultiAnomalyView />} />
-            <Route path="/dashboard/expert-labeling" element={<ExpertLabelingInterface />} />
+            <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
+            <Route path="/dashboard/" element={<Layout><Dashboard /></Layout>} />
+            <Route path="/dashboard/anomalies" element={<Layout><Dashboard /></Layout>} />
+            <Route path="/dashboard/alerts" element={<Layout><Dashboard /></Layout>} />
+            <Route path="/dashboard/analytics" element={<Layout><Dashboard /></Layout>} />
+            <Route path="/dashboard/multi-anomaly" element={<Layout><MultiAnomalyView /></Layout>} />
+            <Route path="/dashboard/expert-labeling" element={<Layout><ExpertLabelingInterface /></Layout>} />
             <Route path="/dashboard/continuous-learning" element={<ContinuousLearningInterface />} />
             <Route path="/dashboard/ner-training" element={<NERFineTuningInterface />} />
-            <Route path="/dashboard/data-viewer" element={<DataViewer />} />
+            <Route path="/dashboard/realtime" element={<RealtimeMonitoringInterface />} />
+            <Route path="/dashboard/data-viewer" element={<Layout><DataViewer /></Layout>} />
             <Route path="/dashboard/bert-analysis" element={<BertAnalysisInterface />} />
             <Route path="/dashboard/deeplog" element={<DeepLogDashboard />} />
             <Route path="/dashboard/dbscan" element={<DBSCANVisualization />} />

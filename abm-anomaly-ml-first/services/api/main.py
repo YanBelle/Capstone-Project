@@ -29,7 +29,18 @@ from sklearn.metrics import classification_report, confusion_matrix
 import joblib
 import time
 import psutil
+
+# Import EJ cleaning functionality
+try:
+    from ej_log_cleaner import ej_cleaner
+    EJ_CLEANER_AVAILABLE = True
+    logger.info("EJ Log Cleaner imported successfully")
+except ImportError as e:
+    EJ_CLEANER_AVAILABLE = False
+    logger.warning(f"EJ Log Cleaner not available: {e}")
 import threading
+# Import unsupervised endpoints
+from unsupervised_endpoints import add_unsupervised_endpoints
 # from monitoring_utils import monitoring_collector  # Commented to prevent import errors
 
 # Add the anomaly-detector directory to the path
@@ -191,25 +202,6 @@ except ImportError as e:
     logger.warning(f"Enhanced EJ BERT system not available: {e}")
     ENHANCED_BERT_AVAILABLE = False
 
-# Import Intelligent Sessionizer (NER + Regex hybrid)
-try:
-    sys.path.append('/app')  # Add parent directory to path
-    from intelligent_sessionizer import IntelligentSessionizer
-    INTELLIGENT_SESSIONIZER_AVAILABLE = True
-    logger.info("Intelligent Sessionizer (NER) imported successfully")
-except ImportError as e:
-    logger.warning(f"Intelligent Sessionizer not available: {e}")
-    INTELLIGENT_SESSIONIZER_AVAILABLE = False
-
-# Import Fine-tuned ABM NER Sessionizer
-try:
-    from enhanced_abm_sessionizer import EnhancedIntelligentSessionizer
-    FINE_TUNED_NER_AVAILABLE = True
-    logger.info("Fine-tuned ABM NER Sessionizer imported successfully")
-except ImportError as e:
-    logger.warning(f"Fine-tuned ABM NER Sessionizer not available: {e}")
-    FINE_TUNED_NER_AVAILABLE = False
-
 # Import the new expert feedback endpoint
 try:
     from expert_feedback_endpoint import router as expert_feedback_router
@@ -222,6 +214,9 @@ load_dotenv()
 
 app = FastAPI(title="ABM ML Anomaly Detection API", version="1.0.0", docs_url="/api/docs",
     openapi_url="/api/openapi.json")
+
+# Add unsupervised analysis endpoints
+add_unsupervised_endpoints(app)
 
 # Add expert feedback router if available
 if EXPERT_FEEDBACK_AVAILABLE:
@@ -255,40 +250,19 @@ redis_client = redis.Redis(
 enhanced_detector = None
 if ENHANCED_DETECTOR_AVAILABLE:
     enhanced_detector = EnhancedEnsembleDetector(models_dir="/app/models")
-    # Load trained models if available
-    load_success = enhanced_detector.load_models()
-    logger.info(f"Enhanced detector model loading: {'successful' if load_success else 'failed'}")
-    if load_success:
-        logger.info(f"Enhanced detector is_trained: {enhanced_detector.is_trained}")
-    else:
-        logger.warning("No saved models found or loading failed - detector is not trained")
+    # Try to load existing models
+    enhanced_detector.load_models()
 
 def convert_numpy_types(obj):
     """Convert numpy types to JSON-serializable types"""
     import numpy as np
-    import math
     
     if isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, np.floating):
-        value = float(obj)
-        # Handle NaN and infinity values
-        if math.isnan(value):
-            return None
-        elif math.isinf(value):
-            return 1e308 if value > 0 else -1e308  # Max/min representable values
-        return value
-    elif isinstance(obj, float):
-        # Handle regular Python floats too
-        if math.isnan(obj):
-            return None
-        elif math.isinf(obj):
-            return 1e308 if obj > 0 else -1e308
-        return obj
+        return float(obj)
     elif isinstance(obj, np.ndarray):
-        # Handle NaN/infinity in arrays
-        array_list = obj.tolist()
-        return convert_numpy_types(array_list)  # Recursively handle nested arrays
+        return obj.tolist()
     elif isinstance(obj, dict):
         return {key: convert_numpy_types(value) for key, value in obj.items()}
     elif isinstance(obj, list):
@@ -353,21 +327,332 @@ class LogEntry(BaseModel):
     message: str
     session_id: Optional[str] = None
 
-class IsolationForestAnalysisRequest(BaseModel):
-    include_scatter_data: bool = True
-    include_feature_importance: bool = True
-    include_outlier_scores: bool = True
-
 # Helper functions
-def get_session_raw_text(session_id: str) -> str:
-    """Retrieve raw text for a session"""
-    # Try file system
-    file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            return f.read()
+async def get_session_raw_text(session_id: str) -> str:
+    """Retrieve raw text for a session from database or file system"""
+    try:
+        # First try database
+        async with get_db_connection() as conn:
+            query = "SELECT raw_text FROM ml_sessions WHERE session_id = $1"
+            result = await conn.fetchrow(query, session_id)
+            if result and result['raw_text']:
+                return result['raw_text']
+        
+        # Fallback to file system
+        file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                return f.read()
+                
+        # Try input directory for original files
+        input_files = [
+            f"/app/input/{f}" for f in os.listdir("/app/input") 
+            if os.path.isfile(f"/app/input/{f}") and session_id[:6] in f
+        ]
+        for file_path in input_files:
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                    # Look for session in the content
+                    if session_id in content or session_id.replace('_', '') in content:
+                        return content
+        
+        # Try processed directory
+        processed_files = [
+            f"/app/input/processed/{f}" for f in os.listdir("/app/input/processed") 
+            if os.path.isfile(f"/app/input/processed/{f}") and session_id[:6] in f
+        ]
+        for file_path in processed_files:
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                    # Look for session in the content
+                    if session_id in content or session_id.replace('_', '') in content:
+                        return content
+        
+    except Exception as e:
+        logger.error(f"Error retrieving raw text for session {session_id}: {str(e)}")
     
     return "Raw text not available"
+
+async def get_session_cleaned_text(session_id: str) -> str:
+    """
+    Retrieve cleaned text for a session from database.
+    Falls back to raw text if cleaned text not available.
+    """
+    try:
+        # Try to get cleaned text from database
+        async with get_db_connection() as conn:
+            result = await conn.fetchrow(
+                "SELECT cleaned_text, raw_text FROM ml_sessions WHERE session_id = $1",
+                session_id
+            )
+            if result:
+                if result['cleaned_text']:
+                    logger.info(f"Retrieved cleaned text from database for session {session_id}")
+                    return result['cleaned_text']
+                elif result['raw_text']:
+                    logger.info(f"No cleaned text available, returning raw text for session {session_id}")
+                    return result['raw_text']
+        
+        # Fallback to raw text function
+        raw_text = await get_session_raw_text(session_id)
+        if raw_text != "Raw text not available":
+            return raw_text
+        
+        logger.warning(f"No cleaned or raw text found for session {session_id}")
+        return "Cleaned text not available"
+        
+    except Exception as e:
+        logger.error(f"Error retrieving cleaned text for session {session_id}: {str(e)}")
+        return "Cleaned text not available"
+
+async def get_session_events(session_id: str) -> List[Dict]:
+    """
+    Retrieve structured events for a session from database.
+    """
+    try:
+        async with get_db_connection() as conn:
+            result = await conn.fetchrow(
+                "SELECT processed_events FROM ml_sessions WHERE session_id = $1",
+                session_id
+            )
+            if result and result['processed_events']:
+                events_json = result['processed_events']
+                if isinstance(events_json, str):
+                    events = json.loads(events_json)
+                else:
+                    events = events_json
+                
+                logger.info(f"Retrieved {len(events)} events for session {session_id}")
+                return events
+        
+        logger.warning(f"No structured events found for session {session_id}")
+        return []
+        
+    except Exception as e:
+        logger.error(f"Error retrieving events for session {session_id}: {str(e)}")
+        return []
+
+# EJ Processing and Storage Functions
+async def process_and_store_ej_session(session_id: str, raw_ej_content: str, 
+                                     additional_metadata: Dict = None) -> Dict:
+    """
+    Process raw EJ content, clean it, and store both versions in database
+    
+    Args:
+        session_id: Unique session identifier
+        raw_ej_content: Raw EJ log content
+        additional_metadata: Additional session metadata
+        
+    Returns:
+        Dictionary with processing results
+    """
+    try:
+        if not EJ_CLEANER_AVAILABLE:
+            logger.warning("EJ Cleaner not available, storing raw content only")
+            cleaned_result = {
+                'cleaned_text': raw_ej_content,
+                'normalized_tokens': raw_ej_content,
+                'structured_events': '[]',
+                'cleaning_stats': json.dumps({'error': 'EJ Cleaner not available'})
+            }
+        else:
+            # Clean the EJ content
+            cleaned_result = ej_cleaner.clean_ej_log(raw_ej_content)
+        
+        # Store in database
+        async with get_db_connection() as conn:
+            # Check if session already exists
+            existing = await conn.fetchrow(
+                "SELECT session_id FROM ml_sessions WHERE session_id = $1",
+                session_id
+            )
+            
+            if existing:
+                # Update existing session
+                await conn.execute("""
+                    UPDATE ml_sessions 
+                    SET raw_text = $2, 
+                        cleaned_text = $3, 
+                        processed_events = $4,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE session_id = $1
+                """, 
+                session_id, 
+                raw_ej_content, 
+                cleaned_result['cleaned_text'],
+                cleaned_result['structured_events']
+                )
+                logger.info(f"Updated existing session {session_id} with EJ content")
+            else:
+                # Create new session
+                timestamp = datetime.now()
+                await conn.execute("""
+                    INSERT INTO ml_sessions 
+                    (session_id, raw_text, cleaned_text, processed_events, 
+                     timestamp, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, 
+                session_id, 
+                raw_ej_content, 
+                cleaned_result['cleaned_text'],
+                cleaned_result['structured_events'],
+                timestamp,
+                timestamp,
+                timestamp
+                )
+                logger.info(f"Created new session {session_id} with EJ content")
+        
+        # Return processing results
+        processing_stats = json.loads(cleaned_result['cleaning_stats'])
+        
+        return {
+            'status': 'success',
+            'session_id': session_id,
+            'original_length': len(raw_ej_content),
+            'cleaned_length': len(cleaned_result['cleaned_text']),
+            'normalized_length': len(cleaned_result['normalized_tokens']),
+            'events_extracted': processing_stats.get('structured_events_count', 0),
+            'compression_ratio': processing_stats.get('compression_ratio', 0.0),
+            'cleaning_stats': processing_stats
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing and storing EJ session {session_id}: {e}")
+        return {
+            'status': 'error',
+            'session_id': session_id,
+            'error': str(e)
+        }
+
+async def batch_process_ej_files(input_directory: str = "/app/input/processed") -> Dict:
+    """
+    Batch process EJ files from input directory and store in database
+    
+    Args:
+        input_directory: Directory containing EJ files to process
+        
+    Returns:
+        Processing summary
+    """
+    try:
+        import glob
+        import os
+        
+        # Find all text files in input directory
+        file_pattern = os.path.join(input_directory, "*.txt")
+        ej_files = glob.glob(file_pattern)
+        
+        if not ej_files:
+            return {
+                'status': 'warning',
+                'message': f'No EJ files found in {input_directory}',
+                'processed_count': 0
+            }
+        
+        processed_results = []
+        successful_count = 0
+        error_count = 0
+        
+        logger.info(f"Starting batch processing of {len(ej_files)} EJ files")
+        
+        for file_path in ej_files:
+            try:
+                # Extract session ID from filename
+                filename = os.path.basename(file_path)
+                session_id = filename.replace('.txt', '')
+                
+                # Read file content
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    raw_content = f.read()
+                
+                if not raw_content.strip():
+                    logger.warning(f"Empty file skipped: {filename}")
+                    continue
+                
+                # Process and store
+                result = await process_and_store_ej_session(session_id, raw_content)
+                processed_results.append(result)
+                
+                if result['status'] == 'success':
+                    successful_count += 1
+                else:
+                    error_count += 1
+                    
+            except Exception as file_error:
+                logger.error(f"Error processing file {file_path}: {file_error}")
+                error_count += 1
+                processed_results.append({
+                    'status': 'error',
+                    'session_id': filename.replace('.txt', '') if 'filename' in locals() else 'unknown',
+                    'error': str(file_error)
+                })
+        
+        # Generate summary statistics
+        if EJ_CLEANER_AVAILABLE and successful_count > 0:
+            successful_results = [r for r in processed_results if r['status'] == 'success']
+            total_original = sum(r.get('original_length', 0) for r in successful_results)
+            total_cleaned = sum(r.get('cleaned_length', 0) for r in successful_results)
+            total_events = sum(r.get('events_extracted', 0) for r in successful_results)
+            
+            summary_stats = {
+                'total_files_found': len(ej_files),
+                'successful_processing': successful_count,
+                'processing_errors': error_count,
+                'total_original_chars': total_original,
+                'total_cleaned_chars': total_cleaned,
+                'overall_compression_ratio': total_cleaned / total_original if total_original > 0 else 0,
+                'total_events_extracted': total_events,
+                'average_events_per_session': total_events / successful_count if successful_count > 0 else 0
+            }
+        else:
+            summary_stats = {
+                'total_files_found': len(ej_files),
+                'successful_processing': successful_count,
+                'processing_errors': error_count,
+                'note': 'EJ Cleaner not available - raw storage only'
+            }
+        
+        logger.info(f"Batch processing completed: {successful_count} success, {error_count} errors")
+        
+        return {
+            'status': 'success',
+            'message': f'Batch processing completed',
+            'summary': summary_stats,
+            'detailed_results': processed_results[:10]  # Return first 10 for brevity
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in batch processing: {e}")
+        return {
+            'status': 'error',
+            'message': f'Batch processing failed: {str(e)}'
+        }
+
+# DeepLog Training Integration
+try:
+    from deeplog_bert_trainer import get_deeplog_trainer
+    deeplog_available = True
+except ImportError:
+    logger.warning("DeepLog BERT trainer not available - PyTorch/transformers not installed")
+    deeplog_available = False
+
+# Unsupervised Analysis Integration
+try:
+    from unsupervised_api import (
+        run_unsupervised_analysis,
+        get_unsupervised_anomalies,
+        get_unsupervised_patterns,
+        analyze_single_session_unsupervised,
+        get_unsupervised_status,
+        export_unsupervised_results,
+        create_unsupervised_dashboard
+    )
+    unsupervised_api_available = True
+except ImportError as e:
+    logger.warning(f"Unsupervised analysis API not available: {e}")
+    unsupervised_api_available = False
 
 # Add background task to update Redis cache
 async def update_redis_cache():
@@ -459,36 +744,6 @@ async def health_check():
             "error": str(e)
         }
 
-
-# Working test endpoint for isolation forest
-@app.get("/api/v1/isolation")
-async def get_isolation_analysis():
-    """Working isolation forest endpoint"""
-    return {
-        'total_sessions': 1500,
-        'normal_sessions': 1350,
-        'anomalous_sessions': 150,
-        'scatter_data': [
-            {'features': [1.5, 2.3], 'anomaly_score': 0.3, 'is_anomaly': False, 'session_id': 'session_1'},
-            {'features': [4.2, -1.8], 'anomaly_score': 0.8, 'is_anomaly': True, 'session_id': 'session_2'},
-            {'features': [-2.1, 3.5], 'anomaly_score': 0.15, 'is_anomaly': False, 'session_id': 'session_3'},
-            {'features': [6.8, -3.2], 'anomaly_score': 0.92, 'is_anomaly': True, 'session_id': 'session_4'}
-        ],
-        'feature_distributions': [
-            {
-                'name': 'Session Length',
-                'normal_q1': 15, 'normal_median': 25, 'normal_q3': 35,
-                'anomaly_q1': 75, 'anomaly_median': 85, 'anomaly_q3': 95
-            }
-        ],
-        'performance_metrics': {
-            'precision': 0.87,
-            'recall': 0.82,
-            'f1_score': 0.84,
-            'auc': 0.89
-        }
-    }
-
 @app.get("/api/v1/health")
 async def health_check():
     """Health check endpoint"""
@@ -533,242 +788,276 @@ async def upload_ejournal(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# NEW: Fine-tuned ABM NER Sessionization endpoint
-@app.post("/api/v1/sessionize-fine-tuned")
-async def fine_tuned_abm_sessionization(text: str, model_path: str = "/app/abm-ner-model"):
-    """
-    Use fine-tuned ABM NER model for optimal sessionization.
-    Provides best accuracy for ABM-specific log patterns.
-    """
-    try:
-        if not FINE_TUNED_NER_AVAILABLE:
-            raise HTTPException(
-                status_code=503, 
-                detail="Fine-tuned ABM NER Sessionizer not available"
-            )
-        
-        # Initialize fine-tuned sessionizer
-        sessionizer = EnhancedIntelligentSessionizer(
-            abm_model_path=model_path,
-            use_fine_tuned=True
+# Clear data endpoint
+@app.delete("/api/v1/data/clear-all")
+async def clear_all_data(confirm: bool = False):
+    """Clear all transaction and session data from the system"""
+    if not confirm:
+        raise HTTPException(
+            status_code=400, 
+            detail="Please set confirm=true to proceed with data deletion. This action cannot be undone."
         )
-        
-        # Enhanced sessionization with entity extraction
-        sessions = sessionizer.sessionize(text, "api_upload.txt")
-        
-        # Convert to API response format
-        session_data = []
-        total_entities = 0
-        
-        for session in sessions:
-            session_dict = {
-                "session_id": session["session_id"],
-                "raw_text_preview": session["raw_text"][:500] + "..." if len(session["raw_text"]) > 500 else session["raw_text"],
-                "sessionization_method": session["sessionization_method"],
-                "quality_score": session["quality_score"],
-                "boundary_type": session["boundary_type"],
-                "text_length": len(session["raw_text"]),
-                "entities_found": session["extracted_info"]["entity_count"],
-                "entity_breakdown": {
-                    "timestamps": len(session["extracted_info"]["timestamps"]),
-                    "card_numbers": len(session["extracted_info"]["card_numbers"]),
-                    "error_codes": len(session["extracted_info"]["error_codes"]),
-                    "amounts": len(session["extracted_info"]["amounts"])
-                },
-                "top_entities": session["entities"][:5] if session["entities"] else []  # Show top 5 entities
-            }
-            session_data.append(session_dict)
-            total_entities += session["extracted_info"]["entity_count"]
-        
-        # Enhanced analytics
-        analytics = {
-            "sessions_extracted": len(sessions),
-            "total_entities_found": total_entities,
-            "avg_quality_score": sum(s["quality_score"] for s in sessions) / len(sessions) if sessions else 0,
-            "sessionization_methods_used": list(set(s["sessionization_method"] for s in sessions)),
-            "boundary_types_found": list(set(s["boundary_type"] for s in sessions)),
-            "entity_distribution": {
-                "timestamps": sum(len(s["extracted_info"]["timestamps"]) for s in sessions),
-                "card_numbers": sum(len(s["extracted_info"]["card_numbers"]) for s in sessions),
-                "error_codes": sum(len(s["extracted_info"]["error_codes"]) for s in sessions),
-                "amounts": sum(len(s["extracted_info"]["amounts"]) for s in sessions)
-            }
-        }
-        
-        return {
-            "status": "success",
-            "sessionization_method": "fine_tuned_abm_ner",
-            "sessions": session_data,
-            "analytics": analytics,
-            "message": f"Extracted {len(sessions)} sessions with {total_entities} entities using fine-tuned ABM NER"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in fine-tuned sessionization: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# NEW: NER Training Status endpoints
-@app.get("/api/v1/ner-training/status")
-async def get_ner_training_status():
-    """Get ABM NER training status for dashboard"""
+    
     try:
-        # Check if training is in progress (would be stored in Redis or file)
-        training_status = {
-            "isTraining": False,  # Would check actual training process
-            "progress": 100,
-            "currentEpoch": 3,
-            "totalEpochs": 3,
-            "modelAccuracy": 0.92,
-            "f1Score": 0.87,
-            "entityCoverage": 0.85,
-            "lastTrained": datetime.now().isoformat(),
-            "modelPath": "/app/abm-ner-model",
-            "trainingLogs": [
-                {"timestamp": datetime.now().strftime("%H:%M:%S"), "message": "🎯 Fine-tuned model ready for deployment"},
-                {"timestamp": (datetime.now() - timedelta(hours=1)).strftime("%H:%M:%S"), "message": "✅ Training completed with 92% accuracy"}
+        deleted_counts = {}
+        
+        # Clear database tables - Check table existence first to avoid failed transactions
+        tables_to_clear = [
+            'ml_anomalies',  # Must be deleted first due to foreign key to ml_sessions
+            'alerts',
+            'model_retraining_events',
+            'ml_anomaly_clusters',
+            'expert_feedback',
+            'labeled_anomalies',
+            'transactions', 
+            'ml_sessions'  # Delete last due to foreign key constraints
+        ]
+        
+        for table in tables_to_clear:
+            try:
+                with db_engine.connect() as conn:
+                    # First check if table exists to avoid transaction failures
+                    table_exists_query = """
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = :table_name
+                    )
+                    """
+                    
+                    exists_result = conn.execute(text(table_exists_query), {'table_name': table})
+                    table_exists = exists_result.scalar()
+                    
+                    if not table_exists:
+                        logger.info(f"Table {table} does not exist, skipping")
+                        deleted_counts[table] = 0
+                        continue
+                    
+                    # Table exists, proceed with deletion in a transaction
+                    trans = conn.begin()
+                    try:
+                        # Get count before deletion
+                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        count = count_result.scalar() or 0
+                        
+                        # Clear the table using DELETE instead of TRUNCATE to avoid transaction issues
+                        conn.execute(text(f"DELETE FROM {table}"))
+                        logger.info(f"Cleared {count} records from {table}")
+                        deleted_counts[table] = count
+                        
+                        trans.commit()
+                        
+                    except Exception as table_error:
+                        trans.rollback()
+                        logger.warning(f"Could not clear table {table}: {str(table_error)}")
+                        deleted_counts[table] = f"Error: {str(table_error)}"
+                        
+            except Exception as conn_error:
+                logger.warning(f"Could not connect to clear table {table}: {str(conn_error)}")
+                deleted_counts[table] = f"Connection Error: {str(conn_error)}"
+        
+        # Reset sequences
+        try:
+            with db_engine.connect() as conn:
+                trans = conn.begin()
+                try:
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS transactions_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS labeled_anomalies_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS expert_feedback_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS model_retraining_events_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS alerts_id_seq RESTART WITH 1"))
+                    conn.execute(text("ALTER SEQUENCE IF EXISTS ml_anomalies_id_seq RESTART WITH 1"))
+                    trans.commit()
+                except Exception as seq_error:
+                    trans.rollback()
+                    logger.warning(f"Could not reset sequences: {str(seq_error)}")
+        except Exception as e:
+            logger.warning(f"Could not reset sequences: {str(e)}")
+        
+        # Clear Redis cache completely
+        redis_cleared = False
+        try:
+            redis_client.flushdb()  # Clear entire database
+            # Also clear specific cache keys that might be used
+            cache_keys = [
+                'latest_ml_summary',
+                'dashboard_stats', 
+                'anomaly_counts',
+                'session_stats',
+                'ml_stats'
             ]
-        }
+            for key in cache_keys:
+                redis_client.delete(key)
+            redis_cleared = True
+            logger.info("Cleared Redis cache completely")
+        except Exception as redis_error:
+            logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
+            redis_cleared = False
         
-        return training_status
+        # Clear file system data if it exists
+        cleared_files = 0
+        try:
+            sessions_dir = "/app/data/sessions"
+            if os.path.exists(sessions_dir):
+                import shutil
+                shutil.rmtree(sessions_dir)
+                os.makedirs(sessions_dir, exist_ok=True)
+                cleared_files += 1
+                logger.info("Cleared session files directory")
+        except Exception as file_error:
+            logger.warning(f"Could not clear session files: {str(file_error)}")
         
-    except Exception as e:
-        logger.error(f"Error getting NER training status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/v1/ner-training/stats")
-async def get_ner_training_stats():
-    """Get NER model statistics"""
-    try:
-        stats = {
-            "totalTrainingData": 1250,
-            "entityTypes": [
-                "TRANSACTION_START", "TIMESTAMP", "CARD_NUMBER", "ERROR_CODE",
-                "AMOUNT", "DEVICE_ID", "SESSION_BOUNDARY", "EVENT_TYPE", "STATUS_CODE"
-            ],
-            "trainingSamples": 1000,
-            "validationSamples": 250,
-            "testResults": {
-                "precision": 0.89,
-                "recall": 0.85,
-                "f1Score": 0.87
-            },
-            "entityDistribution": {
-                "TRANSACTION_START": 156,
-                "TIMESTAMP": 1250,
-                "CARD_NUMBER": 890,
-                "ERROR_CODE": 234,
-                "AMOUNT": 445,
-                "DEVICE_ID": 1250,
-                "SESSION_BOUNDARY": 178,
-                "EVENT_TYPE": 567,
-                "STATUS_CODE": 123
-            }
-        }
-        
-        return stats
-        
-    except Exception as e:
-        logger.error(f"Error getting NER stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/ner-training/start")
-async def start_ner_training(background_tasks: BackgroundTasks, training_config: Dict = None):
-    """Start ABM NER fine-tuning process"""
-    try:
-        # In production, this would start the actual training process
-        logger.info("Starting ABM NER fine-tuning...")
-        
-        # Add background task for training (mock for now)
-        # background_tasks.add_task(run_ner_training, training_config)
-        
-        return {
-            "status": "training_started",
-            "message": "ABM NER fine-tuning started successfully",
-            "config": training_config or {
-                "epochs": 3,
-                "batch_size": 8,
-                "learning_rate": 2e-5,
-                "max_length": 512
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Error starting NER training: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/ner-training/stop")
-async def stop_ner_training():
-    """Stop ABM NER training process"""
-    try:
-        # In production, this would stop the actual training process
-        logger.info("Stopping ABM NER training...")
-        
-        return {
-            "status": "training_stopped",
-            "message": "ABM NER training stopped successfully"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error stopping NER training: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# NEW: Intelligent Sessionization endpoint (NER vs Regex comparison)
-@app.post("/api/v1/sessionize-intelligent")
-async def intelligent_sessionization(text: str, use_ner: bool = True):
-    """
-    Demonstrate NER vs Regex sessionization with same pipeline integration.
-    Shows how NER can be a drop-in replacement without affecting ensemble.
-    """
-    try:
-        if not INTELLIGENT_SESSIONIZER_AVAILABLE:
-            raise HTTPException(
-                status_code=503, 
-                detail="Intelligent Sessionizer not available"
-            )
-        
-        # Initialize intelligent sessionizer
-        sessionizer = IntelligentSessionizer(
-            use_ner=use_ner, 
-            confidence_threshold=0.8
-        )
-        
-        # Same interface as original sessionization
-        sessions = sessionizer.split_into_sessions(text, "api_upload.txt")
-        
-        # Convert to JSON-serializable format
-        session_data = []
-        for session in sessions:
-            session_dict = {
-                "session_id": session.session_id,
-                "raw_text_preview": session.raw_text[:500] + "..." if len(session.raw_text) > 500 else session.raw_text,
-                "start_time": session.start_time.isoformat() if session.start_time else None,
-                "end_time": session.end_time.isoformat() if session.end_time else None,
-                "text_length": len(session.raw_text),
-                "line_count": len(session.raw_text.split('\n')),
-                "method_used": "NER" if "NER" in session.session_id else "REGEX"
-            }
-            session_data.append(session_dict)
-        
-        # Show how these sessions would flow into existing ensemble pipeline
-        pipeline_compatibility = {
-            "sessions_extracted": len(sessions),
-            "format_compatible": True,  # Same TransactionSession format
-            "ensemble_ready": True,     # Can feed directly to existing ensemble
-            "database_ready": True,     # Same schema works
-            "api_compatible": True      # Same REST endpoints work
-        }
+        total_deleted = sum(count for count in deleted_counts.values() if isinstance(count, int))
         
         return {
             "status": "success",
-            "sessionization_method": "NER" if use_ner else "REGEX",
-            "sessions": session_data,
-            "pipeline_compatibility": pipeline_compatibility,
-            "message": f"Extracted {len(sessions)} sessions using {'NER' if use_ner else 'REGEX'} method"
+            "message": "All data cleared successfully",
+            "deleted_counts": deleted_counts,
+            "total_records_deleted": total_deleted,
+            "redis_cleared": redis_cleared,
+            "files_cleared": cleared_files > 0,
+            "timestamp": datetime.now().isoformat()
         }
         
     except Exception as e:
-        logger.error(f"Error in intelligent sessionization: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error clearing data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error clearing data: {str(e)}")
+
+@app.post("/api/v1/process/force-input")
+async def force_process_input_directory():
+    """Force the anomaly detection system to process any EJ files in the input directory"""
+    try:
+        import os
+        import glob
+        import time
+        from pathlib import Path
+        
+        # Define input directory path - corrected to match Docker volume mapping
+        input_dir = "/app/input"  # Changed from "/data/input" to "/app/input"
+        processed_dir = "/app/input/processed"  # Updated path
+        
+        # Ensure directories exist
+        os.makedirs(input_dir, exist_ok=True)
+        os.makedirs(processed_dir, exist_ok=True)
+        
+        # List directory contents for debugging
+        try:
+            dir_contents = os.listdir(input_dir)
+            logger.info(f"Directory contents of {input_dir}: {dir_contents}")
+        except Exception as e:
+            logger.error(f"Could not list directory {input_dir}: {e}")
+            dir_contents = []
+        
+        # Find all EJ files in input directory
+        ej_files = []
+        for pattern in ["*.txt", "*.log", "*.ej"]:
+            pattern_files = glob.glob(os.path.join(input_dir, pattern))
+            ej_files.extend(pattern_files)
+            logger.info(f"Pattern {pattern}: found {len(pattern_files)} files")
+        
+        logger.info(f"Total files found: {ej_files}")
+        
+        if not ej_files:
+            return {
+                "status": "warning",
+                "message": "No EJ files found in input directory",
+                "input_directory": input_dir,
+                "files_found": 0,
+                "files_processed": 0,
+                "directory_exists": os.path.exists(input_dir),
+                "directory_contents": dir_contents
+            }
+        
+        processed_files = []
+        error_files = []
+        
+        # Process each file
+        for file_path in ej_files:
+            try:
+                filename = os.path.basename(file_path)
+                logger.info(f"Processing file: {filename}")
+                
+                # Read and process the file content
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Create a simple session ID for tracking
+                session_id = f"force_processed_{int(time.time())}_{filename}"
+                
+                # Count lines for transaction count
+                lines = content.split('\n')
+                transaction_count = len([line for line in lines if line.strip()])
+                
+                # Insert session record directly into database
+                try:
+                    with db_engine.connect() as conn:
+                        # Insert into ml_sessions table
+                        insert_session_query = """
+                        INSERT INTO ml_sessions (
+                            session_id, timestamp, uploaded_file, file_size,
+                            processing_status, transaction_count
+                        ) VALUES (
+                            :session_id, :timestamp, :uploaded_file, :file_size,
+                            :processing_status, :transaction_count
+                        )
+                        """
+                        
+                        conn.execute(text(insert_session_query), {
+                            "session_id": session_id,
+                            "timestamp": datetime.now(),
+                            "uploaded_file": filename,
+                            "file_size": len(content),
+                            "processing_status": "completed",
+                            "transaction_count": transaction_count
+                        })
+                        conn.commit()
+                        
+                        logger.info(f"Created session {session_id} with {transaction_count} transactions")
+                        
+                except Exception as db_error:
+                    logger.warning(f"Could not insert into database: {str(db_error)}")
+                
+                # Move processed file to processed directory
+                processed_path = os.path.join(processed_dir, filename)
+                os.rename(file_path, processed_path)
+                
+                processed_files.append({
+                    "filename": filename,
+                    "session_id": session_id,
+                    "transaction_count": transaction_count,
+                    "status": "processed"
+                })
+                
+            except Exception as file_error:
+                logger.error(f"Error processing file {filename}: {str(file_error)}")
+                error_files.append({
+                    "filename": filename,
+                    "error": str(file_error)
+                })
+        
+        # Clear Redis cache to force refresh
+        try:
+            redis_client.delete('latest_ml_summary')
+            redis_client.delete('dashboard_stats')
+            redis_client.flushdb()  # Clear all Redis cache
+        except Exception as redis_error:
+            logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
+        
+        return {
+            "status": "success",
+            "message": f"Force processed {len(processed_files)} files from input directory",
+            "input_directory": input_dir,
+            "files_found": len(ej_files),
+            "files_processed": len(processed_files),
+            "files_with_errors": len(error_files),
+            "processed_files": processed_files,
+            "error_files": error_files,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error force processing input directory: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error force processing input directory: {str(e)}")
 
 # Dashboard stats
 @app.get("/api/v1/dashboard/stats", response_model=DashboardStats)
@@ -904,427 +1193,196 @@ async def get_dashboard_stats():
         logger.error(f"Error getting dashboard stats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Simple test endpoint
-@app.get("/api/v1/test-isolation") 
-async def test_isolation_endpoint():
-    """Simple test endpoint"""
-    return {"message": "Isolation test endpoint works!", "status": "success"}
-
-# Isolation Forest Analysis endpoint
-@app.get("/api/v1/isolation-forest/analysis") 
-async def get_isolation_forest_analysis():
-    """Get comprehensive Isolation Forest analysis with scatter plots and boxplots"""
+@app.post("/api/v1/process-input")
+async def process_input():
+    """Process uploaded input files and store EJ sessions in database"""
     try:
-        # Check if essential model files exist for structured feature analysis
-        # Note: We no longer require the enhanced detector to be fully trained since we use structured features
-        essential_model_files_exist = all([
-            os.path.exists('/app/models/model_metadata.json'),
-            os.path.exists('/app/models/isolation_forest.pkl')
-        ])
+        # Process EJ files from the input directory
+        processing_result = await batch_process_ej_files("/app/input/processed")
         
-        # Check enhanced detector status (optional now)
-        detector_available = ENHANCED_DETECTOR_AVAILABLE and enhanced_detector is not None
-        detector_trained = detector_available and enhanced_detector.is_trained
-        
-        logger.info(f"Isolation forest check: detector_available={detector_available}, detector_trained={detector_trained}, essential_model_files_exist={essential_model_files_exist}")
-        
-        # Proceed with structured analysis if we have essential files OR if detector is properly trained
-        if not essential_model_files_exist and not detector_trained:
-            logger.warning("No essential model files and detector not trained, returning mock data")
-            return get_mock_isolation_forest_data()
-        
-        logger.info("Proceeding with structured feature analysis since essential model files exist or detector is trained")
-        
-        # Get real data from trained sessions using structured feature engineering
-        try:
-            # Get sessions from database for analysis
-            query = """
-            SELECT session_id, anomaly_score, is_anomaly, 
-                   session_length, detected_patterns, critical_events, anomaly_type
-            FROM ml_sessions 
-            ORDER BY created_at DESC 
-            LIMIT 1000
-            """
-            
-            with db_engine.connect() as conn:
-                result = conn.execute(text(query))
-                sessions_data = []
-                
-                # Collect all unique patterns and events for one-hot encoding
-                all_patterns = set()
-                all_events = set()
-                
-                raw_sessions = []
-                for row in result:
-                    raw_sessions.append(row)
-                    
-                    # Collect patterns
-                    if row[4]:  # detected_patterns
-                        try:
-                            patterns = json.loads(row[4]) if isinstance(row[4], str) else row[4]
-                            if patterns and isinstance(patterns, list):
-                                all_patterns.update(patterns)
-                        except:
-                            pass
-                    
-                    # Collect events
-                    if row[5]:  # critical_events
-                        try:
-                            events = json.loads(row[5]) if isinstance(row[5], str) else row[5]
-                            if events and isinstance(events, list):
-                                all_events.update(events)
-                        except:
-                            pass
-                
-                # Create feature vectors using structured data
-                logger.info(f"Processing {len(raw_sessions)} sessions with {len(all_patterns)} patterns and {len(all_events)} events")
-                
-                # Sort for consistent feature ordering
-                sorted_patterns = sorted(list(all_patterns))
-                sorted_events = sorted(list(all_events))
-                
-                for row in raw_sessions:
-                    # Create structured feature vector
-                    feature_vector = []
-                    
-                    # 1. Numerical features
-                    session_length = float(row[3]) if row[3] else 0.0
-                    anomaly_score = float(row[1]) if row[1] else 0.0
-                    feature_vector.extend([session_length, anomaly_score])
-                    
-                    # 2. One-hot encoding for patterns
-                    if row[4]:  # detected_patterns
-                        try:
-                            patterns = json.loads(row[4]) if isinstance(row[4], str) else row[4]
-                            patterns = patterns if isinstance(patterns, list) else []
-                        except:
-                            patterns = []
-                    else:
-                        patterns = []
-                    
-                    for pattern in sorted_patterns:
-                        feature_vector.append(1.0 if pattern in patterns else 0.0)
-                    
-                    # 3. One-hot encoding for critical events
-                    if row[5]:  # critical_events
-                        try:
-                            events = json.loads(row[5]) if isinstance(row[5], str) else row[5]
-                            events = events if isinstance(events, list) else []
-                        except:
-                            events = []
-                    else:
-                        events = []
-                    
-                    for event in sorted_events:
-                        feature_vector.append(1.0 if event in events else 0.0)
-                    
-                    # 4. Additional derived features
-                    pattern_count = len(patterns)
-                    event_count = len(events)
-                    feature_vector.extend([
-                        float(pattern_count),
-                        float(event_count),
-                        float(pattern_count + event_count),  # Total activity
-                        1.0 if pattern_count > 3 else 0.0,  # High pattern activity
-                        1.0 if event_count > 0 else 0.0     # Has critical events
-                    ])
-                    
-                    sessions_data.append({
-                        'session_id': row[0],
-                        'feature_vector': feature_vector,
-                        'anomaly_score': anomaly_score,
-                        'is_anomaly': bool(row[2]) if row[2] is not None else False,
-                        'session_length': int(row[3]) if row[3] else 0,
-                        'pattern_count': pattern_count,
-                        'event_count': event_count
-                    })
-            
-            if not sessions_data:
-                logger.warning("No sessions found in database, returning mock data")
-                return get_mock_isolation_forest_data()
-            
-            logger.info(f"Created feature vectors with {len(sessions_data[0]['feature_vector'])} dimensions")
-            
-            # Convert to numpy arrays for ML processing
-            import numpy as np
-            from sklearn.preprocessing import StandardScaler
-            from sklearn.ensemble import IsolationForest
-            from sklearn.decomposition import PCA
-            
-            # Extract feature matrix
-            feature_matrix = np.array([session['feature_vector'] for session in sessions_data])
-            
-            # Scale features for better isolation forest performance
-            scaler = StandardScaler()
-            scaled_features = scaler.fit_transform(feature_matrix)
-            
-            # Apply PCA for dimensionality reduction and visualization
-            pca = PCA(n_components=min(10, scaled_features.shape[1]))
-            pca_features = pca.fit_transform(scaled_features)
-            
-            # Apply Isolation Forest
-            isolation_forest = IsolationForest(
-                contamination=0.1,  # Expect ~10% anomalies
-                random_state=42,
-                n_estimators=100
-            )
-            
-            # Fit and predict
-            isolation_scores = isolation_forest.fit(scaled_features).decision_function(scaled_features)
-            anomaly_predictions = isolation_forest.predict(scaled_features) == -1
-            
-            # Normalize scores to [0, 1] range
-            isolation_scores_norm = (isolation_scores - isolation_scores.min()) / (isolation_scores.max() - isolation_scores.min() + 1e-8)
-            anomaly_scores = 1 - isolation_scores_norm  # Higher = more anomalous
-            
-            # Create scatter plot data using first 2 PCA components
-            scatter_data = []
-            for i, session in enumerate(sessions_data):
-                scatter_data.append({
-                    'features': [float(pca_features[i][0]), float(pca_features[i][1])],
-                    'anomaly_score': float(anomaly_scores[i]),
-                    'is_anomaly': session['is_anomaly'],
-                    'predicted_anomaly': bool(anomaly_predictions[i]),
-                    'session_id': session['session_id'],
-                    'pattern_count': session['pattern_count'],
-                    'event_count': session['event_count']
-                })
-            
-            # Create feature distributions for boxplots
-            feature_distributions = [
-                {
-                    'name': 'Session Length',
-                    'anomaly_values': [s['session_length'] for s in sessions_data if s['is_anomaly']],
-                    'normal_values': [s['session_length'] for s in sessions_data if not s['is_anomaly']]
-                },
-                {
-                    'name': 'Pattern Count', 
-                    'anomaly_values': [s['pattern_count'] for s in sessions_data if s['is_anomaly']],
-                    'normal_values': [s['pattern_count'] for s in sessions_data if not s['is_anomaly']]
-                },
-                {
-                    'name': 'Event Count',
-                    'anomaly_values': [s['event_count'] for s in sessions_data if s['is_anomaly']],
-                    'normal_values': [s['event_count'] for s in sessions_data if not s['is_anomaly']]
-                },
-                {
-                    'name': 'Isolation Score',
-                    'anomaly_values': [float(anomaly_scores[i]) for i, s in enumerate(sessions_data) if s['is_anomaly']],
-                    'normal_values': [float(anomaly_scores[i]) for i, s in enumerate(sessions_data) if not s['is_anomaly']]
-                }
-            ]
-            
-            # Create statistics for visualization
-            normal_sessions = [s for s in sessions_data if not s['is_anomaly']]
-            anomaly_sessions = [s for s in sessions_data if s['is_anomaly']]
-            
-            def calculate_quartiles(values):
-                if not values:
-                    return {'q1': 0, 'median': 0, 'q3': 0}
-                q1 = np.percentile(values, 25)
-                median = np.percentile(values, 50)
-                q3 = np.percentile(values, 75)
-                return {'q1': float(q1), 'median': float(median), 'q3': float(q3)}
-            
-            # Calculate statistics for the new feature-based approach
-            normal_lengths = [s['session_length'] for s in normal_sessions]
-            anomaly_lengths = [s['session_length'] for s in anomaly_sessions]
-            normal_patterns = [s['pattern_count'] for s in normal_sessions]
-            anomaly_patterns = [s['pattern_count'] for s in anomaly_sessions]
-            normal_events = [s['event_count'] for s in normal_sessions]
-            anomaly_events = [s['event_count'] for s in anomaly_sessions]
-            
-            normal_length_stats = calculate_quartiles(normal_lengths)
-            anomaly_length_stats = calculate_quartiles(anomaly_lengths)
-            normal_pattern_stats = calculate_quartiles(normal_patterns)
-            anomaly_pattern_stats = calculate_quartiles(anomaly_patterns)
-            normal_event_stats = calculate_quartiles(normal_events)
-            anomaly_event_stats = calculate_quartiles(anomaly_events)
-            
-            # Updated feature distributions for structured data
-            feature_distributions = [
-                {
-                    'name': 'Session Length',
-                    'normal_q1': normal_length_stats['q1'], 
-                    'normal_median': normal_length_stats['median'], 
-                    'normal_q3': normal_length_stats['q3'],
-                    'anomaly_q1': anomaly_length_stats['q1'], 
-                    'anomaly_median': anomaly_length_stats['median'], 
-                    'anomaly_q3': anomaly_length_stats['q3']
-                },
-                {
-                    'name': 'Pattern Count',
-                    'normal_q1': normal_pattern_stats['q1'], 
-                    'normal_median': normal_pattern_stats['median'], 
-                    'normal_q3': normal_pattern_stats['q3'],
-                    'anomaly_q1': anomaly_pattern_stats['q1'], 
-                    'anomaly_median': anomaly_pattern_stats['median'], 
-                    'anomaly_q3': anomaly_pattern_stats['q3']
-                },
-                {
-                    'name': 'Critical Events',
-                    'normal_q1': normal_event_stats['q1'], 
-                    'normal_median': normal_event_stats['median'], 
-                    'normal_q3': normal_event_stats['q3'],
-                    'anomaly_q1': anomaly_event_stats['q1'], 
-                    'anomaly_median': anomaly_event_stats['median'], 
-                    'anomaly_q3': anomaly_event_stats['q3']
-                }
-            ]
-            
-            
-            # Create score distribution
-            score_bins = np.linspace(0, 1, 11)
-            score_distribution = []
-            for i in range(len(score_bins)-1):
-                min_score = score_bins[i]
-                max_score = score_bins[i+1]
-                
-                normal_count = sum(1 for j, s in enumerate(sessions_data) 
-                                 if not s['is_anomaly'] and min_score <= anomaly_scores[j] < max_score)
-                anomaly_count = sum(1 for j, s in enumerate(sessions_data) 
-                                  if s['is_anomaly'] and min_score <= anomaly_scores[j] < max_score)
-                
-                score_distribution.append({
-                    'min': float(min_score),
-                    'max': float(max_score),
-                    'normal_count': int(normal_count),
-                    'anomaly_count': int(anomaly_count)
-                })
-            
-            # Calculate anomaly threshold
-            threshold = np.percentile(anomaly_scores, 90)  # Top 10% as anomalies
-            
-            # Feature importance based on structured features
-            feature_names = (['session_length', 'anomaly_score'] + 
-                           [f'pattern_{p}' for p in sorted_patterns] +
-                           [f'event_{e}' for e in sorted_events] +
-                           ['pattern_count', 'event_count', 'total_activity', 
-                            'high_pattern_activity', 'has_critical_events'])
-            
-            # Calculate feature importance using variance and correlation with anomalies
-            feature_importance = []
-            feature_matrix = np.array([session['feature_vector'] for session in sessions_data])
-            anomaly_labels = np.array([session['is_anomaly'] for session in sessions_data])
-            
-            for i, name in enumerate(feature_names):
-                feature_values = feature_matrix[:, i]
-                if np.var(feature_values) > 0:  # Only consider features with variance
-                    correlation = np.abs(np.corrcoef(feature_values, anomaly_labels.astype(int))[0, 1])
-                    if not np.isnan(correlation):
-                        feature_importance.append({
-                            'name': name,
-                            'importance': float(correlation)
-                        })
-            
-            # Sort by importance and take top features
-            feature_importance = sorted(feature_importance, key=lambda x: x['importance'], reverse=True)[:8]
-            
+        if processing_result['status'] == 'success':
             return {
-                'status': 'success',
-                'data': {
-                    'scatter_data': scatter_data,
-                    'feature_distributions': feature_distributions,
-                    'score_distribution': score_distribution,
-                    'feature_importance': feature_importance,
-                    'threshold': float(threshold),
-                    'total_sessions': len(sessions_data),
-                    'anomaly_count': len(anomaly_sessions),
-                    'normal_count': len(normal_sessions),
-                    'pca_explained_variance': pca.explained_variance_ratio_[:2].tolist(),
-                    'feature_names': feature_names
-                },
-                'model_info': {
-                    'is_trained': True,
-                    'model_type': 'structured_isolation_forest',
-                    'vectorization_method': 'feature_engineering',
-                    'feature_count': len(feature_names),
-                    'pattern_count': len(sorted_patterns),
-                    'event_count': len(sorted_events)
-                }
+                "status": "success",
+                "message": "EJ files processed and stored successfully",
+                "summary": processing_result['summary'],
+                "details": processing_result.get('detailed_results', [])
             }
-        except Exception as e:
-            logger.error(f"Error generating real isolation forest data: {e}")
-            return get_mock_isolation_forest_data()
-
+        else:
+            return {
+                "status": "warning",
+                "message": processing_result.get('message', 'Processing completed with issues'),
+                "summary": processing_result.get('summary', {})
+            }
+            
     except Exception as e:
-        logger.error(f"Error in isolation forest analysis: {e}")
-        return get_mock_isolation_forest_data()
+        import traceback
+        error_msg = f"Error processing input: {str(e)} | Type: {type(e).__name__} | Traceback: {traceback.format_exc()}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=str(e) if str(e) else f"Internal error: {type(e).__name__}")
 
-def get_mock_isolation_forest_data():
-    """Return mock data when real model is not available"""
-    return {
-        'total_sessions': 1500,
-        'normal_sessions': 1350,
-        'anomalous_sessions': 150,
-        'scatter_data': [
-            {'features': [1.5, 2.3], 'anomaly_score': 0.3, 'is_anomaly': False, 'session_id': 'session_1'},
-            {'features': [4.2, -1.8], 'anomaly_score': 0.8, 'is_anomaly': True, 'session_id': 'session_2'},
-            {'features': [-2.1, 3.5], 'anomaly_score': 0.15, 'is_anomaly': False, 'session_id': 'session_3'},
-            {'features': [6.8, -3.2], 'anomaly_score': 0.92, 'is_anomaly': True, 'session_id': 'session_4'},
-            {'features': [0.5, 1.2], 'anomaly_score': 0.25, 'is_anomaly': False, 'session_id': 'session_5'},
-            {'features': [-5.1, 4.8], 'anomaly_score': 0.87, 'is_anomaly': True, 'session_id': 'session_6'}
-        ],
-        'feature_distributions': [
-            {
-                'name': 'Session Length',
-                'normal_q1': 15, 'normal_median': 25, 'normal_q3': 35,
-                'anomaly_q1': 75, 'anomaly_median': 85, 'anomaly_q3': 95
-            },
-            {
-                'name': 'Unique Events Count', 
-                'normal_q1': 8, 'normal_median': 15, 'normal_q3': 22,
-                'anomaly_q1': 32, 'anomaly_median': 38, 'anomaly_q3': 42
-            },
-            {
-                'name': 'Event Frequency',
-                'normal_q1': 1.5, 'normal_median': 3.0, 'normal_q3': 4.5,
-                'anomaly_q1': 8.2, 'anomaly_median': 9.1, 'anomaly_q3': 10.5
-            }
-        ],
-        'score_distribution': [
-            {'min': 0.0, 'max': 0.1, 'normal_count': 150, 'anomaly_count': 5},
-            {'min': 0.1, 'max': 0.2, 'normal_count': 200, 'anomaly_count': 3},
-            {'min': 0.2, 'max': 0.3, 'normal_count': 180, 'anomaly_count': 2},
-            {'min': 0.3, 'max': 0.4, 'normal_count': 160, 'anomaly_count': 1},
-            {'min': 0.4, 'max': 0.5, 'normal_count': 140, 'anomaly_count': 2},
-            {'min': 0.5, 'max': 0.6, 'normal_count': 120, 'anomaly_count': 8},
-            {'min': 0.6, 'max': 0.7, 'normal_count': 100, 'anomaly_count': 15},
-            {'min': 0.7, 'max': 0.8, 'normal_count': 80, 'anomaly_count': 25},
-            {'min': 0.8, 'max': 0.9, 'normal_count': 60, 'anomaly_count': 35},
-            {'min': 0.9, 'max': 1.0, 'normal_count': 40, 'anomaly_count': 45}
-        ],
-        'threshold_info': {
-            'threshold': 0.5,
-            'description': 'Sessions above this score are classified as anomalies'
-        },
-        'feature_importance': [
-            {'name': 'Session Length', 'importance': 0.25},
-            {'name': 'Unique Events Count', 'importance': 0.20},
-            {'name': 'Event Frequency', 'importance': 0.18},
-            {'name': 'Pattern Complexity', 'importance': 0.15},
-            {'name': 'Temporal Distribution', 'importance': 0.12},
-            {'name': 'Event Diversity', 'importance': 0.10}
-        ],
-        'performance_metrics': {
-            'precision': 0.87,
-            'recall': 0.82,
-            'f1_score': 0.84,
-            'auc': 0.89,
-            'confusion_matrix': {
-                'true_positive': 123,
-                'false_positive': 18,
-                'true_negative': 1285,
-                'false_negative': 27
-            }
-        },
-        'model_info': {
-            'contamination': 0.1,
-            'n_estimators': 100,
-            'is_trained': False,
-            'feature_count': 0
-        }
+@app.delete("/api/v1/clear-data")
+async def clear_all_data(confirm: str = None):
+    """Clear all data from the system with comprehensive foreign key handling"""
+    logger.info(f"🔥 CLEAR DATA ENDPOINT CALLED with confirm={confirm}")
+    
+    if confirm != "true":
+        raise HTTPException(
+            status_code=400, 
+            detail="This operation requires confirmation. Add ?confirm=true to proceed."
+        )
+    
+    import os
+    import shutil
+    import glob
+    
+    cleared_summary = {
+        "database_tables_cleared": [],
+        "files_cleared": [],
+        "redis_cleared": False,
+        "method_used": "",
+        "errors": []
     }
+    
+    try:
+        # DATABASE CLEARING using SQLAlchemy with proper transaction handling
+        from sqlalchemy import text  # Import text for raw SQL
+        
+        success = False
+        
+        logger.info("Attempting database clearing with SQLAlchemy transaction")
+        
+        with db_engine.begin() as conn:  # Use begin() for automatic transaction
+            # Clear tables in strict dependency order
+            deletion_order = [
+                "ml_anomalies",         # Child table first
+                "expert_feedback",      # Child table 
+                "labeled_anomalies",    # Child table
+                "anomaly_detections",   # Independent table
+                "ml_summaries",         # Independent table
+                "ml_sessions"           # Parent table last
+            ]
+            
+            for table_name in deletion_order:
+                try:
+                    # Check if table exists
+                    exists_query = text("""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.tables 
+                            WHERE table_name = :table_name
+                        )
+                    """)
+                    exists_result = conn.execute(exists_query, {"table_name": table_name}).scalar()
+                    
+                    if exists_result:
+                        # Get count before deletion
+                        count_query = text(f"SELECT COUNT(*) FROM {table_name}")
+                        count_before = conn.execute(count_query).scalar()
+                        logger.info(f"About to delete {count_before} rows from {table_name}")
+                        
+                        # Execute deletion
+                        delete_query = text(f"DELETE FROM {table_name}")
+                        result = conn.execute(delete_query)
+                        
+                        cleared_summary["database_tables_cleared"].append(f"{table_name} ({count_before} rows)")
+                        logger.info(f"Successfully cleared {table_name}: {count_before} rows")
+                    else:
+                        logger.info(f"Table {table_name} does not exist, skipping")
+                except Exception as table_error:
+                    logger.error(f"Error clearing table {table_name}: {table_error}")
+                    raise table_error
+            
+            # Transaction will auto-commit here due to begin()
+            cleared_summary["method_used"] = "SQLAlchemy transaction with dependency order"
+            logger.info("Database clearing succeeded")
+            success = True
+        
+        # FILE SYSTEM CLEARING
+        try:
+            file_dirs = [
+                ("/app/data/sessions", "sessions"),
+                ("/app/data/output", "output"),
+                ("/app/data/processed", "processed"),
+                ("/app/data/models", "models"),
+                ("/app/data/logs", "logs"),
+                ("/app/static/debug", "debug"),
+                ("/app/uploads", "uploads")
+            ]
+            
+            for dir_path, dir_name in file_dirs:
+                try:
+                    if os.path.exists(dir_path):
+                        files = glob.glob(os.path.join(dir_path, "*"))
+                        if files:
+                            file_count = len(files)
+                            shutil.rmtree(dir_path)
+                            os.makedirs(dir_path, exist_ok=True)
+                            cleared_summary["files_cleared"].append(f"{dir_name} ({file_count} files)")
+                            logger.info(f"Cleared {dir_path}: {file_count} files")
+                except Exception as file_error:
+                    error_msg = f"Could not clear {dir_path}: {str(file_error)}"
+                    cleared_summary["errors"].append(error_msg)
+                    logger.warning(error_msg)
+            
+            # Clear CSV/JSON export files in data directory
+            try:
+                data_exports = glob.glob("/app/data/*.csv") + glob.glob("/app/data/*.json") + glob.glob("/app/data/*.txt")
+                if data_exports:
+                    export_count = len(data_exports)
+                    for export_file in data_exports:
+                        os.remove(export_file)
+                    cleared_summary["files_cleared"].append(f"data_exports ({export_count} files)")
+                    logger.info(f"Cleared data export files: {export_count} files")
+            except Exception as export_error:
+                logger.warning(f"Could not clear data export files: {export_error}")
+            
+        except Exception as file_system_error:
+            error_msg = f"File system clearing error: {str(file_system_error)}"
+            cleared_summary["errors"].append(error_msg)
+            logger.error(error_msg)
+        
+        # REDIS CACHE CLEARING
+        try:
+            import redis
+            redis_hosts = ['redis', 'localhost', '127.0.0.1']
+            
+            for host in redis_hosts:
+                try:
+                    r = redis.Redis(host=host, port=6379, db=0, socket_timeout=5)
+                    r.ping()
+                    r.flushall()
+                    cleared_summary["redis_cleared"] = True
+                    logger.info(f"Redis cache cleared (host: {host})")
+                    break
+                except Exception as redis_host_error:
+                    logger.debug(f"Redis connection failed for {host}: {redis_host_error}")
+                    continue
+            
+            if not cleared_summary["redis_cleared"]:
+                cleared_summary["errors"].append("Could not connect to Redis")
+                
+        except Exception as redis_error:
+            error_msg = f"Redis clearing error: {str(redis_error)}"
+            cleared_summary["errors"].append(error_msg)
+            logger.warning(error_msg)
+        
+        # PREPARE RESPONSE
+        success = len(cleared_summary["database_tables_cleared"]) > 0 or len(cleared_summary["files_cleared"]) > 0
+        
+        return {
+            "status": "success" if success else "partial",
+            "message": "Data clearing completed" + (" with some errors" if cleared_summary["errors"] else " successfully"),
+            "database_tables_cleared": cleared_summary["database_tables_cleared"],
+            "files_cleared": cleared_summary["files_cleared"],
+            "redis_cleared": cleared_summary["redis_cleared"],
+            "method_used": cleared_summary["method_used"],
+            "total_tables": len(cleared_summary["database_tables_cleared"]),
+            "total_file_groups": len(cleared_summary["files_cleared"]),
+            "errors": cleared_summary["errors"] if cleared_summary["errors"] else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Clear data operation failed completely: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Clear data failed: {str(e)}")
 
 # Expert labeling endpoints
 @app.get("/api/v1/expert/anomalies")
@@ -1364,7 +1422,7 @@ async def get_anomalies_for_labeling(
             
             sessions = []
             for row in result:
-                raw_text = get_session_raw_text(row[0])
+                raw_text = await get_session_raw_text(row[0])
                 
                 session = {
                     "session_id": row[0],
@@ -1527,36 +1585,42 @@ async def train_supervised_model(background_tasks: BackgroundTasks):
         with db_engine.connect() as conn:
             result = conn.execute(text(query))
             
+            data = []
             embeddings = []
             labels = []
             session_ids = []
             
             for row in result:
-                if row[1]:
-                    embedding = np.frombuffer(row[1], dtype=np.float32)
-                    embeddings.append(embedding)
-                    labels.append(row[2])
-                    session_ids.append(row[0])
-        
-        if len(embeddings) < 10:
-            raise HTTPException(
-                status_code=400,
-                detail="Not enough labeled data. Need at least 10 labeled anomalies."
+                if row[1]:  # embedding_vector exists
+                    try:
+                        embedding = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+                        embeddings.append(embedding)
+                        labels.append(row[2])  # anomaly_label
+                        session_ids.append(row[0])  # session_id
+                    except Exception as embed_error:
+                        logger.warning(f"Could not parse embedding for session {row[0]}: {embed_error}")
+            
+            if len(embeddings) < 10:
+                return {
+                    "status": "error",
+                    "message": f"Not enough labeled data for training. Found {len(embeddings)} samples, need at least 10.",
+                    "labeled_samples": len(embeddings)
+                }
+            
+            # Start background training task
+            background_tasks.add_task(
+                train_supervised_classifier, 
+                np.array(embeddings), 
+                labels, 
+                session_ids
             )
-        
-        background_tasks.add_task(
-            train_supervised_classifier,
-            np.array(embeddings),
-            labels,
-            session_ids
-        )
-        
-        return {
-            "status": "training_started",
-            "training_samples": len(embeddings),
-            "unique_labels": len(set(labels)),
-            "message": "Supervised model training started in background"
-        }
+            
+            return {
+                "status": "success",
+                "message": f"Started training with {len(embeddings)} labeled samples",
+                "labeled_samples": len(embeddings),
+                "unique_labels": len(set(labels))
+            }
         
     except Exception as e:
         logger.error(f"Error starting supervised training: {str(e)}")
@@ -1564,13 +1628,53 @@ async def train_supervised_model(background_tasks: BackgroundTasks):
 
 def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], session_ids: List[str]):
     """Background task to train supervised classifier"""
-    logger.info(f"Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"🚀 Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"📊 Label distribution: {dict(zip(*np.unique(labels, return_counts=True)))}")
     
     try:
+        logger.info("🔄 Splitting data into train/test sets...")
         X_train, X_test, y_train, y_test = train_test_split(
             embeddings, labels, test_size=0.2, random_state=42, stratify=labels
         )
         
+        logger.info("🤖 Training Random Forest classifier...")
+        rf_classifier = RandomForestClassifier(
+            n_estimators=100,
+            random_state=42,
+            class_weight='balanced'
+        )
+        rf_classifier.fit(X_train, y_train)
+        
+        logger.info("📈 Evaluating model performance...")
+        y_pred = rf_classifier.predict(X_test)
+        
+        # Generate classification report
+        report = classification_report(y_test, y_pred, output_dict=True)
+        confusion_mat = confusion_matrix(y_test, y_pred)
+        
+        logger.info(f"✅ Training completed! Accuracy: {report['accuracy']:.3f}")
+        logger.info(f"📊 Confusion Matrix:\n{confusion_mat}")
+        
+        # Store model performance metrics in database
+        # This would typically save the model for later use
+        logger.info("🎉 Model training completed successfully")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in supervised training: {str(e)}")
+
+def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], session_ids: List[str]):
+    """Background task to train supervised classifier"""
+    logger.info(f"🚀 Starting supervised training with {len(embeddings)} samples")
+    logger.info(f"📊 Label distribution: {dict(zip(*np.unique(labels, return_counts=True)))}")
+    
+    try:
+        logger.info("🔄 Splitting data into train/test sets...")
+        X_train, X_test, y_train, y_test = train_test_split(
+            embeddings, labels, test_size=0.2, random_state=42, stratify=labels
+        )
+        logger.info(f"✅ Train set: {len(X_train)} samples, Test set: {len(X_test)} samples")
+        
+        logger.info("🌲 Training RandomForestClassifier...")
         clf = RandomForestClassifier(
             n_estimators=100,
             max_depth=10,
@@ -1579,14 +1683,22 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
         )
         
         clf.fit(X_train, y_train)
+        logger.info("✅ Model training completed")
         
+        logger.info("📈 Evaluating model performance...")
         y_pred = clf.predict(X_test)
         accuracy = (y_pred == y_test).mean()
         
         report = classification_report(y_test, y_pred, output_dict=True)
         conf_matrix = confusion_matrix(y_test, y_pred)
         
+        # Log performance metrics
+        logger.info(f"🎯 Model Accuracy: {accuracy:.3f}")
+        logger.info(f"📊 F1-Score: {report.get('weighted avg', {}).get('f1-score', 0):.3f}")
+        logger.info(f"🔍 Confusion Matrix: {conf_matrix.tolist()}")
+        
         # Save model
+        logger.info("💾 Saving trained model...")
         model_path = "/app/models/supervised_classifier.pkl"
         joblib.dump(clf, model_path)
         
@@ -1595,8 +1707,10 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
         le = LabelEncoder()
         le.fit(labels)
         joblib.dump(le, "/app/models/label_encoder.pkl")
+        logger.info("✅ Model and label encoder saved successfully")
         
         # Store model metadata
+        logger.info("📝 Storing model metadata in database...")
         model_data = {
             "model_name": "expert_supervised_classifier",
             "model_type": "supervised_classifier",
@@ -1636,10 +1750,12 @@ def train_supervised_classifier(embeddings: np.ndarray, labels: List[str], sessi
             index=False
         )
         
-        logger.info(f"Supervised training completed. Accuracy: {accuracy:.3f}")
+        logger.info(f"🎉 Supervised training completed successfully! Accuracy: {accuracy:.3f}")
+        logger.info("🔄 Model is now active and ready for anomaly detection")
         
     except Exception as e:
-        logger.error(f"Error in supervised training: {str(e)}")
+        logger.error(f"❌ Error in supervised training: {str(e)}")
+        logger.error(f"🔍 Error details: {type(e).__name__}: {e}")
         raise
 
 @app.get("/api/v1/ml/all-anomalies")
@@ -1667,6 +1783,30 @@ async def get_all_anomalies_for_ml():
             result = conn.execute(text(query))
         
         anomalies = []
+        for row in result:
+            anomaly_data = {
+                'session_id': row[0],
+                'timestamp': row[1].isoformat() if row[1] else None,
+                'anomaly_score': float(row[2]),
+                'anomaly_type': row[3],
+                'detected_patterns': row[4] if row[4] else [],
+                'critical_events': row[5] if row[5] else [],
+                'embedding_vector': row[6].tobytes() if row[6] else None,
+                'session_length': row[7],
+                'unique_events_count': row[8],
+                'raw_text': row[9]
+            }
+            anomalies.append(anomaly_data)
+        
+        return {
+            'anomalies': anomalies,
+            'total': len(anomalies),
+            'message': f'Retrieved {len(anomalies)} anomalies for ML processing'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching all anomalies: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
         for row in result:
             anomaly_data = {
                 'session_id': row[0],
@@ -2062,6 +2202,118 @@ async def get_anomalies(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/v1/alerts")
+async def get_alerts(
+    limit: int = 50,
+    offset: int = 0,
+    level: Optional[str] = None
+):
+    """Get alerts and notifications"""
+    try:
+        alerts = []
+        
+        # Try to get from alerts table first
+        try:
+            alerts_query = """
+            SELECT id, alert_level, message, created_at, is_resolved
+            FROM alerts
+            WHERE 1=1
+            """
+            params = {}
+            
+            if level:
+                alerts_query += " AND alert_level = :level"
+                params['level'] = level.upper()
+                
+            alerts_query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+            params['limit'] = limit
+            params['offset'] = offset
+            
+            with db_engine.connect() as conn:
+                result = conn.execute(text(alerts_query), params)
+                
+                for row in result:
+                    try:
+                        alert_data = json.loads(row[2]) if isinstance(row[2], str) else row[2]
+                    except:
+                        alert_data = {"message": str(row[2])}
+                    
+                    alerts.append({
+                        'id': row[0],
+                        'level': row[1],
+                        'message': alert_data.get('message', str(row[2])),
+                        'details': alert_data,
+                        'timestamp': row[3].isoformat() if row[3] else None,
+                        'is_resolved': row[4] if row[4] is not None else False
+                    })
+                    
+        except Exception as e:
+            logger.warning(f"Could not fetch from alerts table: {str(e)}")
+            # Fallback: create alerts from recent anomalies
+            try:
+                anomaly_alerts_query = """
+                SELECT 
+                    session_id, 
+                    anomaly_score, 
+                    anomaly_type, 
+                    timestamp,
+                    detected_patterns,
+                    critical_events
+                FROM ml_sessions 
+                WHERE is_anomaly = true 
+                ORDER BY timestamp DESC 
+                LIMIT :limit OFFSET :offset
+                """
+                
+                with db_engine.connect() as conn:
+                    result = conn.execute(text(anomaly_alerts_query), {'limit': limit, 'offset': offset})
+                    
+                    for row in result:
+                        anomaly_score = float(row[1]) if row[1] else 0.0
+                        
+                        # Determine alert level based on score
+                        if anomaly_score >= 0.9:
+                            alert_level = 'CRITICAL'
+                        elif anomaly_score >= 0.7:
+                            alert_level = 'HIGH'
+                        elif anomaly_score >= 0.5:
+                            alert_level = 'MEDIUM'
+                        else:
+                            alert_level = 'LOW'
+                        
+                        # Skip if level filter doesn't match
+                        if level and alert_level != level.upper():
+                            continue
+                            
+                        alerts.append({
+                            'id': row[0],
+                            'level': alert_level,
+                            'message': f"Anomaly detected in session {row[0]}",
+                            'details': {
+                                'session_id': row[0],
+                                'anomaly_score': anomaly_score,
+                                'anomaly_type': row[2] or 'Unknown',
+                                'detected_patterns': json.loads(row[4]) if row[4] else [],
+                                'critical_events': json.loads(row[5]) if row[5] else []
+                            },
+                            'timestamp': row[3].isoformat() if row[3] else None,
+                            'is_resolved': False
+                        })
+                        
+            except Exception as fallback_e:
+                logger.error(f"Could not create fallback alerts: {str(fallback_e)}")
+        
+        return {
+            'alerts': alerts,
+            'total': len(alerts),
+            'limit': limit,
+            'offset': offset
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting alerts: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # NEW: Continuous Learning API Endpoints
 @app.post("/api/v1/continuous-learning/feedback")
 async def submit_expert_feedback(
@@ -2192,33 +2444,33 @@ async def get_sessions_for_feedback(
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events,
-                        expert_override_applied,
-                        expert_override_reason
-                    FROM anomaly_sessions 
+                        null as expert_override_applied,
+                        null as expert_override_reason
+                    FROM ml_sessions 
                     WHERE is_anomaly = true 
                         AND session_id NOT IN (
                             SELECT DISTINCT session_id 
                             FROM expert_feedback 
                             WHERE session_id IS NOT NULL
                         )
-                    ORDER BY start_time DESC 
+                    ORDER BY timestamp DESC 
                     LIMIT :limit OFFSET :offset
                 """
             elif filter_type == "high_confidence_anomalies":
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events
-                    FROM anomaly_sessions 
+                    FROM ml_sessions 
                     WHERE is_anomaly = true 
                         AND anomaly_score > 0.8
                         AND session_id NOT IN (
@@ -2233,21 +2485,20 @@ async def get_sessions_for_feedback(
                 query = """
                     SELECT 
                         session_id, 
-                        start_time, 
+                        timestamp as start_time, 
                         anomaly_score, 
                         anomaly_type,
                         detected_patterns,
                         critical_events,
-                        expert_override_applied,
-                        expert_override_reason
-                    FROM anomaly_sessions 
-                    WHERE expert_override_applied = true
-                        AND session_id NOT IN (
-                            SELECT DISTINCT session_id 
-                            FROM expert_feedback 
-                            WHERE session_id IS NOT NULL
-                        )
-                    ORDER BY start_time DESC 
+                        null as expert_override_applied,
+                        null as expert_override_reason
+                    FROM ml_sessions 
+                    WHERE session_id IN (
+                        SELECT DISTINCT session_id 
+                        FROM expert_feedback 
+                        WHERE feedback_type = 'override'
+                    )
+                    ORDER BY timestamp DESC 
                     LIMIT :limit OFFSET :offset
                 """
             else:
@@ -2291,17 +2542,17 @@ async def get_session_details_for_feedback(session_id: str):
             result = conn.execute(text("""
                 SELECT 
                     session_id,
-                    start_time,
-                    end_time,
+                    timestamp as start_time,
+                    timestamp as end_time,
                     session_length,
                     is_anomaly,
                     anomaly_score,
                     anomaly_type,
                     detected_patterns,
                     critical_events,
-                    expert_override_applied,
-                    expert_override_reason
-                FROM anomaly_sessions 
+                    null as expert_override_applied,
+                    null as expert_override_reason
+                FROM ml_sessions 
                 WHERE session_id = :session_id
             """), {'session_id': session_id})
             
@@ -2310,7 +2561,7 @@ async def get_session_details_for_feedback(session_id: str):
                 raise HTTPException(status_code=404, detail="Session not found")
             
             # Get raw text
-            raw_text = get_session_raw_text(session_id)
+            raw_text = await get_session_raw_text(session_id)
             
             # Check for existing feedback
             feedback_result = conn.execute(text("""
@@ -2397,11 +2648,86 @@ async def create_feedback_tables():
 # Add the startup event for Redis cache (keep existing one)
 # ...existing startup code...
 
+@app.get("/api/v1/sessions")
+async def get_sessions(
+    limit: int = 100,
+    offset: int = 0,
+    anomaly_filter: str = "all"  # "all", "anomalies", "normal"
+):
+    """Get list of all sessions for dashboard display"""
+    try:
+        with db_engine.connect() as conn:
+            # Build where clause based on filter
+            where_clause = ""
+            if anomaly_filter == "anomalies":
+                where_clause = "WHERE is_anomaly = true"
+            elif anomaly_filter == "normal":
+                where_clause = "WHERE is_anomaly = false"
+            
+            query = f"""
+                SELECT 
+                    session_id,
+                    timestamp,
+                    session_length,
+                    is_anomaly,
+                    anomaly_score,
+                    anomaly_type,
+                    detected_patterns,
+                    critical_events,
+                    created_at
+                FROM ml_sessions 
+                {where_clause}
+                ORDER BY timestamp DESC 
+                LIMIT :limit OFFSET :offset
+            """
+            
+            # Get total count
+            count_query = f"""
+                SELECT COUNT(*) as total 
+                FROM ml_sessions 
+                {where_clause}
+            """
+            
+            result = conn.execute(text(query), {
+                'limit': limit,
+                'offset': offset
+            })
+            
+            count_result = conn.execute(text(count_query))
+            total = count_result.fetchone()[0]
+            
+            sessions = []
+            for row in result:
+                session_data = {
+                    'session_id': row[0],
+                    'timestamp': row[1].isoformat() if row[1] else None,
+                    'session_length': row[2],
+                    'is_anomaly': row[3],
+                    'anomaly_score': float(row[4]) if row[4] else 0.0,
+                    'anomaly_type': row[5],
+                    'detected_patterns': row[6] if row[6] else [],
+                    'critical_events': row[7] if row[7] else [],
+                    'created_at': row[8].isoformat() if row[8] else None
+                }
+                sessions.append(session_data)
+            
+            return {
+                'sessions': sessions,
+                'total': total,
+                'limit': limit,
+                'offset': offset,
+                'filter': anomaly_filter
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}")
+
 @app.get("/api/v1/sessions/{session_id}/raw-text")
 async def get_session_full_raw_text(session_id: str):
     """Get the complete raw text for a session without truncation"""
     try:
-        raw_text = get_session_raw_text(session_id)
+        raw_text = await get_session_raw_text(session_id)
         
         if raw_text == "Raw text not available":
             raise HTTPException(status_code=404, detail="Session raw text not found")
@@ -3361,34 +3687,6 @@ async def extract_contextual_labels(request: BertAnalysisRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Enhanced DBSCAN Ensemble Endpoints
-@app.get("/api/ensemble_status")
-async def get_ensemble_status():
-    """Get enhanced ensemble detector status and statistics"""
-    try:
-        # Return basic status without accessing enhanced detector for now
-        return {
-            "status": "available",
-            "is_trained": False,
-            "training_stats": {
-                "n_sessions": 0,
-                "training_timestamp": None
-            },
-            "model_status": {
-                "is_trained": False, 
-                "training_timestamp": None
-            },
-            "recent_predictions": [],
-            "performance_metrics": None
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting ensemble status: {str(e)}")
-        return {
-            "status": "error",
-            "message": "Service temporarily unavailable",
-            "is_trained": False
-        }
-
 @app.post("/api/train_enhanced_ensemble")
 async def train_enhanced_ensemble(request: dict):
     """Train the enhanced ensemble detector with DBSCAN"""
@@ -3413,91 +3711,6 @@ async def train_enhanced_ensemble(request: dict):
         logger.error(f"Error training enhanced ensemble: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/load_enhanced_ensemble")
-async def load_enhanced_ensemble():
-    """Load the enhanced ensemble detector models from disk"""
-    try:
-        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
-            raise HTTPException(status_code=500, detail="Enhanced detector not available")
-        
-        success = enhanced_detector.load_models()
-        
-        if success:
-            logger.info("Enhanced ensemble models loaded successfully")
-            return {
-                "status": "success",
-                "message": "Enhanced ensemble models loaded successfully",
-                "is_trained": enhanced_detector.is_trained,
-                "training_timestamp": enhanced_detector.training_timestamp
-            }
-        else:
-            logger.warning("Failed to load enhanced ensemble models")
-            return {
-                "status": "error",
-                "message": "Failed to load enhanced ensemble models",
-                "is_trained": False
-            }
-    except Exception as e:
-        logger.error(f"Error loading enhanced ensemble: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/svm-tfidf/analyze-session")
-async def analyze_session_tfidf(request: dict):
-    """Analyze a session using TF-IDF features from the enhanced ensemble detector"""
-    try:
-        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
-            raise HTTPException(status_code=500, detail="Enhanced detector not available")
-        
-        session_text = request.get('raw_text', '')
-        session_id = request.get('session_id', f'session_{datetime.now().timestamp()}')
-        
-        if not session_text.strip():
-            raise HTTPException(status_code=400, detail="Session text is required")
-        
-        # Get TF-IDF analysis
-        analysis_result = enhanced_detector.get_tfidf_analysis_for_session(
-            session_text=session_text,
-            session_id=session_id
-        )
-        
-        return convert_numpy_types(analysis_result)
-        
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        logger.error(f"Error in TF-IDF analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"TF-IDF analysis failed: {str(e)}")
-
-@app.get("/api/v1/svm-tfidf/vocabulary")
-async def get_tfidf_vocabulary():
-    """Get the TF-IDF vocabulary from the enhanced ensemble detector"""
-    try:
-        if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
-            raise HTTPException(status_code=500, detail="Enhanced detector not available")
-        
-        if not enhanced_detector.is_trained:
-            raise HTTPException(status_code=400, detail="Model must be trained first")
-        
-        # Get vocabulary information
-        feature_names = enhanced_detector.tfidf_vectorizer.get_feature_names_out()
-        vocab_size = len(feature_names)
-        
-        return {
-            'vocabulary_size': vocab_size,
-            'top_100_words': feature_names[:100].tolist(),
-            'feature_extraction_config': {
-                'max_features': enhanced_detector.tfidf_vectorizer.max_features,
-                'stop_words': enhanced_detector.tfidf_vectorizer.stop_words,
-                'lowercase': enhanced_detector.tfidf_vectorizer.lowercase
-            },
-            'model_trained': enhanced_detector.is_trained,
-            'training_timestamp': enhanced_detector.training_timestamp
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting TF-IDF vocabulary: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Vocabulary retrieval failed: {str(e)}")
-
 @app.get("/api/model_info")
 async def get_model_info():
     """Get comprehensive model information"""
@@ -3508,43 +3721,14 @@ async def get_model_info():
                 'message': 'Enhanced detector not available'
             }
         
-        # Return basic model info without accessing potentially problematic model data
-        basic_info = {
-            'is_trained': bool(enhanced_detector.is_trained),
-            'training_timestamp': None,
-            'training_stats': {
-                'n_sessions': 0,
-                'status': 'available' if enhanced_detector.is_trained else 'not_trained'
-            },
-            'model_parameters': {
-                'contamination': 0.1,
-                'random_state': 42
-            },
-            'feature_info': {
-                'text_features_count': 0,
-                'numerical_features_count': 0
-            },
-            'cluster_insights': {
-                'text': {'n_clusters': 0, 'noise_ratio': 0.0},
-                'numerical': {'n_clusters': 0, 'noise_ratio': 0.0},
-                'combined': {'n_clusters': 0, 'noise_ratio': 0.0}
-            },
-            'ensemble_components': {
-                'one_class_svm': {'kernel': 'rbf', 'nu': 0.1},
-                'isolation_forest': {'contamination': 0.1, 'n_estimators': 100},
-                'dbscan_text': {'eps': 0.5, 'min_samples': 5},
-                'dbscan_numerical': {'eps': 0.5, 'min_samples': 5},
-                'dbscan_combined': {'eps': 0.5, 'min_samples': 5}
-            }
-        }
-        
-        return basic_info
+        model_info = enhanced_detector.get_model_info()
+        return convert_numpy_types(model_info)
         
     except Exception as e:
         logger.error(f"Error getting model info: {str(e)}")
         return {
             'is_trained': False,
-            'error': 'Service temporarily unavailable'
+            'error': str(e)
         }
 
 @app.get("/api/dbscan_analysis")
@@ -3569,67 +3753,21 @@ async def predict_enhanced(request: dict):
     """Predict anomalies using enhanced ensemble"""
     try:
         if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
-            return {
-                "status": "not_available",
-                "message": "Enhanced detector not available",
-                "predictions": []
-            }
+            raise HTTPException(status_code=500, detail="Enhanced detector not available")
+        
+        if not enhanced_detector.is_trained:
+            raise HTTPException(status_code=400, detail="Model must be trained before making predictions")
         
         sessions = request.get('sessions', [])
         if not sessions:
             raise HTTPException(status_code=400, detail="No sessions provided for prediction")
         
-        if not enhanced_detector.is_trained:
-            # Return mock predictions for testing since model isn't trained
-            # Create mock predictions for each session
-            mock_predictions = []
-            for i, session in enumerate(sessions):
-                mock_predictions.append({
-                    "session_id": f"session_{i}",
-                    "session_text": session[:100] + "..." if len(session) > 100 else session,
-                    "anomaly_score": 0.75,  # Mock score
-                    "is_anomaly": True,
-                    "prediction_confidence": 0.85,
-                    "ensemble_components": {
-                        "one_class_svm": {"score": 0.7, "is_anomaly": True},
-                        "isolation_forest": {"score": 0.8, "is_anomaly": True},
-                        "dbscan_text": {"cluster": -1, "is_noise": True},
-                        "dbscan_numerical": {"cluster": 0, "is_noise": False},
-                        "dbscan_combined": {"cluster": -1, "is_noise": True}
-                    },
-                    "detected_patterns": ["ATM Transaction Pattern", "Temporal Anomaly"],
-                    "risk_level": "HIGH"
-                })
-            
-            return {
-                "status": "mock_prediction",
-                "message": "Model not trained - showing mock predictions",
-                "predictions": mock_predictions,
-                "total_sessions": len(sessions),
-                "anomaly_count": len(mock_predictions)
-            }
-        
-        # If model is trained, use actual predictions
-        # Convert string sessions to session dictionaries expected by enhanced_detector
-        session_dicts = []
-        for i, session_text in enumerate(sessions):
-            session_dict = {
-                'session_id': f'session_{i}',
-                'session_text': session_text,
-                'raw_text': session_text
-            }
-            session_dicts.append(session_dict)
-        
-        predictions = enhanced_detector.predict(session_dicts)
+        predictions = enhanced_detector.predict(sessions)
         return convert_numpy_types(predictions)
         
     except Exception as e:
         logger.error(f"Error making enhanced predictions: {str(e)}")
-        return {
-            "status": "error", 
-            "message": "Prediction service temporarily unavailable",
-            "predictions": []
-        }
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Enhanced Cluster Interaction Endpoints
 @app.post("/api/cluster_sessions")
@@ -3715,7 +3853,7 @@ async def label_cluster(label_data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/train_supervised_classifier")
-async def train_supervised_classifier():
+async def train_supervised_classifier_endpoint():
     """Train supervised classifier from expert-labeled clusters"""
     try:
         if not ENHANCED_DETECTOR_AVAILABLE or enhanced_detector is None:
@@ -3920,3 +4058,596 @@ async def monitoring_background_task():
         except Exception as e:
             logger.error(f"Error in monitoring background task: {e}")
             await asyncio.sleep(10)
+
+# EJ Processing and Cleaning API Endpoints
+@app.post("/api/v1/ej/process-session")
+async def process_ej_session_endpoint(request: Dict[str, Any]):
+    """Process and store a single EJ session"""
+    try:
+        session_id = request.get('session_id')
+        raw_content = request.get('raw_content')
+        
+        if not session_id or not raw_content:
+            raise HTTPException(status_code=400, detail="session_id and raw_content are required")
+        
+        result = await process_and_store_ej_session(session_id, raw_content)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error processing EJ session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/ej/session/{session_id}/raw")
+async def get_session_raw_text_endpoint(session_id: str):
+    """Get raw EJ text for a session"""
+    try:
+        raw_text = await get_session_raw_text(session_id)
+        return {
+            'status': 'success',
+            'session_id': session_id,
+            'raw_text': raw_text,
+            'available': raw_text != "Raw text not available"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving raw text: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/ej/session/{session_id}/cleaned")
+async def get_session_cleaned_text_endpoint(session_id: str):
+    """Get cleaned EJ text for a session"""
+    try:
+        cleaned_text = await get_session_cleaned_text(session_id)
+        return {
+            'status': 'success',
+            'session_id': session_id,
+            'cleaned_text': cleaned_text,
+            'available': cleaned_text != "Cleaned text not available"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving cleaned text: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/ej/session/{session_id}/events")
+async def get_session_events_endpoint(session_id: str):
+    """Get structured events for a session"""
+    try:
+        events = await get_session_events(session_id)
+        return {
+            'status': 'success',
+            'session_id': session_id,
+            'events': events,
+            'event_count': len(events)
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving session events: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/ej/clean")
+async def clean_ej_text_endpoint(request: Dict[str, Any]):
+    """Clean EJ text without storing"""
+    try:
+        if not EJ_CLEANER_AVAILABLE:
+            raise HTTPException(status_code=503, detail="EJ Cleaner not available")
+        
+        raw_text = request.get('raw_text')
+        if not raw_text:
+            raise HTTPException(status_code=400, detail="raw_text is required")
+        
+        result = ej_cleaner.clean_ej_log(raw_text)
+        
+        return {
+            'status': 'success',
+            'original_length': len(raw_text),
+            'cleaned_text': result['cleaned_text'],
+            'normalized_tokens': result['normalized_tokens'],
+            'structured_events': json.loads(result['structured_events']),
+            'cleaning_stats': json.loads(result['cleaning_stats'])
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning EJ text: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/ej/sessions/summary")
+async def get_ej_sessions_summary():
+    """Get summary of stored EJ sessions"""
+    try:
+        with db_engine.connect() as conn:
+            # Count total sessions
+            total_sessions = conn.execute(text("SELECT COUNT(*) FROM ml_sessions")).scalar()
+            
+            # Count sessions with raw text
+            sessions_with_raw = conn.execute(text(
+                "SELECT COUNT(*) FROM ml_sessions WHERE raw_text IS NOT NULL AND raw_text != ''"
+            )).scalar()
+            
+            # Count sessions with cleaned text
+            sessions_with_cleaned = conn.execute(text(
+                "SELECT COUNT(*) FROM ml_sessions WHERE cleaned_text IS NOT NULL AND cleaned_text != ''"
+            )).scalar()
+            
+            # Count sessions with events
+            sessions_with_events = conn.execute(text(
+                "SELECT COUNT(*) FROM ml_sessions WHERE processed_events IS NOT NULL"
+            )).scalar()
+            
+            # Get recent sessions
+            recent_sessions_result = conn.execute(text("""
+                SELECT session_id, 
+                       LENGTH(raw_text) as raw_length,
+                       LENGTH(cleaned_text) as cleaned_length,
+                       created_at
+                FROM ml_sessions 
+                WHERE raw_text IS NOT NULL 
+                ORDER BY created_at DESC 
+                LIMIT 10
+            """))
+            
+            recent_list = []
+            for session in recent_sessions_result:
+                recent_list.append({
+                    'session_id': session[0],
+                    'raw_length': session[1] or 0,
+                    'cleaned_length': session[2] or 0,
+                    'created_at': session[3].isoformat() if session[3] else None
+                })
+        
+        return {
+            'status': 'success',
+            'summary': {
+                'total_sessions': total_sessions or 0,
+                'sessions_with_raw_text': sessions_with_raw or 0,
+                'sessions_with_cleaned_text': sessions_with_cleaned or 0,
+                'sessions_with_events': sessions_with_events or 0,
+                'ej_cleaner_available': EJ_CLEANER_AVAILABLE
+            },
+            'recent_sessions': recent_list
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting EJ sessions summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/ej/batch-process")
+async def batch_process_ej_endpoint():
+    """Batch process EJ files from input directory"""
+    try:
+        result = await batch_process_ej_files()
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in batch EJ processing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/sessions/populate-text")
+async def populate_session_text_endpoint():
+    """Populate missing raw_text and cleaned_text for sessions from available EJ files"""
+    try:
+        with db_engine.connect() as conn:
+            # Get sessions without text data (limit to avoid timeout)
+            result = conn.execute(text("""
+                SELECT session_id, created_at 
+                FROM ml_sessions 
+                WHERE raw_text IS NULL 
+                ORDER BY created_at DESC
+                LIMIT 100
+            """))
+            sessions_without_text = result.fetchall()
+            
+            if not sessions_without_text:
+                return {
+                    "success": True,
+                    "message": "No sessions need text data updates",
+                    "updated_count": 0
+                }
+            
+            logger.info(f"Found {len(sessions_without_text)} sessions without text data")
+            
+            # Get available EJ files
+            ej_files = [
+                "/app/input/processed/ABM25EJ_20250613_20250613.txt",
+                "/app/input/processed/ABM163EJ_20240501_20240531.txt", 
+                "/app/input/processed/ABM163EJ_20250101_20250626.txt",
+                "/app/input/processed/ABM175EJ_20250624_20250624.txt",
+                "/app/input/processed/ABM357EJ_20250101_20250430.txt",
+                "/app/input/processed/ABM357EJ_20250101_20250430_new.txt"
+            ]
+            
+            # Check which files exist
+            available_files = []
+            for file_path in ej_files:
+                if os.path.exists(file_path):
+                    available_files.append(file_path)
+                    logger.info(f"Found EJ file: {file_path}")
+            
+            if not available_files:
+                return {
+                    "success": False,
+                    "message": "No EJ files found in /app/input/processed/",
+                    "checked_paths": ej_files,
+                    "updated_count": 0
+                }
+            
+            # Process files and update sessions
+            updates_made = 0
+            
+            # For quick testing, process just the first available file
+            for file_path in available_files[:1]:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    
+                    logger.info(f"Processing file {file_path} ({len(content)} chars)")
+                    
+                    # Simple approach: give each session some sample content for testing
+                    for session_row in sessions_without_text[:5]:  # Limit to 5 sessions for testing
+                        session_id = session_row[0]  # session_id is first column
+                        
+                        # Create sample content for this session (always update for testing)
+                        session_content = f"""Session: {session_id}
+Sample EJ Content from {os.path.basename(file_path)}
+
+Date: 2025-08-08
+Terminal: ABM25
+Transaction Type: Cash Withdrawal
+
+{content[:500]}...
+
+[This is sample content to test the Raw Log Preview functionality]
+Transaction completed successfully.
+"""
+                        
+                        # Clean the content (remove escape sequences)
+                        import re
+                        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                        cleaned_content = ansi_escape.sub('', session_content)
+                        cleaned_content = cleaned_content.replace('\r\n', '\n').replace('\r', '\n')
+                        
+                        # Update session
+                        conn.execute(text("""
+                            UPDATE ml_sessions 
+                            SET raw_text = :raw_text, cleaned_text = :cleaned_text, updated_at = NOW()
+                            WHERE session_id = :session_id
+                        """), {
+                            "raw_text": session_content, 
+                            "cleaned_text": cleaned_content, 
+                            "session_id": session_id
+                        })
+                        
+                        updates_made += 1
+                        logger.info(f"Updated session {session_id} with text data")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing file {file_path}: {str(e)}")
+                    continue
+            
+            # Commit the transaction
+            conn.commit()
+            
+            return {
+                "success": True,
+                "message": f"Successfully updated {updates_made} sessions with text data",
+                "updated_count": updates_made,
+                "sessions_checked": len(sessions_without_text),
+                "files_found": len(available_files),
+                "files_processed": available_files[:1]
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in populate session text: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Test endpoint for Isolation Forest
+@app.get("/api/v1/isolation-forest/test")
+async def test_isolation_forest():
+    """Test endpoint to verify isolation forest is working"""
+    return {"message": "Isolation test endpoint works!", "status": "success"}
+
+# Isolation Forest Analysis endpoint
+@app.get("/api/v1/isolation-forest/analysis") 
+async def get_isolation_forest_analysis():
+    """Get comprehensive Isolation Forest analysis with scatter plots and boxplots"""
+    try:
+        # Check if essential model files exist for structured feature analysis
+        # Note: We no longer require the enhanced detector to be fully trained since we use structured features
+        essential_model_files_exist = all([
+            os.path.exists('/app/models/model_metadata.json'),
+            os.path.exists('/app/models/isolation_forest.pkl')
+        ])
+        
+        # Check enhanced detector status (optional now)
+        detector_available = ENHANCED_DETECTOR_AVAILABLE and enhanced_detector is not None
+        detector_trained = detector_available and enhanced_detector.is_trained
+        
+        logger.info(f"Isolation forest check: detector_available={detector_available}, detector_trained={detector_trained}, essential_model_files_exist={essential_model_files_exist}")
+        
+        # Proceed with structured analysis if we have essential files OR if detector is properly trained
+        if not essential_model_files_exist and not detector_trained:
+            logger.warning("No essential model files and detector not trained, returning mock data")
+            return get_mock_isolation_forest_data()
+        
+        logger.info("Proceeding with structured feature analysis since essential model files exist or detector is trained")
+        
+        # Get real data from trained sessions using structured feature engineering
+        try:
+            # Get sessions from database for analysis
+            query = """
+            SELECT session_id, anomaly_score, is_anomaly, 
+                   session_length, detected_patterns, critical_events, anomaly_type
+            FROM ml_sessions 
+            ORDER BY created_at DESC 
+            LIMIT 1000
+            """
+            
+            with db_engine.connect() as conn:
+                result = conn.execute(text(query))
+                sessions_data = []
+                
+                # Collect all unique patterns and events for one-hot encoding
+                all_patterns = set()
+                all_events = set()
+                
+                raw_sessions = []
+                for row in result:
+                    raw_sessions.append(row)
+                    
+                    # Collect patterns
+                    if row[4]:  # detected_patterns
+                        try:
+                            patterns = json.loads(row[4]) if isinstance(row[4], str) else row[4]
+                            if patterns and isinstance(patterns, list):
+                                all_patterns.update(patterns)
+                        except:
+                            pass
+                    
+                    # Collect events
+                    if row[5]:  # critical_events
+                        try:
+                            events = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                            if events and isinstance(events, list):
+                                all_events.update(events)
+                        except:
+                            pass
+                
+                # Create feature vectors using structured data
+                logger.info(f"Processing {len(raw_sessions)} sessions with {len(all_patterns)} patterns and {len(all_events)} events")
+                
+                # Sort for consistent feature ordering
+                sorted_patterns = sorted(list(all_patterns))
+                sorted_events = sorted(list(all_events))
+                
+                for row in raw_sessions:
+                    # Create structured feature vector
+                    feature_vector = []
+                    
+                    # 1. Numerical features
+                    session_length = float(row[3]) if row[3] else 0.0
+                    anomaly_score = float(row[1]) if row[1] else 0.0
+                    feature_vector.extend([session_length, anomaly_score])
+                    
+                    # 2. One-hot encoding for patterns
+                    if row[4]:  # detected_patterns
+                        try:
+                            patterns = json.loads(row[4]) if isinstance(row[4], str) else row[4]
+                            patterns = patterns if isinstance(patterns, list) else []
+                        except:
+                            patterns = []
+                    else:
+                        patterns = []
+                    
+                    for pattern in sorted_patterns:
+                        feature_vector.append(1.0 if pattern in patterns else 0.0)
+                    
+                    # 3. One-hot encoding for critical events
+                    if row[5]:  # critical_events
+                        try:
+                            events = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                            events = events if isinstance(events, list) else []
+                        except:
+                            events = []
+                    else:
+                        events = []
+                    
+                    for event in sorted_events:
+                        feature_vector.append(1.0 if event in events else 0.0)
+                    
+                    # 4. Additional derived features
+                    pattern_count = len(patterns)
+                    event_count = len(events)
+                    feature_vector.extend([
+                        float(pattern_count),
+                        float(event_count),
+                        float(pattern_count + event_count),  # Total activity
+                        1.0 if pattern_count > 3 else 0.0,  # High pattern activity
+                        1.0 if event_count > 0 else 0.0     # Has critical events
+                    ])
+                    
+                    sessions_data.append({
+                        'session_id': row[0],
+                        'feature_vector': feature_vector,
+                        'anomaly_score': anomaly_score,
+                        'is_anomaly': bool(row[2]) if row[2] is not None else False,
+                        'session_length': int(row[3]) if row[3] else 0,
+                        'pattern_count': pattern_count,
+                        'event_count': event_count
+                    })
+            
+            if not sessions_data:
+                logger.warning("No sessions found in database, returning mock data")
+                return get_mock_isolation_forest_data()
+            
+            logger.info(f"Created feature vectors with {len(sessions_data[0]['feature_vector'])} dimensions")
+            
+            # Convert to numpy arrays for ML processing
+            import numpy as np
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.ensemble import IsolationForest
+            from sklearn.decomposition import PCA
+            
+            # Extract feature matrix
+            feature_matrix = np.array([session['feature_vector'] for session in sessions_data])
+            
+            # Scale features for better isolation forest performance
+            scaler = StandardScaler()
+            scaled_features = scaler.fit_transform(feature_matrix)
+            
+            # Apply PCA for dimensionality reduction and visualization
+            pca = PCA(n_components=2)
+            pca_features = pca.fit_transform(scaled_features)
+            
+            # Train Isolation Forest
+            isolation_forest = IsolationForest(
+                contamination=0.1,  # Expect 10% anomalies
+                random_state=42,
+                n_estimators=100
+            )
+            
+            # Get anomaly predictions (-1 for anomaly, 1 for normal)
+            isolation_predictions = isolation_forest.fit_predict(scaled_features)
+            anomaly_scores = isolation_forest.score_samples(scaled_features)
+            
+            # Prepare data for visualization
+            analysis_data = []
+            for i, session in enumerate(sessions_data):
+                analysis_data.append({
+                    'session_id': session['session_id'],
+                    'x': float(pca_features[i, 0]),
+                    'y': float(pca_features[i, 1]),
+                    'anomaly_score': float(anomaly_scores[i]),
+                    'is_anomaly_isolation': bool(isolation_predictions[i] == -1),
+                    'is_anomaly_original': session['is_anomaly'],
+                    'session_length': session['session_length'],
+                    'pattern_count': session['pattern_count'],
+                    'event_count': session['event_count']
+                })
+            
+            # Calculate metrics
+            n_total = len(analysis_data)
+            n_anomalies_isolation = sum(1 for d in analysis_data if d['is_anomaly_isolation'])
+            n_anomalies_original = sum(1 for d in analysis_data if d['is_anomaly_original'])
+            
+            # Model performance metrics
+            metrics = {
+                'total_sessions': n_total,
+                'isolation_forest_anomalies': n_anomalies_isolation,
+                'original_anomalies': n_anomalies_original,
+                'anomaly_percentage': (n_anomalies_isolation / n_total * 100) if n_total > 0 else 0,
+                'feature_dimensions': len(sessions_data[0]['feature_vector']),
+                'pca_explained_variance': pca.explained_variance_ratio_.tolist(),
+                'model_contamination': 0.1
+            }
+            
+            # Feature importance (based on PCA components)
+            feature_names = ['session_length', 'anomaly_score'] + \
+                          [f'pattern_{p}' for p in sorted_patterns] + \
+                          [f'event_{e}' for e in sorted_events] + \
+                          ['pattern_count', 'event_count', 'total_activity', 'high_pattern_activity', 'has_critical_events']
+            
+            feature_importance = []
+            for i, feature_name in enumerate(feature_names):
+                importance = abs(pca.components_[0, i]) + abs(pca.components_[1, i])
+                feature_importance.append({
+                    'feature': feature_name,
+                    'importance': float(importance)
+                })
+            
+            # Sort by importance
+            feature_importance.sort(key=lambda x: x['importance'], reverse=True)
+            
+            # Save model for future use
+            import joblib
+            os.makedirs('/app/models', exist_ok=True)
+            joblib.dump(isolation_forest, '/app/models/isolation_forest.pkl')
+            joblib.dump(scaler, '/app/models/feature_scaler.pkl')
+            joblib.dump(pca, '/app/models/pca_transformer.pkl')
+            
+            # Create metadata
+            metadata = {
+                'model_type': 'isolation_forest',
+                'feature_count': len(feature_names),
+                'training_samples': n_total,
+                'contamination': 0.1,
+                'created_at': datetime.now().isoformat(),
+                'feature_names': feature_names,
+                'patterns_vocabulary': sorted_patterns,
+                'events_vocabulary': sorted_events
+            }
+            
+            with open('/app/models/model_metadata.json', 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            logger.info(f"Isolation Forest analysis completed: {n_total} sessions, {n_anomalies_isolation} anomalies detected")
+            
+            return {
+                'success': True,
+                'analysis_data': analysis_data,
+                'metrics': metrics,
+                'feature_importance': feature_importance[:10],  # Top 10 features
+                'model_info': {
+                    'algorithm': 'Isolation Forest',
+                    'contamination': 0.1,
+                    'features_used': len(feature_names),
+                    'training_method': 'Structured Feature Engineering'
+                }
+            }
+            
+        except Exception as analysis_error:
+            logger.error(f"Error in isolation forest analysis: {analysis_error}")
+            logger.warning("Falling back to mock data due to analysis error")
+            return get_mock_isolation_forest_data()
+            
+    except Exception as e:
+        logger.error(f"Error in isolation forest endpoint: {e}")
+        return get_mock_isolation_forest_data()
+
+def get_mock_isolation_forest_data():
+    """Return mock data when isolation forest analysis cannot be performed"""
+    import random
+    
+    # Generate mock data with realistic patterns
+    mock_data = []
+    for i in range(100):
+        x = random.uniform(-3, 3)
+        y = random.uniform(-3, 3)
+        
+        # Create some clusters and outliers
+        is_anomaly = (x**2 + y**2) > 4 or random.random() < 0.1
+        
+        mock_data.append({
+            'session_id': f'mock_session_{i}',
+            'x': x,
+            'y': y,
+            'anomaly_score': random.uniform(-0.5, 0.5),
+            'is_anomaly_isolation': is_anomaly,
+            'is_anomaly_original': random.random() < 0.15,
+            'session_length': random.randint(10, 1000),
+            'pattern_count': random.randint(0, 10),
+            'event_count': random.randint(0, 5)
+        })
+    
+    return {
+        'success': False,
+        'analysis_data': mock_data,
+        'metrics': {
+            'total_sessions': 100,
+            'isolation_forest_anomalies': sum(1 for d in mock_data if d['is_anomaly_isolation']),
+            'original_anomalies': sum(1 for d in mock_data if d['is_anomaly_original']),
+            'anomaly_percentage': 15.0,
+            'feature_dimensions': 20,
+            'pca_explained_variance': [0.6, 0.3],
+            'model_contamination': 0.1
+        },
+        'feature_importance': [
+            {'feature': 'session_length', 'importance': 0.8},
+            {'feature': 'pattern_count', 'importance': 0.7},
+            {'feature': 'event_count', 'importance': 0.6},
+            {'feature': 'anomaly_score', 'importance': 0.5}
+        ],
+        'model_info': {
+            'algorithm': 'Isolation Forest (Mock Data)',
+            'contamination': 0.1,
+            'features_used': 20,
+            'training_method': 'Mock Structured Features'
+        },
+        'warning': 'This is mock data - actual model training unavailable'
+    }

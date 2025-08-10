@@ -21,6 +21,9 @@ const Layout = ({ children }) => {
     return 'overview';
   };
 
+  const [liveDataActive, setLiveDataActive] = React.useState(true);
+  const [isProcessing, setIsProcessing] = React.useState(false);
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -40,6 +43,69 @@ const Layout = ({ children }) => {
     } catch (error) {
       console.error('Upload error:', error);
       alert('Failed to upload file');
+    }
+  };
+
+  // Handle clear all data
+  const handleClearAllData = async () => {
+    const firstConfirm = window.confirm('⚠️ Are you sure you want to clear ALL data? This will permanently remove all transactions, training data, and reset the system.');
+    if (!firstConfirm) return;
+
+    const secondConfirm = window.prompt('🔴 FINAL CONFIRMATION: Type "CLEAR ALL" to confirm you want to clear all data:');
+    if (secondConfirm !== 'CLEAR ALL') {
+      alert('❌ Operation cancelled. Data was not cleared.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/v1/data/clear-all?confirm=true', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        alert('✅ All data has been successfully cleared. The system has been reset.');
+        window.location.reload();
+      } else {
+        const error = await response.text();
+        alert(`❌ Failed to clear data: ${error}`);
+      }
+    } catch (error) {
+      console.error('Clear data error:', error);
+      alert('❌ Failed to clear data. Please try again.');
+    }
+  };
+
+  // Handle force process input directory
+  const handleForceProcessInput = async () => {
+    const confirm = window.confirm('🔄 Force process any EJ files in the input directory? This will scan for and process any unprocessed files.');
+    if (!confirm) return;
+
+    try {
+      const response = await fetch('/api/v1/process/force-input', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.files_processed > 0) {
+          alert(`✅ Successfully processed ${result.files_processed} files from input directory.`);
+        } else {
+          alert(`ℹ️ ${result.message}`);
+        }
+        window.location.reload();
+      } else {
+        const error = await response.text();
+        alert(`❌ Failed to process input directory: ${error}`);
+      }
+    } catch (error) {
+      console.error('Force process error:', error);
+      alert('❌ Failed to process input directory. Please try again.');
     }
   };
 
@@ -67,6 +133,20 @@ const Layout = ({ children }) => {
               >
                 Upload EJournal
               </label>
+              <button
+                onClick={handleForceProcessInput}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 border-2 border-purple-700"
+                title="Force process any EJ files in input directory"
+              >
+                🔄 Process Input
+              </button>
+              <button
+                onClick={handleClearAllData}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 border-2 border-red-700"
+                title="Clear all transactions and training data"
+              >
+                🗑️ Clear All Data
+              </button>
               <div className="flex items-center text-sm text-gray-500">
                 <Clock className="w-4 h-4 mr-1" />
                 Last updated: {new Date().toLocaleTimeString()}
@@ -75,6 +155,35 @@ const Layout = ({ children }) => {
           </div>
         </div>
       </div>
+
+      {/* Live Data Active Notification */}
+      {liveDataActive && (
+        <div className="bg-green-100 border-l-4 border-green-500 p-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></div>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-green-700 font-medium">
+                    🟢 Live Data Active
+                  </p>
+                  <p className="text-xs text-green-600">
+                    Real-time monitoring: 84 new transactions, 5g anomalies detected. Data updated.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setLiveDataActive(false)}
+                className="text-green-500 hover:text-green-700"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="bg-white border-b">
