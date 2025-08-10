@@ -15,6 +15,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const ATMDashboard = () => {
   const location = useLocation();
+  const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState({
     total_transactions: 0,
     total_anomalies: 0,
@@ -40,6 +41,7 @@ const ATMDashboard = () => {
     if (path.includes('/dashboard/alerts')) return 'alerts';
     if (path.includes('/dashboard/expert-labeling')) return 'expert-labeling';
     if (path.includes('/dashboard/continuous-learning')) return 'continuous-learning';
+    if (path.includes('/dashboard/session-review')) return 'session-review';
     if (path.includes('/dashboard/realtime')) return 'monitoring';
     if (path.includes('/dashboard/analytics')) return 'analytics';
     if (path.includes('/dashboard/svm-debug')) return 'svm-debug';
@@ -270,302 +272,50 @@ const ATMDashboard = () => {
 
   if (loading && getCurrentTab() === 'overview') {
     return (
-      <Layout>
+      <>
         <div className="min-h-screen bg-gray-100 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
             <p className="mt-4 text-gray-600">Loading dashboard...</p>
           </div>
         </div>
-      </Layout>
+      </>
     );
   }
 
   // Check if we're using Layout or direct rendering based on tabs
-  const shouldUseLayout = location.pathname.includes('/dashboard');
 
-  const DashboardContent = () => (
-    <div className={shouldUseLayout ? '' : 'min-h-screen bg-gray-100'}>
-      {/* Only render header and navigation if not using Layout wrapper */}
-      {!shouldUseLayout && (
-        <>
-          {/* Header */}
-          <div className="bg-white shadow-sm">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex justify-between items-center py-4">
-                <div className="flex items-center">
-                  <Brain className="w-8 h-8 text-purple-600 mr-3" />
-                  <h1 className="text-2xl font-bold text-gray-900">ML-First ABM Anomaly Detection</h1>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <input
-                    type="file"
-                    id="file-upload"
-                    className="hidden"
-                    accept=".txt,.log"
-                    onChange={handleFileUpload}
-                  />
-                  <label
-                    htmlFor="file-upload"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer"
-                  >
-                    Upload EJournal
-                  </label>
-                  <button
-                    onClick={() => {
-                      console.log('🔄 Force refreshing dashboard data...');
-                      fetchStats();
-                    }}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                  >
-                    🔄 Refresh Data
-                  </button>
-                  <button
-                    onClick={handleForceProcessInput}
-                    disabled={processing}
-                    className={`px-4 py-2 ${processing ? 'bg-gray-400' : 'bg-purple-600 hover:bg-purple-700'} text-white rounded-lg`}
-                    title="Process any EJ files in the input directory"
-                  >
-                    {processing ? '⏳ Processing...' : '📁 Process Input'}
-                  </button>
-                  <button
-                    onClick={handleClearAllData}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 border-2 border-red-700"
-                    title="Clear all transactions and training data"
-                  >
-                    🗑️ Clear All Data
-                  </button>
-                  <div className="flex items-center text-sm text-gray-500">
-                    <Clock className="w-4 h-4 mr-1" />
-                    Last updated: {new Date().toLocaleTimeString()}
-                  </div>
-                </div>
-              </div>
-              {/* Status Message */}
-              {message && (
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
-                  <div className={`p-3 rounded-lg text-sm ${
-                    message.includes('Error') || message.includes('Failed') 
-                      ? 'bg-red-100 text-red-800 border border-red-200' 
-                      : message.includes('Successfully') 
-                      ? 'bg-green-100 text-green-800 border border-green-200'
-                      : 'bg-blue-100 text-blue-800 border border-blue-200'
-                  }`}>
-                    {message}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Navigation Tabs */}
-          <div className="bg-white border-b">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex space-x-8">
-                {['overview', 'anomalies', 'multi-anomaly', 'alerts', 'expert-labeling', 'continuous-learning', 'monitoring', 'analytics', 'svm-debug'].map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`py-3 px-1 border-b-2 font-medium text-sm capitalize ${
-                      activeTab === tab
-                        ? 'border-purple-600 text-purple-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    {tab === 'expert-labeling' ? 'Expert Review' : 
-                     tab === 'continuous-learning' ? 'ML Training' : 
-                     tab === 'multi-anomaly' ? 'Multi-Anomaly' : 
-                     tab === 'monitoring' ? 'Real-time Monitor' : 
-                     tab === 'svm-debug' ? 'SVM Debug' : tab}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Main Content */}
-      <div className={shouldUseLayout ? '' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'}>
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <StatCard
-                title="Total Sessions"
-                value={stats.total_transactions.toLocaleString()}
-                icon={Activity}
-                color="bg-blue-600"
-                subtitle="Processed today"
-              />
-              <StatCard
-                title="Anomalies Detected"
-                value={stats.total_anomalies.toLocaleString()}
-                icon={AlertCircle}
-                color="bg-red-600"
-                subtitle={`${anomalyRatePercent}% anomaly rate`}
-              />
-              <StatCard
-                title="High Risk Alerts"
-                value={stats.high_risk_count.toLocaleString()}
-                icon={TrendingUp}
-                color="bg-yellow-600"
-                subtitle="Requires immediate attention"
-              />
-              <StatCard
-                title="Active Alerts"
-                value={stats.recent_alerts.length}
-                icon={Database}
-                color="bg-purple-600"
-                subtitle="Unresolved issues"
-              />
-            </div>
-
-          {/* Charts Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Hourly Trend Chart */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-lg font-semibold mb-4">24-Hour Transaction Trend</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={stats.hourly_trend}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="hour" 
-                    tickFormatter={(value) => new Date(value).getHours() + ':00'}
-                  />
-                  <YAxis />
-                  <Tooltip 
-                    labelFormatter={(value) => new Date(value).toLocaleString()}
-                  />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="transactions" 
-                    stroke="#8b5cf6" 
-                    name="Sessions"
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="anomalies" 
-                    stroke="#ef4444" 
-                    name="Anomalies"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Pie Chart */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-lg font-semibold mb-4">Session Distribution</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-            {/* Recent Alerts */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-lg font-semibold mb-4">Recent Alerts</h3>
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {stats.recent_alerts.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No active alerts</p>
-                ) : (
-                  stats.recent_alerts.map((alert, index) => (
-                    <AlertItem key={alert.id || index} alert={alert} />
-                  ))
-                )}
-              </div>
-            </div>
+  return (
+    <>
+      <div className="space-y-6">
+        {getCurrentTab() === 'overview' && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">Overview Dashboard</h2>
+            <p>Dashboard content will be here</p>
           </div>
         )}
 
-        {activeTab === 'multi-anomaly' && (
-          <MultiAnomalyView />
-        )}
-
-        {activeTab === 'anomalies' && (
-          <AnomaliesPage />
-        )}
-
-        {activeTab === 'alerts' && (
-          <AlertsPage />
-        )}
-
-      {getCurrentTab() === 'expert-labeling' && <ExpertLabelingInterface />}
-
-      {getCurrentTab() === 'continuous-learning' && <ContinuousLearningInterface />}
-
-      {getCurrentTab() === 'monitoring' && <RealtimeMonitoringInterface />}
-
-      {getCurrentTab() === 'svm-debug' && <SVMDebugDashboard />}
-
-      {getCurrentTab() === 'analytics' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">ML Analytics Dashboard</h3>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <h4 className="text-md font-medium mb-3">Model Status</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Isolation Forest</span>
-                    <span className="text-sm font-medium text-green-600">Active</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">One-Class SVM</span>
-                    <span className="text-sm font-medium text-green-600">Active</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Autoencoder</span>
-                    <span className="text-sm font-medium text-green-600">Active</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">BERT Embeddings</span>
-                    <span className="text-sm font-medium text-green-600">Active</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Supervised Classifier</span>
-                    <span className="text-sm font-medium text-gray-400">Not Trained</span>
-                  </div>
-                </div>
-              </div>
-              <div>
-                <h4 className="text-md font-medium mb-3">Processing Stats</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Processing Mode</span>
-                    <span className="text-sm font-medium">ML-First</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Average Processing Time</span>
-                    <span className="text-sm font-medium">1.2s/session</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Model Update Interval</span>
-                    <span className="text-sm font-medium">1 hour</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+        {getCurrentTab() === 'session-review' && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">Session Review</h2>
+            <p>Session review content will be here</p>
           </div>
-        </div>
-      )}
+        )}
+
+        {getCurrentTab() === 'multi-anomaly' && <MultiAnomalyView />}
+        {getCurrentTab() === 'anomalies' && <AnomaliesPage />}
+        {getCurrentTab() === 'alerts' && <AlertsPage />}
+        {getCurrentTab() === 'expert-labeling' && <ExpertLabelingInterface />}
+        {getCurrentTab() === 'continuous-learning' && <ContinuousLearningInterface />}
+        {getCurrentTab() === 'monitoring' && <RealtimeMonitoringInterface />}
+        {getCurrentTab() === 'svm-debug' && <SVMDebugDashboard />}
+        {getCurrentTab() === 'analytics' && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">Analytics</h2>
+            <p>Analytics content will be here</p>
+          </div>
+        )}
+      </div>
     </>
   );
 };
