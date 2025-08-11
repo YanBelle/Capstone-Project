@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, CheckCircle, XCircle, AlertTriangle, TrendingUp, Database, Play, Pause } from 'lucide-react';
-import Layout from './Layout';
 
 const ContinuousLearningInterface = () => {
   const [learningStatus, setLearningStatus] = useState({
@@ -14,7 +13,7 @@ const ContinuousLearningInterface = () => {
   });
 
   return (
-    <Layout>
+    <>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div>
@@ -122,7 +121,7 @@ const ContinuousLearningInterface = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </>
   );
 };
 

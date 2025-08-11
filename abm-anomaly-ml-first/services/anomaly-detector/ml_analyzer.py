@@ -90,6 +90,7 @@ class TransactionSession:
     raw_text: str
     start_time: Optional[datetime]
     end_time: Optional[datetime]
+    terminal_id: Optional[str] = None  # ABM Terminal ID extracted from filename
     embedding: Optional[np.ndarray] = None
     
     # Multi-anomaly support
@@ -243,6 +244,13 @@ class MLFirstAnomalyDetector:
             nu=0.05
         )
         
+        # DBSCAN for density-based anomaly detection
+        self.dbscan = DBSCAN(
+            eps=0.5,
+            min_samples=3,
+            metric='cosine'  # Works well with text embeddings
+        )
+        
         self.autoencoder = None
         self.scaler = StandardScaler()
         self.pca = PCA(n_components=50)
@@ -305,6 +313,9 @@ class MLFirstAnomalyDetector:
         
         # Initialize continuous learning feedback system
         self.initialize_feedback_system()
+        
+        # Set up embedding method alias for production use (BERT Primary)
+        self.convert_to_embeddings = self.generate_embeddingsUsingBERT
     
     def load_supervised_model(self):
         """Load supervised model if available"""
@@ -380,9 +391,9 @@ class MLFirstAnomalyDetector:
             logger.warning(f"Processing only first 4000 sessions out of {len(self.sessions)} for faster results")
             self.sessions = self.sessions[:4000]
 
-        # Step 3: Generate embeddings
-        log_ml_activity("Generating embeddings", details={"session_count": len(self.sessions)})
-        self.embeddings_matrix = self.generate_embeddingsUsingSentence(self.sessions)
+        # Step 3: Generate embeddings (BERT Primary)
+        log_ml_activity("Generating BERT embeddings", details={"session_count": len(self.sessions)})
+        self.embeddings_matrix = self.generate_embeddingsUsingBERT(self.sessions)
         
         # Step 4: Unsupervised anomaly detection
         log_ml_activity("Running unsupervised anomaly detection")
@@ -447,6 +458,89 @@ class MLFirstAnomalyDetector:
             raw_content = file.read()
         return raw_content
     
+    def _apply_bertviz_cleaning(self, raw_text: str) -> str:
+        """
+        Apply BertViz _preprocess_text method and EJ contextual labeling to clean EJ text.
+        This ensures raw EJ is properly cleaned before being fed to BERT for vectorization.
+        """
+        try:
+            # Step 1: Apply BertViz preprocessing for optimal BERT tokenization
+            from bertviz_analyzer import BertVisualizationAnalyzer
+            bert_analyzer = BertVisualizationAnalyzer()
+            cleaned_text = bert_analyzer._preprocess_text(raw_text)
+            logger.info("Applied BertViz preprocessing to session text")
+            
+            # Step 2: Apply EJ contextual labeling for enhanced semantic understanding
+            try:
+                from ej_contextual_labeler import EJLogLabeler
+                contextual_labeler = EJLogLabeler()
+                
+                # Process the cleaned text through contextual labeler for additional context
+                labeled_result = contextual_labeler.process_transaction_session(cleaned_text)
+                
+                # Enhance the cleaned text with contextual information
+                if labeled_result and 'events' in labeled_result:
+                    # Extract key contextual insights and append them to cleaned text
+                    context_summary = self._extract_contextual_summary(labeled_result)
+                    if context_summary:
+                        # Append contextual features as special tokens for BERT
+                        enhanced_text = f"{cleaned_text} {context_summary}"
+                        logger.info("Applied EJ contextual labeling enhancement")
+                        return enhanced_text
+                
+                logger.info("EJ contextual labeling completed, using BertViz cleaned text")
+                return cleaned_text
+                
+            except ImportError:
+                logger.warning("EJ contextual labeler not available, using BertViz cleaned text only")
+                return cleaned_text
+            except Exception as e:
+                logger.warning(f"Error in EJ contextual labeling: {str(e)}, using BertViz cleaned text")
+                return cleaned_text
+                
+        except ImportError:
+            logger.warning("BertViz analyzer not available, using original text")
+            return raw_text
+        except Exception as e:
+            logger.error(f"Error applying BertViz cleaning: {str(e)}, using original text")
+            return raw_text
+    
+    def _extract_contextual_summary(self, labeled_result: dict) -> str:
+        """Extract concise contextual summary from EJ labeling results for BERT enhancement"""
+        try:
+            summary_parts = []
+            
+            # Extract dominant event types
+            if 'events' in labeled_result:
+                events = labeled_result['events']
+                if events:
+                    event_types = [event.get('event_type', 'UNKNOWN') for event in events[:5]]
+                    unique_events = list(set(event_types))
+                    if unique_events:
+                        summary_parts.append(f"CONTEXT_EVENTS_{'+'.join(unique_events[:3])}")
+            
+            # Extract transaction phase information
+            if 'transaction_phases' in labeled_result:
+                phases = labeled_result['transaction_phases']
+                if phases:
+                    phase_types = [phase.get('phase', 'UNKNOWN') for phase in phases[:3]]
+                    if phase_types:
+                        summary_parts.append(f"CONTEXT_PHASES_{'+'.join(phase_types)}")
+            
+            # Extract critical indicators
+            if 'anomaly_indicators' in labeled_result:
+                indicators = labeled_result['anomaly_indicators']
+                if indicators:
+                    summary_parts.append(f"CONTEXT_ANOMALIES_{'+'.join(indicators[:2])}")
+            
+            # Limit total length to prevent overwhelming BERT
+            context_summary = ' '.join(summary_parts[:3])
+            return context_summary if context_summary else ""
+            
+        except Exception as e:
+            logger.warning(f"Error extracting contextual summary: {e}")
+            return ""
+
     def split_into_sessions(self, raw_logs: str, file_path: str = None) -> List[TransactionSession]:
         """Step 2: Split logs into transaction sessions with unique IDs
         
@@ -455,22 +549,28 @@ class MLFirstAnomalyDetector:
         - Take the session start time from the line immediately above the session start marker
         - Continue capturing all lines until the next "TRANSACTION START" or "CARDLESS TRANSACTION START" is found
         - This ensures we capture everything including post-transaction errors
+        - Extract terminal ID from filename in format: ABM{terminal_id}EJ_YYYYMMDD_YYYYMMDD.txt
         """
         logger.info("Splitting logs into transaction sessions")
         
         sessions = []
         
-        # Extract file identifier for unique session IDs
+        # Extract file identifier and terminal ID for unique session IDs
         file_identifier = "unknown"
+        terminal_id = None
+        
         if file_path:
             file_name = os.path.basename(file_path)
-            # Extract ABM number and date from filename like ABM175EJ_20250624_20250624.txt
+            # Extract ABM number and date from filename like ABM416EJ_20250101_20250630.txt
             file_match = re.search(r'ABM(\d+)EJ_(\d{8})_(\d{8})', file_name)
             if file_match:
+                terminal_id = file_match.group(1)  # Extract terminal ID (e.g., "416")
                 abm_num = file_match.group(1)
                 start_date = file_match.group(2)
                 file_identifier = f"ABM{abm_num}_{start_date}"
+                logger.info(f"Extracted terminal ID: {terminal_id} from filename: {file_name}")
             else:
+                logger.warning(f"Could not extract terminal ID from filename: {file_name}. Expected format: ABM{{terminal_id}}EJ_YYYYMMDD_YYYYMMDD.txt")
                 file_identifier = file_name.replace('.txt', '').replace('.', '_')
         
         # Add timestamp to ensure uniqueness across runs
@@ -507,6 +607,9 @@ class MLFirstAnomalyDetector:
                 
                 session_text = match.group(0)
                 
+                # Clean the raw text using BertViz _preprocess_text method
+                cleaned_session_text = self._apply_bertviz_cleaning(session_text)
+                
                 # Generate unique session ID with file info and timestamp
                 session_id = f"{file_identifier}_TXN_{trans_num}_{date_str.replace('/', '')}_{time_str.replace(':', '')}_{timestamp_suffix}_{i}"
                 
@@ -528,9 +631,10 @@ class MLFirstAnomalyDetector:
                 
                 session = TransactionSession(
                     session_id=session_id,
-                    raw_text=session_text,
+                    raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
+                    terminal_id=terminal_id  # Include terminal ID from filename
                 )
                 sessions.append(session)
         else:
@@ -576,11 +680,15 @@ class MLFirstAnomalyDetector:
                 # Extract end time from the session content
                 end_time = self.extract_timestamp(session_text, "end")
                 
+                # Clean the raw text using BertViz _preprocess_text method before creating the session
+                cleaned_session_text = self._apply_bertviz_cleaning(session_text)
+                
                 session = TransactionSession(
                     session_id=session_id,
-                    raw_text=session_text,
+                    raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
+                    terminal_id=terminal_id  # Include terminal ID from filename
                 )
                 sessions.append(session)
         
@@ -616,46 +724,69 @@ class MLFirstAnomalyDetector:
         except:
             return None
     
-    #using BERT for embeddings
+    #using BERT for embeddings (PRIMARY METHOD)
     def generate_embeddingsUsingBERT(self, sessions: List[TransactionSession]) -> np.ndarray:
-        """Step 3: Generate BERT embeddings for each session"""
-        logger.info("Generating BERT embeddings for sessions")
+        """Generate BERT embeddings for each session with batch processing and fallback handling"""
+        logger.info(f"Generating BERT embeddings for {len(sessions)} sessions (PRIMARY METHOD)")
         
         embeddings = []
+        batch_size = 16  # Optimal batch size for BERT
         
-        with torch.no_grad():
-            for session in sessions:
-                # For longer sessions, we need to be smarter about text processing
-                # Instead of truncating, let's extract key patterns and summarize
-                text = self.prepare_text_for_embedding(session.raw_text)
-                
-                # CRITICAL FIX: Tokenize WITHOUT special tokens to prevent contamination
-                inputs = self.tokenizer(
-                    text,
-                    return_tensors="pt",
-                    truncation=True,
-                    padding=True,
-                    max_length=512,
-                    add_special_tokens=False  # Prevent [CLS]/[SEP] contamination
-                )
-                
-                # Get BERT embeddings
-                outputs = self.bert_model(**inputs)
-                
-                # Use MEAN POOLING instead of [CLS] token to avoid special token contamination
-                # This gives better representation of actual content tokens
-                token_embeddings = outputs.last_hidden_state[0]  # Shape: [seq_len, hidden_size]
-                embedding = torch.mean(token_embeddings, dim=0).numpy()  # Mean of all tokens
-                
-                session.embedding = embedding
-                embeddings.append(embedding)
-        
-        return np.array(embeddings)
+        try:
+            with torch.no_grad():
+                # Process sessions in batches for better memory management
+                for i in range(0, len(sessions), batch_size):
+                    batch_sessions = sessions[i:i + batch_size]
+                    batch_texts = []
+                    
+                    # Prepare texts for this batch
+                    for session in batch_sessions:
+                        text = self.prepare_text_for_embedding(session.raw_text)
+                        batch_texts.append(text)
+                    
+                    # Tokenize batch
+                    inputs = self.tokenizer(
+                        batch_texts,
+                        return_tensors="pt",
+                        truncation=True,
+                        padding=True,
+                        max_length=512,
+                        add_special_tokens=False  # Prevent [CLS]/[SEP] contamination
+                    )
+                    
+                    # Get BERT embeddings for batch
+                    outputs = self.bert_model(**inputs)
+                    
+                    # Process each sequence in the batch
+                    for j, session in enumerate(batch_sessions):
+                        # Use MEAN POOLING for better representation
+                        token_embeddings = outputs.last_hidden_state[j]  # Shape: [seq_len, hidden_size]
+                        embedding = torch.mean(token_embeddings, dim=0).numpy()  # Mean of all tokens
+                        
+                        session.embedding = embedding
+                        embeddings.append(embedding)
+                    
+                    # Log progress for large batches
+                    if (i + batch_size) % 500 == 0:
+                        logger.info(f"BERT processing: {min(i + batch_size, len(sessions))}/{len(sessions)} sessions")
+            
+            logger.info("BERT embedding generation complete")
+            return np.array(embeddings)
+            
+        except Exception as e:
+            logger.error(f"Error with BERT embeddings: {e}")
+            logger.info("Falling back to Sentence Transformers")
+            try:
+                return self.generate_embeddingsUsingSentence(sessions)
+            except Exception as sentence_error:
+                logger.error(f"Sentence Transformers fallback failed: {sentence_error}")
+                logger.info("Using simple TF-IDF embeddings as final fallback")
+                return self.generate_simple_embeddings(sessions)
     
-    #using sentence-transformers for faster embeddings
+    #using sentence-transformers for faster embeddings (FALLBACK METHOD)
     def generate_embeddingsUsingSentence(self, sessions: List[TransactionSession]) -> np.ndarray:
-        """Step 3: Generate BERT embeddings for each session - OPTIMIZED"""
-        logger.info("Generating BERT embeddings for sessions")
+        """Generate embeddings using Sentence Transformers - FALLBACK when BERT fails"""
+        logger.info(f"Generating Sentence Transformer embeddings for {len(sessions)} sessions (FALLBACK METHOD)")
         
         embeddings = []
         batch_size = 32  # Process in batches
@@ -685,22 +816,12 @@ class MLFirstAnomalyDetector:
                     
         except ImportError as e:
             logger.error(f"SentenceTransformer import failed: {e}")
-            logger.info("Falling back to BERT embeddings")
-            try:
-                return self.generate_embeddingsUsingBERT(sessions)
-            except Exception as bert_error:
-                logger.error(f"BERT fallback also failed: {bert_error}")
-                logger.info("Using simple TF-IDF embeddings as final fallback")
-                return self.generate_simple_embeddings(sessions)
+            logger.info("SentenceTransformer not available, using simple TF-IDF embeddings")
+            return self.generate_simple_embeddings(sessions)
         except Exception as e:
             logger.error(f"Error with SentenceTransformer: {e}")
-            logger.info("Falling back to BERT embeddings")
-            try:
-                return self.generate_embeddingsUsingBERT(sessions)
-            except Exception as bert_error:
-                logger.error(f"BERT fallback also failed: {bert_error}")
-                logger.info("Using simple TF-IDF embeddings as final fallback")
-                return self.generate_simple_embeddings(sessions)
+            logger.info("SentenceTransformer failed, using simple TF-IDF embeddings")
+            return self.generate_simple_embeddings(sessions)
         
         logger.info("Embedding generation complete")
         return np.array(embeddings)
@@ -724,18 +845,33 @@ class MLFirstAnomalyDetector:
         svm_predictions = self.one_class_svm.fit_predict(embeddings_scaled)
         svm_scores = self.one_class_svm.decision_function(embeddings_scaled)
         
+        # DBSCAN clustering - outliers are marked as -1
+        # Optimize DBSCAN parameters if we have enough data
+        if len(self.sessions) >= 20:
+            optimal_params = self.optimize_dbscan_parameters(embeddings_scaled)
+            self.dbscan.set_params(**optimal_params)
+            logger.info(f"Updated DBSCAN with optimized parameters: {optimal_params}")
+        
+        dbscan_labels = self.dbscan.fit_predict(embeddings_scaled)
+        dbscan_predictions = np.where(dbscan_labels == -1, -1, 1)  # Convert to anomaly format
+        
+        # Calculate DBSCAN anomaly scores based on distance to cluster centers
+        dbscan_scores = self._calculate_dbscan_scores(embeddings_scaled, dbscan_labels)
+        
         # Update sessions with results and apply expert knowledge for multi-anomaly detection
         for i, session in enumerate(self.sessions):
             # Normalize scores to 0-1 range
             if_score_norm = (if_scores[i] - if_scores.min()) / (if_scores.max() - if_scores.min() + 1e-8)
             svm_score_norm = (svm_scores[i] - svm_scores.min()) / (svm_scores.max() - svm_scores.min() + 1e-8)
+            dbscan_score_norm = (dbscan_scores[i] - dbscan_scores.min()) / (dbscan_scores.max() - dbscan_scores.min() + 1e-8)
             
             # Check for multiple types of anomalies
             self._detect_multiple_anomalies(session, if_predictions[i], svm_predictions[i], 
-                                           if_score_norm, svm_score_norm)
+                                           dbscan_predictions[i], if_score_norm, svm_score_norm, dbscan_score_norm)
             
-            # Update legacy fields for backwards compatibility
-            session.overall_anomaly_score = max(if_score_norm, svm_score_norm)
+            # Update legacy fields for backwards compatibility - ensemble voting
+            ensemble_score = max(if_score_norm, svm_score_norm, dbscan_score_norm)
+            session.overall_anomaly_score = ensemble_score
             session.is_anomaly = len(session.anomalies) > 0
             
             if session.anomalies:
@@ -748,12 +884,98 @@ class MLFirstAnomalyDetector:
             'if_predictions': if_predictions,
             'if_scores': if_scores,
             'svm_predictions': svm_predictions,
-            'svm_scores': svm_scores
+            'svm_scores': svm_scores,
+            'dbscan_predictions': dbscan_predictions,
+            'dbscan_scores': dbscan_scores,
+            'dbscan_labels': dbscan_labels
         }
     
+    def _calculate_dbscan_scores(self, embeddings_scaled: np.ndarray, dbscan_labels: np.ndarray) -> np.ndarray:
+        """Calculate anomaly scores for DBSCAN based on distance to cluster centers"""
+        from sklearn.metrics.pairwise import cosine_distances
+        
+        scores = np.zeros(len(embeddings_scaled))
+        
+        # For points in clusters, calculate distance to cluster center
+        unique_labels = np.unique(dbscan_labels)
+        cluster_centers = {}
+        
+        for label in unique_labels:
+            if label != -1:  # Skip noise points
+                cluster_mask = dbscan_labels == label
+                cluster_points = embeddings_scaled[cluster_mask]
+                cluster_centers[label] = np.mean(cluster_points, axis=0)
+        
+        for i, point in enumerate(embeddings_scaled):
+            if dbscan_labels[i] == -1:
+                # Noise point - calculate distance to nearest cluster center
+                if cluster_centers:
+                    min_distance = float('inf')
+                    for center in cluster_centers.values():
+                        distance = cosine_distances([point], [center])[0][0]
+                        min_distance = min(min_distance, distance)
+                    scores[i] = min_distance
+                else:
+                    scores[i] = 1.0  # Maximum anomaly if no clusters found
+            else:
+                # Point in cluster - calculate distance to its cluster center
+                center = cluster_centers[dbscan_labels[i]]
+                scores[i] = cosine_distances([point], [center])[0][0]
+        
+        return scores
+    
+    def optimize_dbscan_parameters(self, embeddings_scaled: np.ndarray) -> dict:
+        """Optimize DBSCAN parameters (eps and min_samples) for the given data"""
+        from sklearn.neighbors import NearestNeighbors
+        from sklearn.metrics import silhouette_score
+        
+        best_params = {'eps': 0.5, 'min_samples': 3}
+        best_score = -1
+        
+        # Find optimal eps using k-distance graph (k=3 for min_samples)
+        neighbors = NearestNeighbors(n_neighbors=3, metric='cosine')
+        neighbors_fit = neighbors.fit(embeddings_scaled)
+        distances, indices = neighbors_fit.kneighbors(embeddings_scaled)
+        
+        # Sort 3rd nearest neighbor distances
+        k_distances = np.sort(distances[:, 2], axis=0)
+        
+        # Try different eps values around the knee point
+        knee_point = k_distances[int(len(k_distances) * 0.9)]  # 90th percentile as knee
+        eps_candidates = np.linspace(knee_point * 0.5, knee_point * 2.0, 10)
+        min_samples_candidates = [2, 3, 4, 5]
+        
+        for eps in eps_candidates:
+            for min_samples in min_samples_candidates:
+                try:
+                    dbscan_test = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
+                    labels = dbscan_test.fit_predict(embeddings_scaled)
+                    
+                    # Skip if all points are noise or all in one cluster
+                    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+                    if n_clusters < 2 or n_clusters > len(embeddings_scaled) // 2:
+                        continue
+                    
+                    # Calculate silhouette score for non-noise points
+                    if len(set(labels)) > 1:
+                        mask = labels != -1
+                        if np.sum(mask) > 1:
+                            score = silhouette_score(embeddings_scaled[mask], labels[mask])
+                            if score > best_score:
+                                best_score = score
+                                best_params = {'eps': eps, 'min_samples': min_samples}
+                                
+                except Exception as e:
+                    continue
+        
+        logger.info(f"Optimized DBSCAN parameters: eps={best_params['eps']:.3f}, "
+                   f"min_samples={best_params['min_samples']}, silhouette_score={best_score:.3f}")
+        
+        return best_params
+    
     def _detect_multiple_anomalies(self, session: TransactionSession, if_pred: int, svm_pred: int, 
-                                  if_score: float, svm_score: float):
-        """Detect multiple types of anomalies in a single session"""
+                                  dbscan_pred: int, if_score: float, svm_score: float, dbscan_score: float):
+        """Detect multiple types of anomalies in a single session using ensemble of three models"""
         events = self.extract_key_events(session.raw_text)
         
         # First check for normal patterns that should override anomaly detection
@@ -777,6 +999,15 @@ class MLFirstAnomalyDetector:
                 detection_method="one_class_svm",
                 description="Session identified as statistical outlier by One-Class SVM",
                 severity=self._determine_severity(1.0 - svm_score)
+            )
+        
+        if dbscan_pred == -1:
+            session.add_anomaly(
+                anomaly_type="density_outlier",
+                confidence=dbscan_score,  # Higher distance = higher anomaly confidence
+                detection_method="dbscan",
+                description="Session identified as density-based outlier by DBSCAN clustering",
+                severity=self._determine_severity(dbscan_score)
             )
         
         # Check for specific anomaly patterns
@@ -1321,6 +1552,125 @@ class MLFirstAnomalyDetector:
         else:
             return "low"
     
+    def parse_cassette_counters(self, session: TransactionSession) -> Optional[Dict[str, Any]]:
+        """
+        Parse cassette counter information from EJ session for cash forecasting.
+        
+        Returns cassette counter data if the session contains a successful withdrawal,
+        None otherwise.
+        
+        Expected format in EJ logs:
+        MACHINE 416
+        DATE TIME 2025/01/15 14:30:25
+        DENOMINATION    20    50   100    20
+        DISPENSED        2     1     0     3
+        REJECTED         0     0     0     0
+        REMAINING      498   799   300   597
+        """
+        text = session.raw_text
+        
+        # Only parse cassette data for sessions with "NOTES PRESENTED" (successful withdrawals)
+        if "NOTES PRESENTED" not in text.upper():
+            return None
+        
+        try:
+            # Extract machine number
+            machine_match = re.search(r"MACHINE\s+(\d+)", text, re.IGNORECASE)
+            
+            # Extract date/time
+            datetime_match = re.search(r"DATE\s+TIME\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})", text, re.IGNORECASE)
+            
+            # Extract cassette information - precise regex to capture exactly 4 numbers
+            denom_match = re.search(r"DENOMINATION\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            dispensed_match = re.search(r"DISPENSED\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            rejected_match = re.search(r"REJECTED\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            remaining_match = re.search(r"REMAINING\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            
+            # Verify all required data is present
+            if not all([denom_match, dispensed_match, rejected_match, remaining_match]):
+                logger.debug(f"Missing cassette data in session {session.session_id}")
+                return None
+            
+            # Parse the numeric data
+            denominations = [int(x) for x in denom_match.group(1).split()]
+            dispensed = [int(x) for x in dispensed_match.group(1).split()]
+            rejected = [int(x) for x in rejected_match.group(1).split()]
+            remaining = [int(x) for x in remaining_match.group(1).split()]
+            
+            # Verify we have data for exactly 4 cassettes
+            if not all(len(lst) == 4 for lst in [denominations, dispensed, rejected, remaining]):
+                logger.warning(f"Incorrect cassette count in session {session.session_id}. Expected 4 cassettes.")
+                return None
+            
+            # Extract machine and datetime
+            machine = machine_match.group(1) if machine_match else "UNKNOWN"
+            
+            if datetime_match:
+                dt_str = f"{datetime_match.group(1)} {datetime_match.group(2)}"
+                transaction_datetime = datetime.strptime(dt_str, "%Y/%m/%d %H:%M:%S")
+            else:
+                # Fallback to session start time or current time
+                transaction_datetime = session.start_time or datetime.now()
+            
+            # Calculate total amounts
+            total_dispensed = sum(dispensed[i] * denominations[i] for i in range(4))
+            total_rejected = sum(rejected[i] * denominations[i] for i in range(4))
+            
+            # Extract raw cassette section for debugging
+            cassette_section_match = re.search(
+                r"(DENOMINATION.*?REMAINING\s+[\d\s]+)", 
+                text, 
+                re.IGNORECASE | re.DOTALL
+            )
+            raw_cassette_data = cassette_section_match.group(1) if cassette_section_match else ""
+            
+            cassette_data = {
+                "session_id": session.session_id,
+                "terminal_id": session.terminal_id,  # Use terminal_id (same as machine number)
+                "transaction_datetime": transaction_datetime,
+                
+                # Remaining counts after withdrawal
+                "cassette_1_remaining": remaining[0],
+                "cassette_2_remaining": remaining[1],
+                "cassette_3_remaining": remaining[2],
+                "cassette_4_remaining": remaining[3],
+                
+                # Denominations
+                "cassette_1_denomination": denominations[0],
+                "cassette_2_denomination": denominations[1],
+                "cassette_3_denomination": denominations[2],
+                "cassette_4_denomination": denominations[3],
+                
+                # Dispensed amounts for this transaction
+                "cassette_1_dispensed": dispensed[0],
+                "cassette_2_dispensed": dispensed[1],
+                "cassette_3_dispensed": dispensed[2],
+                "cassette_4_dispensed": dispensed[3],
+                
+                # Rejected amounts for this transaction
+                "cassette_1_rejected": rejected[0],
+                "cassette_2_rejected": rejected[1],
+                "cassette_3_rejected": rejected[2],
+                "cassette_4_rejected": rejected[3],
+                
+                # Totals
+                "total_dispensed_amount": total_dispensed,
+                "total_rejected_amount": total_rejected,
+                "withdrawal_successful": total_dispensed > 0,
+                
+                # Metadata
+                "raw_cassette_data": raw_cassette_data
+            }
+            
+            logger.info(f"Parsed cassette data for session {session.session_id}: "
+                       f"Terminal {session.terminal_id}, Total dispensed: ${total_dispensed}")
+            
+            return cassette_data
+            
+        except Exception as e:
+            logger.error(f"Error parsing cassette counters for session {session.session_id}: {str(e)}")
+            return None
+
     def _analyze_unable_to_process_context(self, text: str, events: List[str]) -> Dict[str, Any]:
         """Analyze the context of 'UNABLE TO PROCESS' to categorize the host decline reason"""
         
@@ -2101,6 +2451,125 @@ class MLFirstAnomalyDetector:
         
         logger.info(f"Feedback buffer archived. Performance improvement: {performance_improvement:.3f}")
     
+    def train_supervised_classifier(self, X_train: np.ndarray, y_train: np.ndarray) -> dict:
+        """
+        Train the supervised classifier with labeled data from experts.
+        This method is called after experts have labeled anomalies.
+        """
+        try:
+            logger.info(f"Training supervised classifier with {len(X_train)} labeled samples")
+            mark_ml_training_start("supervised_classifier")
+            
+            # Ensure we have required preprocessors
+            if self.scaler is None:
+                logger.error("No scaler available for supervised training")
+                raise ValueError("Feature scaler not available. Train unsupervised models first.")
+            
+            # Scale the training data
+            X_scaled = self.scaler.transform(X_train)
+            
+            # Apply PCA if available
+            if hasattr(self.pca, 'components_'):
+                X_scaled = self.pca.transform(X_scaled)
+            
+            # Initialize label encoder if needed
+            if self.label_encoder is None:
+                self.label_encoder = LabelEncoder()
+            
+            # Encode labels
+            y_encoded = self.label_encoder.fit_transform(y_train)
+            
+            # Initialize supervised classifier
+            self.supervised_classifier = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=10,
+                random_state=42,
+                class_weight='balanced',
+                n_jobs=-1
+            )
+            
+            # Train the classifier
+            training_start = time.time()
+            self.supervised_classifier.fit(X_scaled, y_encoded)
+            training_time = time.time() - training_start
+            
+            # Calculate training accuracy
+            train_pred = self.supervised_classifier.predict(X_scaled)
+            train_accuracy = (train_pred == y_encoded).mean()
+            
+            logger.info(f"Supervised classifier training complete. "
+                       f"Training accuracy: {train_accuracy:.3f}, "
+                       f"Training time: {training_time:.2f}s")
+            
+            mark_ml_training_complete(train_accuracy, training_time, "supervised_classifier")
+            
+            # Return training results
+            return {
+                'status': 'success',
+                'training_accuracy': float(train_accuracy),
+                'training_time': float(training_time),
+                'training_samples': len(X_train),
+                'unique_classes': len(np.unique(y_train)),
+                'feature_dimensions': X_scaled.shape[1] if len(X_scaled.shape) > 1 else 1
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in supervised classifier training: {str(e)}")
+            mark_ml_error(f"Supervised training failed: {str(e)}", {"samples": len(X_train)})
+            raise
+    
+    def predict_with_supervised_model(self, session: 'TransactionSession') -> dict:
+        """
+        Use the trained supervised model to predict anomalies for a single session.
+        Returns prediction with confidence score.
+        """
+        if self.supervised_classifier is None:
+            return {
+                'prediction': None,
+                'confidence': 0.0,
+                'message': 'No supervised model available'
+            }
+        
+        try:
+            # Get session embedding
+            embedding = session.embedding
+            if embedding is None:
+                # Generate embedding if not available
+                embeddings = self.convert_to_embeddings([session])
+                embedding = embeddings[0]
+                session.embedding = embedding
+            
+            # Scale and transform
+            embedding_scaled = self.scaler.transform([embedding])
+            if hasattr(self.pca, 'components_'):
+                embedding_scaled = self.pca.transform(embedding_scaled)
+            
+            # Get prediction
+            prediction = self.supervised_classifier.predict(embedding_scaled)[0]
+            probabilities = self.supervised_classifier.predict_proba(embedding_scaled)[0]
+            confidence = probabilities.max()
+            
+            # Decode label
+            if self.label_encoder:
+                label = self.label_encoder.inverse_transform([prediction])[0]
+            else:
+                label = str(prediction)
+            
+            return {
+                'prediction': label,
+                'confidence': float(confidence),
+                'is_anomaly': label != 'normal',
+                'probabilities': probabilities.tolist()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in supervised prediction: {str(e)}")
+            return {
+                'prediction': None,
+                'confidence': 0.0,
+                'message': f'Prediction error: {str(e)}'
+            }
+    
     def get_continuous_learning_status(self) -> Dict:
         """Get status of the continuous learning system"""
         feedback_buffer_size = len(self.feedback_buffer)
@@ -2230,6 +2699,10 @@ class MLFirstAnomalyDetector:
             if hasattr(self, 'one_class_svm') and self.one_class_svm is not None:
                 joblib.dump(self.one_class_svm, os.path.join(model_dir, 'one_class_svm.pkl'))
                 logger.info("Saved One-Class SVM model")
+                
+            if hasattr(self, 'dbscan') and self.dbscan is not None:
+                joblib.dump(self.dbscan, os.path.join(model_dir, 'dbscan.pkl'))
+                logger.info("Saved DBSCAN model")
                 
             # Save supervised classifier if it exists
             if hasattr(self, 'supervised_classifier') and self.supervised_classifier is not None:
@@ -2448,7 +2921,19 @@ class MLFirstAnomalyDetector:
         Analyze text for negative sentiment and failure indicators
         Returns sentiment scores and detected negative patterns
         """
-        text = session.raw_text
+
+         # Import and use BertViz for text preprocessing
+        try:
+            from bertviz_analyzer import BertVisualizationAnalyzer
+            bert_analyzer = BertVisualizationAnalyzer()
+            text = bert_analyzer._process_text(session.raw_text)
+        except ImportError:
+            logger.warning("BertViz analyzer not available, using raw text")
+            text = session.raw_text
+        except Exception as e:
+            logger.warning(f"Error in BertViz text processing: {str(e)}, using raw text")
+            text = session.raw_text
+
         sentiment_results = {
             'vader_score': 0.0,
             'textblob_score': 0.0,
@@ -2634,55 +3119,164 @@ class MLFirstAnomalyDetector:
 
     def prepare_text_for_embedding(self, raw_text: str, max_length: int = 2048) -> str:
         """
-        Prepare text for embedding generation with intelligent handling of long sessions.
-        Instead of simple truncation, extract key patterns and summarize important information.
+        Prepare text for embedding generation with BertViz cleaning and contextual labeling.
+        Uses _preprocess_text from BertViz analyzer and EJ contextual labeler for enhanced processing.
         """
-        if len(raw_text) <= max_length:
-            return raw_text
+        logger.info(f"Preparing text for BERT embedding: {len(raw_text)} chars")
+        
+        # Step 1: Apply BertViz preprocessing to clean the raw EJ text
+        try:
+            # Import BertViz analyzer for text preprocessing
+            from bertviz_analyzer import BertVisualizationAnalyzer
+            bert_analyzer = BertVisualizationAnalyzer()
+            cleaned_text = bert_analyzer._preprocess_text(raw_text)
+            logger.info("Applied BertViz preprocessing to raw EJ text")
+        except ImportError:
+            logger.warning("BertViz analyzer not available, using basic cleaning")
+            cleaned_text = self._apply_basic_cleaning(raw_text)
+        except Exception as e:
+            logger.error(f"Error in BertViz preprocessing: {str(e)}, using basic cleaning")
+            cleaned_text = self._apply_basic_cleaning(raw_text)
+        
+        # Step 2: Apply EJ contextual labeling for enhanced BERT understanding
+        try:
+            # Import EJ contextual labeler
+            from ej_contextual_labeler import EJLogLabeler
+            contextual_labeler = EJLogLabeler()
+            
+            # Process the cleaned text through contextual labeler
+            labeled_result = contextual_labeler.process_transaction_session(cleaned_text)
+            
+            # Extract enhanced features from contextual analysis
+            if labeled_result and 'events' in labeled_result:
+                context_features = self._extract_contextual_features(labeled_result)
+                # Combine cleaned text with contextual features
+                enhanced_text = f"{cleaned_text} {context_features}"
+                logger.info("Applied EJ contextual labeling for enhanced BERT features")
+            else:
+                enhanced_text = cleaned_text
+                logger.info("EJ contextual labeling completed, using cleaned text")
+                
+        except ImportError:
+            logger.warning("EJ contextual labeler not available, using cleaned text only")
+            enhanced_text = cleaned_text
+        except Exception as e:
+            logger.error(f"Error in EJ contextual labeling: {str(e)}, using cleaned text")
+            enhanced_text = cleaned_text
+        
+        # Step 3: Handle length constraints for BERT
+        if len(enhanced_text) <= max_length:
+            return enhanced_text
+        
+        # For longer sessions, intelligently summarize while preserving key information
+        logger.info(f"Text too long ({len(enhanced_text)} chars), creating intelligent summary")
+        summarized_text = self._create_intelligent_summary(enhanced_text, max_length)
+        
+        return summarized_text
+    
+    def _extract_contextual_features(self, labeled_result: dict) -> str:
+        """Extract key contextual features from EJ labeling results"""
+        features = []
+        
+        try:
+            # Extract event sequence patterns
+            if 'events' in labeled_result:
+                event_types = [event.get('event_type', 'UNKNOWN') for event in labeled_result['events']]
+                unique_events = list(set(event_types))
+                features.append(f"EVENT_SEQUENCE_{'+'.join(unique_events[:5])}")
+            
+            # Extract transaction phase information
+            if 'transaction_phases' in labeled_result:
+                phases = labeled_result['transaction_phases']
+                if phases:
+                    phase_summary = '+'.join([phase.get('phase', 'UNKNOWN') for phase in phases[:3]])
+                    features.append(f"PHASE_PATTERN_{phase_summary}")
+            
+            # Extract anomaly indicators from contextual analysis
+            if 'anomaly_indicators' in labeled_result:
+                indicators = labeled_result['anomaly_indicators']
+                if indicators:
+                    indicator_summary = '+'.join(indicators[:3])
+                    features.append(f"ANOMALY_INDICATORS_{indicator_summary}")
+            
+            # Extract critical events
+            if 'critical_events' in labeled_result:
+                critical = labeled_result['critical_events']
+                if critical:
+                    critical_summary = '+'.join(critical[:3])
+                    features.append(f"CRITICAL_EVENTS_{critical_summary}")
+                    
+        except Exception as e:
+            logger.warning(f"Error extracting contextual features: {e}")
+            return "CONTEXTUAL_FEATURES_UNAVAILABLE"
+        
+        return ' '.join(features) if features else "NO_CONTEXTUAL_FEATURES"
+    
+    def _apply_basic_cleaning(self, raw_text: str) -> str:
+        """Basic text cleaning when BertViz is not available"""
+        # Remove excessive whitespace
+        text = ' '.join(raw_text.split())
+        
+        # Remove common noise patterns
+        text = re.sub(r'\[020t\*\d+\*\d{2}/\d{2}/\d{4}\*\d{2}:\d{2}\*', '', text)
+        text = re.sub(r'\*\d+\*\d{2}/\d{2}/\d{4}\*\d{2}:\d{2}\*', '', text)
+        
+        # Convert key patterns to compound tokens
+        text = re.sub(r'\bDEVICE\s+ERROR\b', 'DEVICE_ERROR', text)
+        text = re.sub(r'\bCARD\s+INSERTED\b', 'CARD_INSERTED', text)
+        text = re.sub(r'\bCARD\s+TAKEN\b', 'CARD_TAKEN', text)
+        text = re.sub(r'\bPIN\s+ENTERED\b', 'PIN_ENTERED', text)
+        
+        return text
+    
+    def _create_intelligent_summary(self, text: str, max_length: int) -> str:
+        """Create an intelligent summary preserving key anomaly-relevant information"""
+        if len(text) <= max_length:
+            return text
         
         # For longer sessions, extract key patterns and create a summary
-        logger.info(f"Processing long session ({len(raw_text)} chars) for embedding")
+        logger.info(f"Processing long session ({len(text)} chars) for embedding")
         
         # Extract important patterns from the entire text
         key_patterns = []
         
         # 1. Extract unique error patterns
         error_patterns = set()
-        error_matches = re.finditer(r'(ERROR|FAULT|FAILED|TIMEOUT|EXCEPTION|REJECT)', raw_text, re.IGNORECASE)
+        error_matches = re.finditer(r'(ERROR|FAULT|FAILED|TIMEOUT|EXCEPTION|REJECT)', text, re.IGNORECASE)
         for match in error_matches:
             # Get context around the error
             start = max(0, match.start() - 50)
-            end = min(len(raw_text), match.end() + 50)
-            error_patterns.add(raw_text[start:end].strip())
+            end = min(len(text), match.end() + 50)
+            error_patterns.add(text[start:end].strip())
         
         # 2. Extract supervisor mode entries (these could indicate issues)
         supervisor_patterns = set()
-        supervisor_matches = re.finditer(r'SUPERVISOR MODE (ENTRY|EXIT)', raw_text, re.IGNORECASE)
+        supervisor_matches = re.finditer(r'SUPERVISOR MODE (ENTRY|EXIT)', text, re.IGNORECASE)
         for match in supervisor_matches:
             start = max(0, match.start() - 30)
-            end = min(len(raw_text), match.end() + 30)
-            supervisor_patterns.add(raw_text[start:end].strip())
+            end = min(len(text), match.end() + 30)
+            supervisor_patterns.add(text[start:end].strip())
         
         # 3. Count repetitive patterns to detect anomalies
         repetitive_patterns = {}
-        diagnostic_matches = re.finditer(r'(\*.*?\*[0-9D]*\*.*?R-[0-9]+)', raw_text)
+        diagnostic_matches = re.finditer(r'(\*.*?\*[0-9D]*\*.*?R-[0-9]+)', text)
         for match in diagnostic_matches:
             pattern = match.group(1)
             repetitive_patterns[pattern] = repetitive_patterns.get(pattern, 0) + 1
         
         # 4. Extract transaction boundaries
         transaction_boundaries = []
-        boundary_matches = re.finditer(r'(TRANSACTION START|TRANSACTION END|CARDLESS TRANSACTION)', raw_text, re.IGNORECASE)
+        boundary_matches = re.finditer(r'(TRANSACTION START|TRANSACTION END|CARDLESS TRANSACTION)', text, re.IGNORECASE)
         for match in boundary_matches:
             start = max(0, match.start() - 20)
-            end = min(len(raw_text), match.end() + 20)
-            transaction_boundaries.append(raw_text[start:end].strip())
+            end = min(len(text), match.end() + 20)
+            transaction_boundaries.append(text[start:end].strip())
         
         # Build summarized text
         summary_parts = []
         
         # Always include the beginning of the session
-        summary_parts.append("SESSION_START: " + raw_text[:200])
+        summary_parts.append("SESSION_START: " + text[:200])
         
         # Add error patterns
         if error_patterns:
@@ -2707,7 +3301,7 @@ class MLFirstAnomalyDetector:
             summary_parts.append("BOUNDARIES: " + " | ".join(transaction_boundaries[:3]))
         
         # Always include the end of the session
-        summary_parts.append("SESSION_END: " + raw_text[-200:])
+        summary_parts.append("SESSION_END: " + text[-200:])
         
         # Join all parts and ensure we don't exceed max_length
         summarized_text = " || ".join(summary_parts)
@@ -2723,8 +3317,19 @@ class MLFirstAnomalyDetector:
             return
         
         try:
-            # Extract event sequence for DeepLog analysis
-            event_sequence = self.deeplog_analyzer.extract_event_sequence(session.raw_text)
+            try:
+                # Extract event sequence for DeepLog analysis
+                from bertviz_analyzer import BertVisualizationAnalyzer
+                bert_analyzer = BertVisualizationAnalyzer()
+                text = bert_analyzer._process_text(session.raw_text)
+            except ImportError:
+                logger.warning("BertViz analyzer not available, using raw text")
+                text = session.raw_text
+            except Exception as e:
+                logger.warning(f"Error in BertViz text processing: {str(e)}, using raw text")
+                text = session.raw_text
+                
+            event_sequence = self.deeplog_analyzer.extract_event_sequence(text)
             
             if len(event_sequence) < 2:  # Need at least 2 events for sequence analysis
                 return

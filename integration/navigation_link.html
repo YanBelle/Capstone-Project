@@ -1,0 +1,33 @@
+
+<!-- Cash Forecasting Navigation Link -->
+<li class="nav-item">
+    <a class="nav-link" href="/cash-forecasting/" target="_blank" title="Cash Forecasting Dashboard">
+        <i class="fas fa-money-bill-wave me-2"></i>
+        Cash Forecasting
+        <span id="cash-alerts-badge" class="badge bg-danger d-none"></span>
+    </a>
+</li>
+
+<script>
+// Cash Forecasting Integration
+async function updateCashForecastingBadge() {
+    try {
+        const response = await fetch('/api/cash-forecasting/alerts');
+        const data = await response.json();
+        const badge = document.getElementById('cash-alerts-badge');
+        
+        if (data.alerts && data.alerts.length > 0) {
+            badge.textContent = data.alerts.length;
+            badge.classList.remove('d-none');
+        } else {
+            badge.classList.add('d-none');
+        }
+    } catch (error) {
+        console.error('Failed to update cash forecasting badge:', error);
+    }
+}
+
+// Update badge every 5 minutes
+setInterval(updateCashForecastingBadge, 5 * 60 * 1000);
+updateCashForecastingBadge(); // Initial update
+</script>

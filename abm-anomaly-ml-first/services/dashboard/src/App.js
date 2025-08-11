@@ -1,5 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+// import Layout from './Layout';
+// import LayoutSimple from './LayoutSimple';
+import LayoutFixed from './LayoutFixed';
 
 // Simple error boundary component
 class ErrorBoundary extends React.Component {
@@ -32,20 +35,9 @@ class ErrorBoundary extends React.Component {
 }
 
 // Lazy load components to catch import errors
-// Lazy load components to catch import errors
 const Dashboard = React.lazy(() => import('./Dashboard').catch(err => {
   console.error('Error loading Dashboard:', err);
   return { default: () => <div>Error loading Dashboard component</div> };
-}));
-
-const SimpleDashboard = React.lazy(() => import('./SimpleDashboard').catch(err => {
-  console.error('Error loading SimpleDashboard:', err);
-  return { default: () => <div>Error loading SimpleDashboard component</div> };
-}));
-
-const Layout = React.lazy(() => import('./Layout').catch(err => {
-  console.error('Error loading Layout:', err);
-  return { default: () => <div>Error loading Layout component</div> };
 }));
 
 const RealtimeMonitoringInterface = React.lazy(() => import('./RealtimeMonitoringInterface').catch(err => {
@@ -93,9 +85,29 @@ const DBSCANVisualization = React.lazy(() => import('./DBSCANVisualization').cat
   return { default: () => <div>Error loading DBSCANVisualization component</div> };
 }));
 
-const EnsembleDashboard = React.lazy(() => import('./EnsembleDashboard').catch(err => {
-  console.error('Error loading EnsembleDashboard:', err);
-  return { default: () => <div>Error loading EnsembleDashboard component</div> };
+const SessionReview = React.lazy(() => import('./SessionReview').catch(err => {
+  console.error('Error loading SessionReview:', err);
+  return { default: () => <div>Error loading SessionReview component</div> };
+}));
+
+const SessionEvaluation = React.lazy(() => import('./SessionEvaluation').catch(err => {
+  console.error('Error loading SessionEvaluation:', err);
+  return { default: () => <div>Error loading SessionEvaluation component</div> };
+}));
+
+const AnomaliesPage = React.lazy(() => import('./AnomaliesPage').catch(err => {
+  console.error('Error loading AnomaliesPage:', err);
+  return { default: () => <div>Error loading AnomaliesPage component</div> };
+}));
+
+const AlertsPage = React.lazy(() => import('./AlertsPage').catch(err => {
+  console.error('Error loading AlertsPage:', err);
+  return { default: () => <div>Error loading AlertsPage component</div> };
+}));
+
+const CashForecasting = React.lazy(() => import('./CashForecasting').catch(err => {
+  console.error('Error loading CashForecasting:', err);
+  return { default: () => <div>Error loading CashForecasting component</div> };
 }));
 
 function App() {
@@ -106,22 +118,79 @@ function App() {
       <Router>
         <React.Suspense fallback={<div style={{ padding: '20px' }}>Loading...</div>}>
           <Routes>
-            <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
-            <Route path="/dashboard/" element={<Layout><Dashboard /></Layout>} />
-            <Route path="/dashboard/anomalies" element={<Layout><Dashboard /></Layout>} />
-            <Route path="/dashboard/alerts" element={<Layout><Dashboard /></Layout>} />
-            <Route path="/dashboard/analytics" element={<Layout><Dashboard /></Layout>} />
-            <Route path="/dashboard/multi-anomaly" element={<Layout><MultiAnomalyView /></Layout>} />
-            <Route path="/dashboard/expert-labeling" element={<Layout><ExpertLabelingInterface /></Layout>} />
-            <Route path="/dashboard/continuous-learning" element={<ContinuousLearningInterface />} />
-            <Route path="/dashboard/ner-training" element={<NERFineTuningInterface />} />
-            <Route path="/dashboard/realtime" element={<RealtimeMonitoringInterface />} />
-            <Route path="/dashboard/data-viewer" element={<Layout><DataViewer /></Layout>} />
-            <Route path="/dashboard/bert-analysis" element={<BertAnalysisInterface />} />
-            <Route path="/dashboard/deeplog" element={<DeepLogDashboard />} />
+            <Route path="/" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/anomalies" element={<LayoutFixed><AnomaliesPage /></LayoutFixed>} />
+            <Route path="/alerts" element={<LayoutFixed><AlertsPage /></LayoutFixed>} />
+            <Route path="/analytics" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/cash-forecasting" element={<LayoutFixed><CashForecasting /></LayoutFixed>} />
+            <Route path="/multi-anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />
+            <Route path="/expert-labeling" element={<LayoutFixed><ExpertLabelingInterface /></LayoutFixed>} />
+            <Route path="/continuous-learning" element={<LayoutFixed><ContinuousLearningInterface /></LayoutFixed>} />
+            <Route path="/session-review" element={<LayoutFixed><SessionReview /></LayoutFixed>} />
+            <Route path="/session-evaluation" element={<LayoutFixed><SessionEvaluation /></LayoutFixed>} />
+            <Route path="/realtime" element={<LayoutFixed><RealtimeMonitoringInterface /></LayoutFixed>} />
+            <Route path="/data-viewer" element={<LayoutFixed><DataViewer /></LayoutFixed>} />
+            <Route path="/bert-analysis" element={<LayoutFixed><BertAnalysisInterface /></LayoutFixed>} />
+            <Route path="/deeplog" element={<LayoutFixed><DeepLogDashboard /></LayoutFixed>} />
+            <Route path="/dbscan" element={<DBSCANVisualization />} />
+            {/* Case-insensitive routing - uppercase variants */}
+            <Route path="/Dashboard" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Anomalies" element={<LayoutFixed><AnomaliesPage /></LayoutFixed>} />
+            <Route path="/Alerts" element={<LayoutFixed><AlertsPage /></LayoutFixed>} />
+            <Route path="/Analytics" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Cash-Forecasting" element={<LayoutFixed><CashForecasting /></LayoutFixed>} />
+            <Route path="/Multi-anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />
+            <Route path="/Multi-Anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />
+            <Route path="/Expert-labeling" element={<LayoutFixed><ExpertLabelingInterface /></LayoutFixed>} />
+            <Route path="/Expert-Labeling" element={<LayoutFixed><ExpertLabelingInterface /></LayoutFixed>} />
+            <Route path="/Continuous-learning" element={<LayoutFixed><ContinuousLearningInterface /></LayoutFixed>} />
+            <Route path="/Continuous-Learning" element={<LayoutFixed><ContinuousLearningInterface /></LayoutFixed>} />
+            <Route path="/Session-review" element={<LayoutFixed><SessionReview /></LayoutFixed>} />
+            <Route path="/Session-Review" element={<LayoutFixed><SessionReview /></LayoutFixed>} />
+            <Route path="/Session-evaluation" element={<LayoutFixed><SessionEvaluation /></LayoutFixed>} />
+            <Route path="/Session-Evaluation" element={<LayoutFixed><SessionEvaluation /></LayoutFixed>} />
+            <Route path="/Realtime" element={<LayoutFixed><RealtimeMonitoringInterface /></LayoutFixed>} />
+            <Route path="/Data-viewer" element={<LayoutFixed><DataViewer /></LayoutFixed>} />
+            <Route path="/Data-Viewer" element={<LayoutFixed><DataViewer /></LayoutFixed>} />
+            <Route path="/Bert-analysis" element={<LayoutFixed><BertAnalysisInterface /></LayoutFixed>} />
+            <Route path="/Bert-Analysis" element={<LayoutFixed><BertAnalysisInterface /></LayoutFixed>} />
+            <Route path="/BERT-Analysis" element={<LayoutFixed><BertAnalysisInterface /></LayoutFixed>} />
+            <Route path="/Deeplog" element={<LayoutFixed><DeepLogDashboard /></LayoutFixed>} />
+            <Route path="/DeepLog" element={<LayoutFixed><DeepLogDashboard /></LayoutFixed>} />
+            <Route path="/DBSCAN" element={<DBSCANVisualization />} />
+            {/* Legacy /dashboard/* routes for backwards compatibility */}
+            <Route path="/dashboard" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/anomalies" element={<LayoutFixed><AnomaliesPage /></LayoutFixed>} />
+            <Route path="/dashboard/alerts" element={<LayoutFixed><AlertsPage /></LayoutFixed>} />
+            <Route path="/dashboard/analytics" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/cash-forecasting" element={<LayoutFixed><CashForecasting /></LayoutFixed>} />
+            <Route path="/dashboard/multi-anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />
+            <Route path="/dashboard/expert-labeling" element={<LayoutFixed><ExpertLabelingInterface /></LayoutFixed>} />
+            <Route path="/dashboard/continuous-learning" element={<LayoutFixed><ContinuousLearningInterface /></LayoutFixed>} />
+            <Route path="/dashboard/session-review" element={<LayoutFixed><SessionReview /></LayoutFixed>} />
+            <Route path="/dashboard/session-evaluation" element={<LayoutFixed><SessionEvaluation /></LayoutFixed>} />
+            <Route path="/dashboard/realtime" element={<LayoutFixed><RealtimeMonitoringInterface /></LayoutFixed>} />
+            <Route path="/dashboard/data-viewer" element={<LayoutFixed><DataViewer /></LayoutFixed>} />
+            <Route path="/dashboard/bert-analysis" element={<LayoutFixed><BertAnalysisInterface /></LayoutFixed>} />
+            <Route path="/dashboard/deeplog" element={<LayoutFixed><DeepLogDashboard /></LayoutFixed>} />
             <Route path="/dashboard/dbscan" element={<DBSCANVisualization />} />
-            <Route path="/dashboard/ensemble" element={<EnsembleDashboard />} />
-            <Route path="/" element={<Dashboard />} />
+            {/* Case-insensitive legacy routes - uppercase variants */}
+            <Route path="/Dashboard/" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Dashboard/anomalies" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Dashboard/alerts" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Dashboard/analytics" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Dashboard/cash-forecasting" element={<LayoutFixed><CashForecasting /></LayoutFixed>} />
+            <Route path="/Dashboard/multi-anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />
+            <Route path="/Dashboard/expert-labeling" element={<LayoutFixed><ExpertLabelingInterface /></LayoutFixed>} />
+            <Route path="/Dashboard/continuous-learning" element={<LayoutFixed><ContinuousLearningInterface /></LayoutFixed>} />
+            <Route path="/Dashboard/session-review" element={<LayoutFixed><SessionReview /></LayoutFixed>} />
+            <Route path="/Dashboard/session-evaluation" element={<LayoutFixed><SessionEvaluation /></LayoutFixed>} />
+            <Route path="/Dashboard/realtime" element={<LayoutFixed><RealtimeMonitoringInterface /></LayoutFixed>} />
+            <Route path="/Dashboard/data-viewer" element={<LayoutFixed><DataViewer /></LayoutFixed>} />
+            <Route path="/Dashboard/bert-analysis" element={<LayoutFixed><BertAnalysisInterface /></LayoutFixed>} />
+            <Route path="/Dashboard/deeplog" element={<LayoutFixed><DeepLogDashboard /></LayoutFixed>} />
+            <Route path="/Dashboard/dbscan" element={<DBSCANVisualization />} />
           </Routes>
         </React.Suspense>
       </Router>
