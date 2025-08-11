@@ -17,6 +17,10 @@ const ExpertLabelingInterface = () => {
     excluded: 0
   });
   const [trainingStatus, setTrainingStatus] = useState(null);
+  const [rawText, setRawText] = useState('');
+  const [cleanedText, setCleanedText] = useState('');
+  const [textLoading, setTextLoading] = useState(false);
+  const [activeTextTab, setActiveTextTab] = useState('raw');
 
   const fetchAnomalies = async () => {
     setLoading(true);
@@ -80,6 +84,13 @@ const ExpertLabelingInterface = () => {
   }, [filter]);
 
   const currentSession = sessions[currentIndex] || null;
+
+  // Fetch raw and cleaned text when current session changes
+  useEffect(() => {
+    if (currentSession) {
+      fetchSessionTexts(currentSession.session_id);
+    }
+  }, [currentSession]);
 
   const handleLabelChange = (sessionId, label, excluded = false) => {
     setLabels(prev => ({
@@ -181,6 +192,45 @@ const ExpertLabelingInterface = () => {
     }
   };
 
+  // Function to fetch raw and cleaned text for current session
+  const fetchSessionTexts = async (sessionId) => {
+    if (!sessionId) return;
+    
+    setTextLoading(true);
+    try {
+      // Use the existing texts endpoint
+      const response = await fetch(apiConfig.endpoint(`/api/v1/sessions/${sessionId}/texts`));
+      if (response.ok) {
+        const data = await response.json();
+        setRawText(data.raw_text || 'No raw text available');
+        setCleanedText(data.cleaned_text || 'No cleaned text available');
+      } else {
+        // Fallback: try to get the data from the existing ml_sessions endpoint
+        const fallbackResponse = await fetch(apiConfig.endpoint(`/api/v1/sessions?session_id=${sessionId}`));
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          const session = fallbackData.sessions?.[0];
+          if (session) {
+            setRawText(session.raw_text || 'No raw text available');
+            setCleanedText(session.cleaned_text || session.raw_text || 'No cleaned text available');
+          } else {
+            setRawText('Session not found');
+            setCleanedText('Session not found');
+          }
+        } else {
+          setRawText('Error loading text');
+          setCleanedText('Error loading text');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching session texts:', error);
+      setRawText('Error loading text');
+      setCleanedText('Error loading text');
+    } finally {
+      setTextLoading(false);
+    }
+  };
+
   const formatPatterns = (patterns) => {
     if (!patterns || patterns.length === 0) return 'None detected';
     return patterns.map(p => p.replace(/_/g, ' ').toUpperCase()).join(', ');
@@ -203,8 +253,8 @@ const ExpertLabelingInterface = () => {
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
+    <div className="space-y-6">
+      {/* Header matching SessionReview style */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex justify-between items-center mb-4">
           <div>
@@ -330,13 +380,47 @@ const ExpertLabelingInterface = () => {
               </div>
 
               <div>
-                <p className="text-sm text-gray-600 mb-2">Raw Log Preview</p>
-                <pre 
-                  className="bg-gray-50 p-4 rounded text-xs overflow-x-auto"
-                  style={{ height: 'fit-content' }}
-                >
-                  {currentSession.raw_text || 'No log data available'}
-                </pre>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-600">EJ Session Data</p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setActiveTextTab('raw')}
+                      className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                        activeTextTab === 'raw'
+                          ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      Raw Text
+                    </button>
+                    <button
+                      onClick={() => setActiveTextTab('cleaned')}
+                      className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                        activeTextTab === 'cleaned'
+                          ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      Cleaned Text
+                    </button>
+                  </div>
+                </div>
+                {textLoading ? (
+                  <div className="bg-gray-50 p-4 rounded text-center">
+                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-2" />
+                    <p className="text-xs text-gray-600">Loading session data...</p>
+                  </div>
+                ) : (
+                  <pre 
+                    className="bg-gray-50 p-4 rounded text-xs overflow-x-auto max-h-40 overflow-y-auto"
+                    style={{ height: 'fit-content' }}
+                  >
+                    {activeTextTab === 'raw' 
+                      ? (rawText || currentSession?.raw_text || 'No raw text available')
+                      : (cleanedText || 'No cleaned text available')
+                    }
+                  </pre>
+                )}
               </div>
             </div>
           </div>

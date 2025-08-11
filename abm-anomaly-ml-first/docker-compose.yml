@@ -1,4 +1,29 @@
 services:
+  # Cash Forecasting Service
+  cash-forecasting:
+    build: 
+      context: ../
+      dockerfile: Dockerfile.cash-forecasting
+    container_name: abm-ml-cash-forecasting
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/1
+      - MODEL_RETRAIN_HOURS=24
+      - DASHBOARD_REFRESH_MINUTES=15
+      - FLASK_ENV=production
+    volumes:
+      - ../static:/app/static
+      - ../logs:/app/logs
+      - ../models:/app/models
+      - ./data/sessions:/app/data/sessions
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - abm-network
+
   # ML-First anomaly detection service
   anomaly-detector:
     build: ./services/anomaly-detector

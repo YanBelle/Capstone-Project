@@ -29,10 +29,31 @@ async def get_db_connection():
     return await asyncpg.connect(**DB_CONFIG)
 
 def clean_ej_text(raw_text):
-    """Clean EJ text by removing escape sequences and normalizing"""
+    """Clean EJ text using BertViz _preprocess_text method if available, 
+    falling back to basic cleaning if not available"""
     if not raw_text:
         return ""
     
+    # Try to use BertViz preprocessing first
+    try:
+        import sys
+        sys.path.append('/app/services/api')  # Add API path for docker environment
+        from bertviz_analyzer import BertVisualizationAnalyzer
+        
+        bert_analyzer = BertVisualizationAnalyzer()
+        cleaned_text = bert_analyzer._preprocess_text(raw_text)
+        logger.info("Applied BertViz preprocessing to EJ text")
+        return cleaned_text
+        
+    except ImportError:
+        logger.warning("BertViz analyzer not available, using basic cleaning")
+        # Fall back to basic cleaning
+        pass
+    except Exception as e:
+        logger.error(f"Error applying BertViz cleaning: {str(e)}, using basic cleaning")
+        pass
+    
+    # Basic cleaning as fallback
     # Remove ANSI escape sequences
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     cleaned = ansi_escape.sub('', raw_text)

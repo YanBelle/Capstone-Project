@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  cash-forecasting:
+    build:
+      context: .
+      dockerfile: Dockerfile.cash-forecasting
+    container_name: abm-cash-forecasting
+    ports:
+      - "5001:5000"  # External port 5001 to avoid conflicts
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/ejdb
+      - MODEL_RETRAIN_HOURS=24
+      - DASHBOARD_REFRESH_MINUTES=15
+      - FLASK_ENV=production
+    volumes:
+      - ./static:/app/static
+      - ./logs:/app/logs
+      - ./models:/app/models  # Persist trained models
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - abm-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: abm-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - abm-network
+
+  postgres:
+    image: postgres:15
+    container_name: abm-postgres
+    environment:
+      - POSTGRES_DB=ejdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d  # Initialize with your schema
+    restart: unless-stopped
+    networks:
+      - abm-network
+
+  # Optional: Add nginx for reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: abm-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl  # For HTTPS certificates
+    depends_on:
+      - cash-forecasting
+    restart: unless-stopped
+    networks:
+      - abm-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  abm-network:
+    driver: bridge

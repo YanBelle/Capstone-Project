@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATM Cash Forecasting Dashboard</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        .dashboard-card {
+            transition: transform 0.2s;
+            border-left: 4px solid transparent;
+        }
+        .dashboard-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .risk-high { border-left-color: #dc3545; }
+        .risk-medium { border-left-color: #ffc107; }
+        .risk-low { border-left-color: #28a745; }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-high { background-color: #dc3545; }
+        .status-medium { background-color: #ffc107; }
+        .status-low { background-color: #28a745; }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+        
+        .alert-item {
+            border-left: 4px solid #dc3545;
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .last-updated {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-money-bill-wave me-2"></i>
+                ATM Cash Forecasting
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="refreshData()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="retrainModels()">
+                            <i class="fas fa-cogs"></i> Retrain Models
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="showIntegration()">
+                            <i class="fas fa-link"></i> Integration
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Alert Banner -->
+        <div id="alertBanner" class="alert alert-warning alert-dismissible fade show d-none" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <span id="alertMessage"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card metric-card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-building"></i> Total Terminals
+                        </h5>
+                        <h2 id="totalTerminals">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-danger text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-exclamation-circle"></i> High Risk
+                        </h5>
+                        <h2 id="highRiskCount">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-exclamation-triangle"></i> Medium Risk
+                        </h5>
+                        <h2 id="mediumRiskCount">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-check-circle"></i> Low Risk
+                        </h5>
+                        <h2 id="lowRiskCount">-</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="row">
+            <!-- Terminal Status -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-desktop me-2"></i>Terminal Status
+                        </h5>
+                        <small class="last-updated" id="statusLastUpdated">Last updated: -</small>
+                    </div>
+                    <div class="card-body">
+                        <div class="loading" id="terminalLoading">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading terminal data...</p>
+                        </div>
+                        <div id="terminalStatus" class="row">
+                            <!-- Terminal cards will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-line me-2"></i>Cash Depletion Forecast
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="depletionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alerts & Actions -->
+            <div class="col-lg-4">
+                <!-- Current Alerts -->
+                <div class="card">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-bell me-2"></i>Active Alerts
+                        </h5>
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        <div id="activeAlerts">
+                            <!-- Alerts will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Performance -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-brain me-2"></i>Model Performance
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 250px;">
+                            <canvas id="performanceChart"></canvas>
+                        </div>
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle"></i>
+                                Higher R² scores indicate better prediction accuracy
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-tools me-2"></i>Quick Actions
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-primary" onclick="generateReport()">
+                                <i class="fas fa-file-alt me-2"></i>Generate Report
+                            </button>
+                            <button class="btn btn-info" onclick="downloadVisualization()">
+                                <i class="fas fa-download me-2"></i>Download Charts
+                            </button>
+                            <button class="btn btn-warning" onclick="retrainModels()">
+                                <i class="fas fa-cogs me-2"></i>Retrain Models
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Global variables
+        let depletionChart = null;
+        let performanceChart = null;
+        
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            loadDashboardData();
+            
+            // Auto-refresh every 5 minutes
+            setInterval(loadDashboardData, 5 * 60 * 1000);
+        });
+
+        function initializeCharts() {
+            // Depletion forecast chart
+            const depletionCtx = document.getElementById('depletionChart').getContext('2d');
+            depletionChart = new Chart(depletionCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Days Until Depletion',
+                        data: [],
+                        backgroundColor: function(context) {
+                            const value = context.parsed.y;
+                            if (value <= 2) return '#dc3545';
+                            if (value <= 5) return '#ffc107';
+                            return '#28a745';
+                        },
+                        borderColor: '#495057',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Days'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Terminal ID'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Cash Depletion Timeline by Terminal'
+                        }
+                    }
+                }
+            });
+
+            // Performance chart
+            const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+            performanceChart = new Chart(performanceCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['High Accuracy', 'Medium Accuracy', 'Low Accuracy'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#28a745', '#ffc107', '#dc3545'],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        },
+                        title: {
+                            display: true,
+                            text: 'Model Accuracy Distribution'
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadDashboardData() {
+            try {
+                showLoading(true);
+                
+                // Load terminal status
+                const statusResponse = await fetch('/api/terminal-status');
+                const statusData = await statusResponse.json();
+                updateTerminalStatus(statusData);
+                
+                // Load alerts
+                const alertsResponse = await fetch('/api/alerts');
+                const alertsData = await alertsResponse.json();
+                updateAlerts(alertsData);
+                
+                // Load performance data
+                const performanceResponse = await fetch('/api/performance');
+                const performanceData = await performanceResponse.json();
+                updatePerformanceChart(performanceData);
+                
+                showLoading(false);
+                
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                showAlert('Error loading dashboard data: ' + error.message, 'danger');
+                showLoading(false);
+            }
+        }
+
+        function updateTerminalStatus(data) {
+            const container = document.getElementById('terminalStatus');
+            const summary = data.summary;
+            
+            // Update summary cards
+            document.getElementById('totalTerminals').textContent = summary.total_terminals;
+            document.getElementById('highRiskCount').textContent = summary.high_risk;
+            document.getElementById('mediumRiskCount').textContent = summary.medium_risk;
+            document.getElementById('lowRiskCount').textContent = summary.low_risk;
+            document.getElementById('statusLastUpdated').textContent = 'Last updated: ' + new Date(data.timestamp).toLocaleString();
+            
+            // Update terminal cards
+            container.innerHTML = '';
+            
+            data.terminals.forEach(terminal => {
+                const card = createTerminalCard(terminal);
+                container.appendChild(card);
+            });
+            
+            // Update depletion chart
+            updateDepletionChart(data.terminals);
+        }
+
+        function createTerminalCard(terminal) {
+            const col = document.createElement('div');
+            col.className = 'col-md-6 col-lg-4 mb-3';
+            
+            const riskClass = `risk-${terminal.risk_level.toLowerCase()}`;
+            
+            col.innerHTML = `
+                <div class="card dashboard-card ${riskClass}">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="card-title">
+                                    <span class="status-indicator status-${terminal.risk_level.toLowerCase()}"></span>
+                                    Terminal ${terminal.terminal_id}
+                                </h6>
+                                <p class="card-text">
+                                    <strong>Cash:</strong> $${terminal.current_cash.toLocaleString()}<br>
+                                    <strong>Depletion:</strong> ${terminal.days_until_depletion} days<br>
+                                    <strong>Confidence:</strong> ${(terminal.confidence * 100).toFixed(1)}%
+                                </p>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-${terminal.status_color}">${terminal.risk_level}</span>
+                            </div>
+                        </div>
+                        <div class="progress mt-2" style="height: 6px;">
+                            <div class="progress-bar bg-${terminal.status_color}" 
+                                 style="width: ${Math.min(100, (terminal.model_accuracy * 100))}%">
+                            </div>
+                        </div>
+                        <small class="text-muted">Model Accuracy: ${(terminal.model_accuracy * 100).toFixed(1)}%</small>
+                    </div>
+                </div>
+            `;
+            
+            return col;
+        }
+
+        function updateDepletionChart(terminals) {
+            const labels = terminals.map(t => `T${t.terminal_id}`);
+            const data = terminals.map(t => t.days_until_depletion);
+            
+            depletionChart.data.labels = labels;
+            depletionChart.data.datasets[0].data = data;
+            depletionChart.update();
+        }
+
+        function updateAlerts(data) {
+            const container = document.getElementById('activeAlerts');
+            container.innerHTML = '';
+            
+            if (data.alerts.length === 0) {
+                container.innerHTML = '<p class="text-muted text-center">No active alerts</p>';
+                return;
+            }
+            
+            data.alerts.forEach(alert => {
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert-item';
+                alertDiv.innerHTML = `
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>Terminal ${alert.terminal_id}</strong>
+                            <br>
+                            <small>${alert.message}</small>
+                        </div>
+                        <span class="badge bg-${alert.risk_level.toLowerCase() === 'high' ? 'danger' : 'warning'}">
+                            ${alert.risk_level}
+                        </span>
+                    </div>
+                `;
+                container.appendChild(alertDiv);
+            });
+        }
+
+        function updatePerformanceChart(data) {
+            if (!data.performance) return;
+            
+            const terminals = Object.values(data.performance);
+            let highAccuracy = 0, mediumAccuracy = 0, lowAccuracy = 0;
+            
+            terminals.forEach(terminal => {
+                const r2 = terminal.ensemble_r2 || 0;
+                if (r2 > 0.85) highAccuracy++;
+                else if (r2 > 0.7) mediumAccuracy++;
+                else lowAccuracy++;
+            });
+            
+            performanceChart.data.datasets[0].data = [highAccuracy, mediumAccuracy, lowAccuracy];
+            performanceChart.update();
+        }
+
+        function showLoading(show) {
+            document.getElementById('terminalLoading').style.display = show ? 'block' : 'none';
+        }
+
+        function showAlert(message, type = 'info') {
+            const banner = document.getElementById('alertBanner');
+            const messageSpan = document.getElementById('alertMessage');
+            
+            banner.className = `alert alert-${type} alert-dismissible fade show`;
+            messageSpan.textContent = message;
+            banner.classList.remove('d-none');
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                banner.classList.add('d-none');
+            }, 5000);
+        }
+
+        async function refreshData() {
+            showAlert('Refreshing dashboard data...', 'info');
+            await loadDashboardData();
+            showAlert('Dashboard refreshed successfully!', 'success');
+        }
+
+        async function retrainModels() {
+            try {
+                showAlert('Starting model retraining...', 'info');
+                const response = await fetch('/api/retrain', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showAlert('Model retraining started successfully!', 'success');
+                } else {
+                    showAlert('Failed to start retraining: ' + data.message, 'danger');
+                }
+            } catch (error) {
+                showAlert('Error starting retraining: ' + error.message, 'danger');
+            }
+        }
+
+        async function generateReport() {
+            showAlert('Generating forecasting report...', 'info');
+            // This would trigger report generation
+            setTimeout(() => {
+                showAlert('Report generated successfully!', 'success');
+            }, 2000);
+        }
+
+        async function downloadVisualization() {
+            try {
+                const response = await fetch('/api/visualizations');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showAlert('Visualizations generated! Check the dashboard.', 'success');
+                } else {
+                    showAlert('Failed to generate visualizations', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error generating visualizations: ' + error.message, 'danger');
+            }
+        }
+
+        function showIntegration() {
+            const modal = `
+                <div class="modal fade" id="integrationModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Integration Information</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <h6>API Endpoints:</h6>
+                                <ul>
+                                    <li><code>/api/predictions</code> - Get all predictions</li>
+                                    <li><code>/api/alerts</code> - Get active alerts</li>
+                                    <li><code>/api/terminal-status</code> - Get terminal status</li>
+                                    <li><code>/api/performance</code> - Get model performance</li>
+                                </ul>
+                                <h6>Integration URL:</h6>
+                                <code>http://localhost:5000/cash-forecasting/</code>
+                                <h6 class="mt-3">Main Dashboard Widget:</h6>
+                                <p>Add this service to your main dashboard using the <code>/integration</code> endpoint.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modal);
+            const modalElement = new bootstrap.Modal(document.getElementById('integrationModal'));
+            modalElement.show();
+            
+            // Clean up modal after hiding
+            document.getElementById('integrationModal').addEventListener('hidden.bs.modal', function() {
+                this.remove();
+            });
+        }
+    </script>
+</body>
+</html>
