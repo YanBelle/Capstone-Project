@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, text
 import redis
 import json
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 import re
 from sklearn.preprocessing import LabelEncoder
 
@@ -63,6 +63,13 @@ class MLFirstEJProcessor:
                 self.detector.one_class_svm = joblib.load(
                     os.path.join(model_dir, "one_class_svm.pkl")
                 )
+                # Load DBSCAN model if available
+                if os.path.exists(os.path.join(model_dir, "dbscan.pkl")):
+                    self.detector.dbscan = joblib.load(
+                        os.path.join(model_dir, "dbscan.pkl")
+                    )
+                    logger.info("Loaded DBSCAN model")
+                
                 self.detector.scaler = joblib.load(
                     os.path.join(model_dir, "scaler.pkl")
                 )
@@ -85,6 +92,9 @@ class MLFirstEJProcessor:
         if self.should_skip_file(file_path):
             logger.info(f"Skipping {file_path} - already processed recently")
             return
+        
+        # Track current source file for cassette counter storage
+        self.current_source_file = os.path.basename(file_path)
         
         # Determine processing mode based on model availability and system state
         processing_mode = self.determine_processing_mode()
@@ -365,6 +375,7 @@ class MLFirstEJProcessor:
     def store_sessions(self, results_df: pd.DataFrame):
         """Store all sessions in database with embeddings and multi-anomaly support"""
         sessions_data = []
+        cassette_data_list = []
         
         for i, (_, row) in enumerate(results_df.iterrows()):
             # Get the embedding for this session
@@ -386,6 +397,7 @@ class MLFirstEJProcessor:
                 'critical_events': json.dumps(row['critical_events']),
                 'embedding_vector': embedding.tobytes() if embedding is not None else None,
                 'raw_text': raw_text,  # Store raw text in database
+                'terminal_id': self.detector.sessions[i].terminal_id,  # Include terminal ID from session
                 
                 # Multi-anomaly fields
                 'anomaly_count': row.get('anomaly_count', 0),
@@ -400,11 +412,29 @@ class MLFirstEJProcessor:
                 'created_at': datetime.now()
             }
             sessions_data.append(session_data)
+            
+            # Parse and collect cassette counter data for cash forecasting
+            try:
+                cassette_data = self.detector.parse_cassette_counters(self.detector.sessions[i])
+                if cassette_data:
+                    # Add source file information
+                    cassette_data['source_file'] = getattr(self, 'current_source_file', 'unknown')
+                    cassette_data_list.append(cassette_data)
+                    logger.debug(f"Collected cassette data for session {session_id}")
+            except Exception as e:
+                logger.warning(f"Failed to parse cassette data for session {session_id}: {str(e)}")
         
-        # Store in database with conflict resolution - always use individual inserts
+        # Store sessions in database with conflict resolution
         logger.info(f"Storing {len(sessions_data)} sessions with conflict resolution and multi-anomaly support...")
         result = self.store_sessions_with_conflict_resolution(sessions_data)
-        logger.info(f"Storage complete - New: {result['success_count']}, Updated: {result['duplicate_count']}, Errors: {result['error_count']}")
+        logger.info(f"Session storage complete - New: {result['success_count']}, Updated: {result['duplicate_count']}, Errors: {result['error_count']}")
+        
+        # Store cassette counter data for cash forecasting
+        if cassette_data_list:
+            cassette_result = self.store_cassette_counters(cassette_data_list)
+            logger.info(f"Cassette counter storage complete - New: {cassette_result['success_count']}, Errors: {cassette_result['error_count']}")
+        else:
+            logger.info("No cassette counter data found in sessions")
     
     def store_session_raw_text(self, session_id: str, raw_text: str):
         """Store raw text for a session"""
@@ -735,6 +765,7 @@ class MLFirstEJProcessor:
     def store_production_sessions(self, results_df: pd.DataFrame, file_path: str):
         """Store sessions with production-specific metadata"""
         sessions_data = []
+        cassette_data_list = []
         
         for i, (_, row) in enumerate(results_df.iterrows()):
             session_data = {
@@ -748,6 +779,7 @@ class MLFirstEJProcessor:
                 'critical_events': json.dumps(row['critical_events']),
                 'processing_mode': 'production',
                 'source_file': os.path.basename(file_path),
+                'terminal_id': self.detector.sessions[i].terminal_id if i < len(self.detector.sessions) else None,  # Include terminal ID
                 'created_at': datetime.now()
             }
             
@@ -766,10 +798,29 @@ class MLFirstEJProcessor:
                 session_data['raw_text'] = self.detector.sessions[i].raw_text
             
             sessions_data.append(session_data)
+            
+            # Parse and collect cassette counter data for cash forecasting
+            try:
+                if i < len(self.detector.sessions):
+                    cassette_data = self.detector.parse_cassette_counters(self.detector.sessions[i])
+                    if cassette_data:
+                        # Add source file information
+                        cassette_data['source_file'] = os.path.basename(file_path)
+                        cassette_data_list.append(cassette_data)
+                        logger.debug(f"Collected cassette data for production session {session_data['session_id']}")
+            except Exception as e:
+                logger.warning(f"Failed to parse cassette data for production session {session_data['session_id']}: {str(e)}")
         
         # Store with conflict resolution
         result = self.store_sessions_with_conflict_resolution(sessions_data)
         logger.info(f"Production session storage: {result['success_count']} new, {result['duplicate_count']} updated")
+        
+        # Store cassette counter data for cash forecasting
+        if cassette_data_list:
+            cassette_result = self.store_cassette_counters(cassette_data_list)
+            logger.info(f"Production cassette counter storage - New: {cassette_result['success_count']}, Errors: {cassette_result['error_count']}")
+        else:
+            logger.info("No cassette counter data found in production sessions")
     
     def generate_production_alerts(self, results_df: pd.DataFrame) -> int:
         """Generate production alerts for high-confidence anomalies"""
@@ -993,7 +1044,7 @@ class MLFirstEJProcessor:
         self.redis_client.publish('production_dashboard_updates', json.dumps(update))
         self.redis_client.setex('latest_production_summary', 3600, json.dumps(update))
     
-    def process_realtime_session(self, session_text: str) -> dict:
+    def process_realtime_session(self, session_text: str, terminal_id: str = None) -> dict:
         """Process a single session in real-time (enhanced for production)"""
         try:
             # Create a temporary session
@@ -1003,7 +1054,8 @@ class MLFirstEJProcessor:
                 session_id=f"realtime_{datetime.now().timestamp()}",
                 raw_text=session_text,
                 start_time=datetime.now(),
-                end_time=None
+                end_time=None,
+                terminal_id=terminal_id  # Include terminal ID if provided
             )
             
             # Get embedding
@@ -1053,23 +1105,47 @@ class MLFirstEJProcessor:
                     if result['ensemble_decision']:
                         result['is_anomaly'] = True
                 
-            # Fallback: Use unsupervised models if supervised not available
+            # Fallback: Use unsupervised ensemble if supervised not available
             elif hasattr(self.detector, 'scaler') and self.detector.scaler is not None:
                 embeddings_scaled = self.detector.scaler.transform(embeddings)
                 
+                # Isolation Forest
                 if_score = self.detector.isolation_forest.score_samples(embeddings_scaled)[0]
                 if_pred = self.detector.isolation_forest.predict(embeddings_scaled)[0]
+                if_anomaly_score = max(0, min(1, (if_score - self.detector.isolation_forest.offset_) / -self.detector.isolation_forest.offset_))
                 
-                anomaly_score = max(0, min(1, (if_score - self.detector.isolation_forest.offset_) / -self.detector.isolation_forest.offset_))
-                is_anomaly = if_pred == -1
+                # One-Class SVM
+                svm_pred = self.detector.one_class_svm.predict(embeddings_scaled)[0]
+                svm_score = self.detector.one_class_svm.decision_function(embeddings_scaled)[0]
+                svm_anomaly_score = max(0, min(1, (svm_score + 1) / 2))  # Normalize to 0-1
+                
+                # DBSCAN (if available)
+                dbscan_anomaly_score = 0.0
+                dbscan_is_anomaly = False
+                if hasattr(self.detector, 'dbscan') and self.detector.dbscan is not None:
+                    try:
+                        # For single point, we need to check against existing clusters
+                        # This is a simplified approach for real-time processing
+                        dbscan_pred = self.detector.dbscan.fit_predict(embeddings_scaled)
+                        dbscan_is_anomaly = dbscan_pred[0] == -1
+                        dbscan_anomaly_score = 1.0 if dbscan_is_anomaly else 0.0
+                    except Exception as e:
+                        logger.warning(f"DBSCAN processing failed: {e}")
+                
+                # Ensemble decision - majority voting with weighted scores
+                ensemble_score = max(if_anomaly_score, svm_anomaly_score, dbscan_anomaly_score)
+                is_anomaly = (if_pred == -1) or (svm_pred == -1) or dbscan_is_anomaly
                 
                 result = {
                     'session_id': session.session_id,
-                    'detection_method': 'unsupervised',
+                    'detection_method': 'unsupervised_ensemble',
                     'is_anomaly': bool(is_anomaly),
-                    'anomaly_score': float(anomaly_score),
+                    'anomaly_score': float(ensemble_score),
+                    'if_score': float(if_anomaly_score),
+                    'svm_score': float(svm_anomaly_score),
+                    'dbscan_score': float(dbscan_anomaly_score),
                     'timestamp': datetime.now().isoformat(),
-                    'primary_detection': 'unsupervised'
+                    'primary_detection': 'unsupervised_ensemble'
                 }
             else:
                 # No models trained yet
@@ -1125,6 +1201,7 @@ class MLFirstEJProcessor:
                             critical_events = :critical_events,
                             embedding_vector = :embedding_vector,
                             raw_text = :raw_text,
+                            terminal_id = :terminal_id,
                             created_at = :created_at
                         WHERE session_id = :session_id
                     """)
@@ -1139,10 +1216,10 @@ class MLFirstEJProcessor:
                     insert_query = text("""
                         INSERT INTO ml_sessions 
                         (session_id, timestamp, session_length, is_anomaly, anomaly_score, 
-                         anomaly_type, detected_patterns, critical_events, embedding_vector, raw_text, created_at)
+                         anomaly_type, detected_patterns, critical_events, embedding_vector, raw_text, terminal_id, created_at)
                         VALUES 
                         (:session_id, :timestamp, :session_length, :is_anomaly, :anomaly_score,
-                         :anomaly_type, :detected_patterns, :critical_events, :embedding_vector, :raw_text, :created_at)
+                         :anomaly_type, :detected_patterns, :critical_events, :embedding_vector, :raw_text, :terminal_id, :created_at)
                     """)
                     
                     with self.db_engine.connect() as conn:
@@ -1163,6 +1240,99 @@ class MLFirstEJProcessor:
             "error_count": error_count
         }
     
+    def store_cassette_counters(self, cassette_data_list: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Store cassette counter data for cash forecasting"""
+        success_count = 0
+        error_count = 0
+        
+        logger.info(f"Storing {len(cassette_data_list)} cassette counter records")
+        
+        for cassette_data in cassette_data_list:
+            try:
+                # Check if cassette data already exists for this session
+                check_query = text("""
+                    SELECT COUNT(*) FROM cassette_counters 
+                    WHERE session_id = :session_id
+                """)
+                
+                with self.db_engine.connect() as conn:
+                    result = conn.execute(check_query, {"session_id": cassette_data['session_id']})
+                    exists = result.scalar() > 0
+                
+                if exists:
+                    # Update existing record
+                    update_query = text("""
+                        UPDATE cassette_counters SET
+                            terminal_id = :terminal_id,
+                            transaction_datetime = :transaction_datetime,
+                            cassette_1_remaining = :cassette_1_remaining,
+                            cassette_2_remaining = :cassette_2_remaining,
+                            cassette_3_remaining = :cassette_3_remaining,
+                            cassette_4_remaining = :cassette_4_remaining,
+                            cassette_1_denomination = :cassette_1_denomination,
+                            cassette_2_denomination = :cassette_2_denomination,
+                            cassette_3_denomination = :cassette_3_denomination,
+                            cassette_4_denomination = :cassette_4_denomination,
+                            cassette_1_dispensed = :cassette_1_dispensed,
+                            cassette_2_dispensed = :cassette_2_dispensed,
+                            cassette_3_dispensed = :cassette_3_dispensed,
+                            cassette_4_dispensed = :cassette_4_dispensed,
+                            cassette_1_rejected = :cassette_1_rejected,
+                            cassette_2_rejected = :cassette_2_rejected,
+                            cassette_3_rejected = :cassette_3_rejected,
+                            cassette_4_rejected = :cassette_4_rejected,
+                            total_dispensed_amount = :total_dispensed_amount,
+                            total_rejected_amount = :total_rejected_amount,
+                            withdrawal_successful = :withdrawal_successful,
+                            source_file = :source_file,
+                            raw_cassette_data = :raw_cassette_data,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE session_id = :session_id
+                    """)
+                    
+                    with self.db_engine.connect() as conn:
+                        conn.execute(update_query, cassette_data)
+                        conn.commit()
+                        success_count += 1
+                        logger.debug(f"Updated cassette data for session: {cassette_data['session_id']}")
+                else:
+                    # Insert new record
+                    insert_query = text("""
+                        INSERT INTO cassette_counters 
+                        (session_id, terminal_id, transaction_datetime,
+                         cassette_1_remaining, cassette_2_remaining, cassette_3_remaining, cassette_4_remaining,
+                         cassette_1_denomination, cassette_2_denomination, cassette_3_denomination, cassette_4_denomination,
+                         cassette_1_dispensed, cassette_2_dispensed, cassette_3_dispensed, cassette_4_dispensed,
+                         cassette_1_rejected, cassette_2_rejected, cassette_3_rejected, cassette_4_rejected,
+                         total_dispensed_amount, total_rejected_amount, withdrawal_successful,
+                         source_file, raw_cassette_data)
+                        VALUES 
+                        (:session_id, :terminal_id, :transaction_datetime,
+                         :cassette_1_remaining, :cassette_2_remaining, :cassette_3_remaining, :cassette_4_remaining,
+                         :cassette_1_denomination, :cassette_2_denomination, :cassette_3_denomination, :cassette_4_denomination,
+                         :cassette_1_dispensed, :cassette_2_dispensed, :cassette_3_dispensed, :cassette_4_dispensed,
+                         :cassette_1_rejected, :cassette_2_rejected, :cassette_3_rejected, :cassette_4_rejected,
+                         :total_dispensed_amount, :total_rejected_amount, :withdrawal_successful,
+                         :source_file, :raw_cassette_data)
+                    """)
+                    
+                    with self.db_engine.connect() as conn:
+                        conn.execute(insert_query, cassette_data)
+                        conn.commit()
+                        success_count += 1
+                        logger.debug(f"Inserted cassette data for session: {cassette_data['session_id']}")
+                        
+            except Exception as e:
+                error_count += 1
+                logger.error(f"Failed to store cassette data for session {cassette_data['session_id']}: {e}")
+        
+        logger.info(f"Cassette counter storage complete - New/Updated: {success_count}, Errors: {error_count}")
+        
+        return {
+            "success_count": success_count,
+            "error_count": error_count
+        }
+
     def should_skip_file(self, file_path: str) -> bool:
         """Check if file has already been processed recently"""
         file_name = os.path.basename(file_path)

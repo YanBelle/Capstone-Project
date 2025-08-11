@@ -7,17 +7,18 @@ const Layout = ({ children }) => {
 
   const getCurrentTab = () => {
     const path = location.pathname;
-    if (path === '/dashboard' || path === '/dashboard/') return 'overview';
-    if (path.includes('/dashboard/anomalies')) return 'anomalies';
-    if (path.includes('/dashboard/multi-anomaly')) return 'multi-anomaly';
-    if (path.includes('/dashboard/alerts')) return 'alerts';
-    if (path.includes('/dashboard/expert-labeling')) return 'expert-labeling';
-    if (path.includes('/dashboard/continuous-learning')) return 'continuous-learning';
-    if (path.includes('/dashboard/session-review')) return 'session-review';
-    if (path.includes('/dashboard/realtime')) return 'monitoring';
-    if (path.includes('/dashboard/analytics')) return 'analytics';
-    if (path.includes('/dashboard/bert-analysis')) return 'bert-analysis';
-    if (path.includes('/dashboard/deeplog')) return 'deeplog';
+    if (path === '/' || path === '/dashboard' || path === '/dashboard/') return 'overview';
+    if (path.includes('/anomalies')) return 'anomalies';
+    if (path.includes('/multi-anomaly')) return 'multi-anomaly';
+    if (path.includes('/alerts')) return 'alerts';
+    if (path.includes('/expert-labeling')) return 'expert-labeling';
+    if (path.includes('/continuous-learning')) return 'continuous-learning';
+    if (path.includes('/session-review')) return 'session-review';
+    if (path.includes('/session-evaluation')) return 'session-evaluation';
+    if (path.includes('/realtime')) return 'monitoring';
+    if (path.includes('/analytics')) return 'analytics';
+    if (path.includes('/bert-analysis')) return 'bert-analysis';
+    if (path.includes('/deeplog')) return 'deeplog';
     return 'overview';
   };
 
@@ -190,17 +191,18 @@ const Layout = ({ children }) => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-8">
             {[
-              { key: 'overview', label: 'Overview', path: '/dashboard' },
-              { key: 'anomalies', label: 'Anomalies', path: '/dashboard/anomalies' },
-              { key: 'multi-anomaly', label: 'Multi-Anomaly', path: '/dashboard/multi-anomaly' },
-              { key: 'alerts', label: 'Alerts', path: '/dashboard/alerts' },
-              { key: 'expert-labeling', label: 'Expert Review', path: '/dashboard/expert-labeling' },
-              { key: 'continuous-learning', label: 'ML Training', path: '/dashboard/continuous-learning' },
-              { key: 'session-review', label: 'Session Review', path: '/dashboard/session-review' },
-              { key: 'bert-analysis', label: 'BERT Analysis', path: '/dashboard/bert-analysis' },
-              { key: 'deeplog', label: 'DeepLog', path: '/dashboard/deeplog' },
-              { key: 'monitoring', label: 'Real-time Monitor', path: '/dashboard/realtime' },
-              { key: 'analytics', label: 'Analytics', path: '/dashboard/analytics' }
+              { key: 'overview', label: 'Overview', path: '/' },
+              { key: 'anomalies', label: 'Anomalies', path: '/anomalies' },
+              { key: 'multi-anomaly', label: 'Multi-Anomaly', path: '/multi-anomaly' },
+              { key: 'alerts', label: 'Alerts', path: '/alerts' },
+              { key: 'expert-labeling', label: 'Expert Review', path: '/expert-labeling' },
+              { key: 'continuous-learning', label: 'ML Training', path: '/continuous-learning' },
+              { key: 'session-review', label: 'Session Review', path: '/session-review' },
+              { key: 'session-evaluation', label: 'Evaluate Session', path: '/session-evaluation' },
+              { key: 'bert-analysis', label: 'BERT Analysis', path: '/bert-analysis' },
+              { key: 'deeplog', label: 'DeepLog', path: '/deeplog' },
+              { key: 'monitoring', label: 'Real-time Monitor', path: '/realtime' },
+              { key: 'analytics', label: 'Analytics', path: '/analytics' }
             ].map((tab) => (
               <Link
                 key={tab.key}

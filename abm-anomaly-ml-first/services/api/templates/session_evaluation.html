@@ -1,0 +1,1845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 EJ Session Model Evaluation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #f3f4f6;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            color: #111827;
+        }
+
+        /* Header Styles */
+        .dashboard-header {
+            background: white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+
+        .header-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .logo {
+            width: 2rem;
+            height: 2rem;
+            margin-right: 0.75rem;
+        }
+
+        .header-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #111827;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .header-btn {
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-size: 0.875rem;
+        }
+
+        .header-btn-blue {
+            background: #2563eb;
+            color: white;
+        }
+
+        .header-btn-blue:hover {
+            background: #1d4ed8;
+        }
+
+        .header-btn-purple {
+            background: #8b5cf6;
+            color: white;
+            border: 2px solid #7c3aed;
+        }
+
+        .header-btn-purple:hover {
+            background: #7c3aed;
+        }
+
+        .header-btn-red {
+            background: #dc2626;
+            color: white;
+            border: 2px solid #b91c1c;
+        }
+
+        .header-btn-red:hover {
+            background: #b91c1c;
+        }
+
+        .last-updated {
+            display: flex;
+            align-items: center;
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+
+        /* Navigation Tabs */
+        .nav-container {
+            background: white;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .nav-tabs {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 1rem;
+            display: flex;
+            gap: 2rem;
+            overflow-x: auto;
+        }
+
+        .nav-tab {
+            padding: 0.75rem 0.25rem;
+            border-bottom: 2px solid transparent;
+            font-weight: 500;
+            font-size: 0.875rem;
+            text-decoration: none;
+            color: #6b7280;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .nav-tab:hover {
+            color: #374151;
+        }
+
+        .nav-tab.active {
+            border-bottom-color: #8b5cf6;
+            color: #8b5cf6;
+        }
+
+        /* Main Content Container */
+        .main-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #6B46C1 0%, #9333EA 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        .header h1::before {
+            content: "🔍";
+            font-size: 0.8em;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        .content {
+            padding: 30px;
+        }
+        .input-section {
+            background: linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%);
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border: 1px solid #D1D5DB;
+        }
+        .input-group {
+            display: flex;
+            gap: 15px;
+            align-items: end;
+            flex-wrap: wrap;
+        }
+        .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #9333EA;
+            box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.1);
+        }
+        .btn {
+            background: linear-gradient(135deg, #6B46C1 0%, #9333EA 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(107, 70, 193, 0.4);
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #9333EA;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .results {
+            margin-top: 30px;
+        }
+        .model-card {
+            background: white;
+            border: 1px solid #E5E7EB;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .model-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(107, 70, 193, 0.15);
+        }
+        .model-header {
+            background: linear-gradient(135deg, #6B46C1 0%, #9333EA 100%);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .model-name {
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+        .prediction-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        .anomaly { background: #DC2626; color: white; }
+        .normal { background: #059669; color: white; }
+        .uncertain { background: #D97706; color: white; }
+        .error { background: #6B7280; color: white; }
+        .model-content {
+            padding: 20px;
+        }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-item {
+            background: #F9FAFB;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #9333EA;
+        }
+        .metric-label {
+            font-size: 0.9em;
+            color: #6B7280;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #1F2937;
+        }
+        .explanation {
+            background: #EDE9FE;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #9333EA;
+            margin-top: 15px;
+        }
+        .visualization {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .visualization img {
+            max-width: 100%;
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(107, 70, 193, 0.2);
+        }
+        .overall-assessment {
+            background: linear-gradient(135deg, #6B46C1 0%, #9333EA 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .overall-assessment h3 {
+            margin: 0 0 15px 0;
+            font-size: 1.5em;
+        }
+        .assessment-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 15px;
+        }
+        .assessment-item {
+            background: rgba(255,255,255,0.2);
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .assessment-item h4 {
+            margin: 0 0 10px 0;
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        .assessment-item .value {
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        .error-message {
+            background: #e74c3c;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #f0f0f0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            transition: width 0.3s ease;
+        }
+        .url-params {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .collapsible {
+            cursor: pointer;
+            user-select: none;
+        }
+        .collapsible:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        .collapsible-content.active {
+            max-height: 1000px;
+        }
+        .session-data-section {
+            background: linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%);
+            border: 1px solid #D1D5DB;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+        .session-data-header {
+            background: linear-gradient(135deg, #6B46C1 0%, #9333EA 100%);
+            color: white;
+            padding: 15px 20px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .session-tabs {
+            display: flex;
+            background: #F9FAFB;
+            border-bottom: 1px solid #E5E7EB;
+        }
+        .session-tab {
+            flex: 1;
+            padding: 15px 20px;
+            text-align: center;
+            cursor: pointer;
+            background: #F9FAFB;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            color: #6B7280;
+            transition: all 0.3s ease;
+        }
+        .session-tab.active {
+            background: white;
+            color: #9333EA;
+            border-bottom: 3px solid #9333EA;
+        }
+        .session-tab:hover {
+            background: #F3F4F6;
+            color: #6B46C1;
+        }
+        .session-text-content {
+            padding: 20px;
+            background: white;
+        }
+        .text-display {
+            background: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            border-radius: 6px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            color: #1A202C;
+        }
+        .text-loading {
+            text-align: center;
+            padding: 40px;
+            color: #6B7280;
+        }
+        .text-error {
+            background: #FEF2F2;
+            border: 1px solid #FECACA;
+            color: #DC2626;
+            padding: 20px;
+            border-radius: 6px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <!-- Dashboard Header -->
+    <div class="dashboard-header">
+        <div class="header-container">
+            <div class="header-left">
+                <svg class="logo" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/>
+                </svg>
+                <h1 class="header-title">ML-First ABM Anomaly Detection</h1>
+            </div>
+            <div class="header-actions">
+                <label for="file-upload" class="header-btn header-btn-blue">
+                    Upload EJournal
+                </label>
+                <input type="file" id="file-upload" style="display: none;" accept=".txt,.log">
+                <button onclick="handleForceProcessInput()" class="header-btn header-btn-purple" title="Force process any EJ files in input directory">
+                    🔄 Process Input
+                </button>
+                <button onclick="handleClearAllData()" class="header-btn header-btn-red" title="Clear all transactions and training data">
+                    🗑️ Clear All Data
+                </button>
+                <div class="last-updated">
+                    <svg class="clock-icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+                    </svg>
+                    Last updated: <span id="lastUpdated"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="nav-container">
+        <div class="nav-tabs">
+            <a href="/dashboard" class="nav-tab">Overview</a>
+            <a href="/dashboard/anomalies" class="nav-tab">Anomalies</a>
+            <a href="/dashboard/multi-anomaly" class="nav-tab">Multi-Anomaly</a>
+            <a href="/dashboard/alerts" class="nav-tab">Alerts</a>
+            <a href="/dashboard/expert-labeling" class="nav-tab">Expert Review</a>
+            <a href="/dashboard/continuous-learning" class="nav-tab">ML Training</a>
+            <a href="/dashboard/session-review" class="nav-tab active">Session Review</a>
+            <a href="/dashboard/bert-analysis" class="nav-tab">BERT Analysis</a>
+            <a href="/dashboard/deeplog" class="nav-tab">DeepLog</a>
+            <a href="/dashboard/realtime" class="nav-tab">Real-time Monitor</a>
+            <a href="/dashboard/analytics" class="nav-tab">Analytics</a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <div class="container">
+        <div class="header">
+            <h1>🔍 EJ Session Model Evaluation</h1>
+            <p>Analyze individual EJ sessions across ensemble models with detailed visualizations</p>
+        </div>
+        
+        <div class="content">
+            <div class="input-section">
+                <div class="input-group">
+                    <div class="form-group">
+                        <label for="sessionId">Session ID:</label>
+                        <input type="text" id="sessionId" placeholder="Enter EJ session ID" />
+                    </div>
+                    <div class="form-group">
+                        <label for="modelSelect">Model:</label>
+                        <select id="modelSelect">
+                            <option value="all">All Models</option>
+                            <option value="isolation_forest">Isolation Forest</option>
+                            <option value="one_class_svm">One-Class SVM</option>
+                            <option value="dbscan">DBSCAN Clustering</option>
+                            <option value="deeplog_lstm">DeepLog LSTM</option>
+                            <option value="sentiment_analysis">Sentiment Analysis</option>
+                            <option value="preprocessing">Preprocessing Analysis</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn" onclick="evaluateSession()">🚀 Evaluate Session</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Session Data Display Section -->
+            <div id="sessionDataSection" class="session-data-section" style="display:none;">
+                <div class="session-data-header">
+                    <span>📝 EJ Session Data</span>
+                    <span id="sessionIdDisplay"></span>
+                </div>
+                <div class="session-tabs">
+                    <button class="session-tab active" onclick="switchTab('raw')">Raw EJ Text</button>
+                    <button class="session-tab" onclick="switchTab('cleaned')">Cleaned EJ Text</button>
+                </div>
+                <div class="session-text-content">
+                    <div id="rawTextContent" class="tab-content">
+                        <div id="rawTextDisplay" class="text-display">
+                            <div class="text-loading">Loading raw EJ text...</div>
+                        </div>
+                    </div>
+                    <div id="cleanedTextContent" class="tab-content" style="display:none;">
+                        <div id="cleanedTextDisplay" class="text-display">
+                            <div class="text-loading">Loading cleaned EJ text...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- BERT Analysis Section -->
+            <div id="bertAnalysisSection" class="session-data-section" style="display:none;">
+                <div class="session-data-header">
+                    <span>🧠 BERT Attention Analysis</span>
+                    <button id="analyzeBertBtn" class="btn" onclick="analyzeBertAttention()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5); padding: 8px 16px; font-size: 14px;">
+                        🔍 Analyze Attention
+                    </button>
+                </div>
+                <div class="session-tabs">
+                    <button class="session-tab active" onclick="switchBertTab('importance')">Token Importance</button>
+                    <button class="session-tab" onclick="switchBertTab('patterns')">Detected Patterns</button>
+                    <button class="session-tab" onclick="switchBertTab('attention')">Attention Analysis</button>
+                    <button class="session-tab" onclick="switchBertTab('heatmap')">Attention Heatmap</button>
+                </div>
+                <div class="session-text-content">
+                    <div id="bertImportanceContent" class="tab-content">
+                        <div id="bertImportanceDisplay" class="text-display">
+                            <div class="text-loading">Click "Analyze Attention" to generate BERT token importance analysis...</div>
+                        </div>
+                    </div>
+                    <div id="bertPatternsContent" class="tab-content" style="display:none;">
+                        <div id="bertPatternsDisplay" class="text-display">
+                            <div class="text-loading">Click "Analyze Attention" to detect patterns in EJ text...</div>
+                        </div>
+                    </div>
+                    <div id="bertAttentionContent" class="tab-content" style="display:none;">
+                        <div id="bertAttentionDisplay" class="text-display">
+                            <div class="text-loading">Click "Analyze Attention" to generate attention analysis...</div>
+                        </div>
+                    </div>
+                    <div id="bertHeatmapContent" class="tab-content" style="display:none;">
+                        <div id="bertHeatmapDisplay" class="text-display">
+                            <div class="text-loading">Click "Analyze Attention" to generate attention heatmap...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- DeepLog Analysis Section -->
+            <div id="deeplogAnalysisSection" class="session-data-section" style="display:none;">
+                <div class="session-data-header">
+                    <span>🧠 DeepLog LSTM Analysis</span>
+                    <button id="analyzeDeeplogBtn" class="btn" onclick="analyzeDeeplogSession()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5); padding: 8px 16px; font-size: 14px;">
+                        🔍 Analyze Session
+                    </button>
+                </div>
+                <div class="session-tabs">
+                    <button class="session-tab active" onclick="switchDeeplogTab('prediction')">Prediction Results</button>
+                    <button class="session-tab" onclick="switchDeeplogTab('events')">Important Events</button>
+                    <button class="session-tab" onclick="switchDeeplogTab('explanation')">Model Explanation</button>
+                    <button class="session-tab" onclick="switchDeeplogTab('model')">Model Status</button>
+                </div>
+                <div class="session-text-content">
+                    <div id="deeplogPredictionContent" class="tab-content">
+                        <div id="deeplogPredictionDisplay" class="text-display">
+                            <div class="text-loading">Click "Analyze Session" to run DeepLog LSTM analysis...</div>
+                        </div>
+                    </div>
+                    <div id="deeplogEventsContent" class="tab-content" style="display:none;">
+                        <div id="deeplogEventsDisplay" class="text-display">
+                            <div class="text-loading">Click "Analyze Session" to identify important events...</div>
+                        </div>
+                    </div>
+                    <div id="deeplogExplanationContent" class="tab-content" style="display:none;">
+                        <div id="deeplogExplanationDisplay" class="text-display">
+                            <div class="text-loading">Click "Analyze Session" to generate model explanation...</div>
+                        </div>
+                    </div>
+                    <div id="deeplogModelContent" class="tab-content" style="display:none;">
+                        <div id="deeplogModelDisplay" class="text-display">
+                            <div class="text-loading">Loading DeepLog model status...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="urlParams" class="url-params" style="display:none;">
+                <strong>📌 Direct Link:</strong> <span id="directLink"></span>
+            </div>
+            
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <div>Analyzing session across ensemble models...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+            
+            <div id="results" class="results"></div>
+        </div>
+    </div>
+
+    <script>
+        // Parse URL parameters on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionId = urlParams.get('session_id');
+            const model = urlParams.get('model');
+            
+            if (sessionId) {
+                document.getElementById('sessionId').value = sessionId;
+                if (model) {
+                    document.getElementById('modelSelect').value = model;
+                }
+                document.getElementById('urlParams').style.display = 'block';
+                document.getElementById('directLink').textContent = window.location.href;
+                
+                // Auto-evaluate if parameters are provided
+                evaluateSession();
+            }
+        });
+
+        // Tab switching function
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.session-tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+            document.getElementById(tabName + 'TextContent').style.display = 'block';
+        }
+
+        // Function to load session text data
+        async function loadSessionTexts(sessionId) {
+            try {
+                // Show session data section
+                document.getElementById('sessionDataSection').style.display = 'block';
+                document.getElementById('sessionIdDisplay').textContent = sessionId;
+                
+                // Show BERT analysis section
+                document.getElementById('bertAnalysisSection').style.display = 'block';
+                
+                // Reset displays to loading state
+                document.getElementById('rawTextDisplay').innerHTML = '<div class="text-loading">Loading raw EJ text...</div>';
+                document.getElementById('cleanedTextDisplay').innerHTML = '<div class="text-loading">Loading cleaned EJ text...</div>';
+                
+                // Fetch session texts
+                const response = await fetch(`/api/v1/sessions/${sessionId}/texts`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Display raw text
+                    const rawText = data.raw_text || 'No raw text available for this session.';
+                    document.getElementById('rawTextDisplay').textContent = rawText;
+                    
+                    // Display cleaned text
+                    const cleanedText = data.cleaned_text || 'No cleaned text available for this session.';
+                    document.getElementById('cleanedTextDisplay').textContent = cleanedText;
+                    
+                } else {
+                    // Error handling
+                    const errorMsg = 'Error loading session text data. The session might not exist or text data might not be available.';
+                    document.getElementById('rawTextDisplay').innerHTML = `<div class="text-error">${errorMsg}</div>`;
+                    document.getElementById('cleanedTextDisplay').innerHTML = `<div class="text-error">${errorMsg}</div>`;
+                }
+                
+            } catch (error) {
+                console.error('Error loading session texts:', error);
+                const errorMsg = 'Network error while loading session text data.';
+                document.getElementById('rawTextDisplay').innerHTML = `<div class="text-error">${errorMsg}</div>`;
+                document.getElementById('cleanedTextDisplay').innerHTML = `<div class="text-error">${errorMsg}</div>`;
+            }
+        }
+
+        async function evaluateSession() {
+            const sessionId = document.getElementById('sessionId').value.trim();
+            const selectedModel = document.getElementById('modelSelect').value;
+            
+            if (!sessionId) {
+                alert('Please enter a session ID');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').innerHTML = '';
+            
+            // Load session text data immediately
+            loadSessionTexts(sessionId);
+            
+            // Update URL
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('session_id', sessionId);
+            newUrl.searchParams.set('model', selectedModel);
+            window.history.pushState({}, '', newUrl);
+            
+            // Show direct link
+            document.getElementById('urlParams').style.display = 'block';
+            document.getElementById('directLink').textContent = newUrl.toString();
+            
+            try {
+                // Simulate progress
+                animateProgress();
+                
+                const apiUrl = selectedModel === 'all' 
+                    ? `/api/v1/session/evaluate/${sessionId}`
+                    : `/api/v1/session/evaluate/${sessionId}/${selectedModel}`;
+                
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Evaluation failed');
+                }
+                
+                displayResults(data, selectedModel);
+                
+            } catch (error) {
+                displayError(error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        function animateProgress() {
+            const progressFill = document.getElementById('progressFill');
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                }
+                progressFill.style.width = progress + '%';
+            }, 300);
+        }
+        
+        function displayResults(data, selectedModel) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (selectedModel === 'all') {
+                // Display all models results
+                displayAllModelsResults(data, resultsDiv);
+            } else {
+                // Display single model result
+                displaySingleModelResult(data, resultsDiv);
+            }
+        }
+        
+        function displayAllModelsResults(data, container) {
+            let html = '';
+            
+            // Overall assessment
+            if (data.overall_assessment) {
+                html += createOverallAssessmentHTML(data.overall_assessment);
+            }
+            
+            // Individual model results
+            if (data.models) {
+                for (const [modelName, result] of Object.entries(data.models)) {
+                    html += createModelCardHTML(modelName, result);
+                }
+            }
+            
+            container.innerHTML = html;
+            
+            // Add collapsible functionality
+            addCollapsibleListeners();
+        }
+        
+        function displaySingleModelResult(data, container) {
+            const html = createModelCardHTML(data.model, data.result);
+            container.innerHTML = html;
+            addCollapsibleListeners();
+        }
+        
+        function createOverallAssessmentHTML(assessment) {
+            const predictionClass = assessment.overall_prediction;
+            const probability = (assessment.anomaly_probability * 100).toFixed(1);
+            const agreement = (assessment.model_agreement * 100).toFixed(1);
+            const confidence = (assessment.confidence * 100).toFixed(1);
+            
+            return `
+                <div class="overall-assessment">
+                    <h3>🎯 Overall Assessment</h3>
+                    <p>${assessment.summary}</p>
+                    <div class="assessment-grid">
+                        <div class="assessment-item">
+                            <h4>PREDICTION</h4>
+                            <div class="value">${assessment.overall_prediction.toUpperCase()}</div>
+                        </div>
+                        <div class="assessment-item">
+                            <h4>ANOMALY PROBABILITY</h4>
+                            <div class="value">${probability}%</div>
+                        </div>
+                        <div class="assessment-item">
+                            <h4>MODEL AGREEMENT</h4>
+                            <div class="value">${agreement}%</div>
+                        </div>
+                        <div class="assessment-item">
+                            <h4>CONFIDENCE</h4>
+                            <div class="value">${confidence}%</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function createModelCardHTML(modelName, result) {
+            if (result.error) {
+                return `
+                    <div class="model-card">
+                        <div class="model-header">
+                            <span class="model-name">${formatModelName(modelName)}</span>
+                            <span class="prediction-badge error">ERROR</span>
+                        </div>
+                        <div class="model-content">
+                            <div class="error-message">
+                                <strong>Error:</strong> ${result.error}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const predictionClass = getPredictionClass(result.prediction);
+            const metrics = extractMetrics(result);
+            
+            let html = `
+                <div class="model-card">
+                    <div class="model-header collapsible" onclick="toggleCollapsible(this)">
+                        <span class="model-name">${formatModelName(modelName)}</span>
+                        <span class="prediction-badge ${predictionClass}">${result.prediction.toUpperCase()}</span>
+                    </div>
+                    <div class="model-content collapsible-content">
+            `;
+            
+            // Metrics grid
+            if (metrics.length > 0) {
+                html += '<div class="metric-grid">';
+                for (const metric of metrics) {
+                    html += `
+                        <div class="metric-item">
+                            <div class="metric-label">${metric.label}</div>
+                            <div class="metric-value">${metric.value}</div>
+                        </div>
+                    `;
+                }
+                html += '</div>';
+            }
+            
+            // Explanation
+            if (result.explanation) {
+                html += `
+                    <div class="explanation">
+                        <strong>📖 Explanation:</strong><br>
+                        ${result.explanation}
+                    </div>
+                `;
+            }
+            
+            // Visualization
+            if (result.visualization) {
+                html += `
+                    <div class="visualization">
+                        <h4>📊 Model Visualization</h4>
+                        <img src="data:image/png;base64,${result.visualization}" alt="${modelName} visualization" />
+                    </div>
+                `;
+            }
+            
+            // Additional details for specific models
+            html += createModelSpecificDetails(modelName, result);
+            
+            html += `
+                    </div>
+                </div>
+            `;
+            
+            return html;
+        }
+        
+        function createModelSpecificDetails(modelName, result) {
+            let html = '';
+            
+            switch (modelName) {
+                case 'deeplog_lstm':
+                    if (result.event_sequence) {
+                        html += `
+                            <div class="metric-item">
+                                <div class="metric-label">Event Sequence</div>
+                                <div class="metric-value">${result.event_sequence.join(' → ')}</div>
+                            </div>
+                        `;
+                    }
+                    if (result.sequence_analysis) {
+                        html += `
+                            <div class="explanation">
+                                <strong>🔍 Sequence Analysis:</strong><br>
+                                Unique Events: ${result.sequence_analysis.unique_events}<br>
+                                Repetition Ratio: ${(result.sequence_analysis.event_repetition_ratio * 100).toFixed(1)}%
+                            </div>
+                        `;
+                    }
+                    break;
+                    
+                case 'sentiment_analysis':
+                    if (result.negative_phrases && result.negative_phrases.length > 0) {
+                        html += `
+                            <div class="explanation">
+                                <strong>⚠️ Negative Phrases Found:</strong><br>
+                                ${result.negative_phrases.slice(0, 5).join(', ')}
+                                ${result.negative_phrases.length > 5 ? '...' : ''}
+                            </div>
+                        `;
+                    }
+                    break;
+                    
+                case 'dbscan':
+                    if (result.cluster_distances) {
+                        const distances = Object.entries(result.cluster_distances)
+                            .slice(0, 3)
+                            .map(([cluster, dist]) => `${cluster}: ${dist.toFixed(3)}`)
+                            .join(', ');
+                        html += `
+                            <div class="explanation">
+                                <strong>📍 Cluster Distances:</strong><br>
+                                ${distances}
+                            </div>
+                        `;
+                    }
+                    break;
+            }
+            
+            return html;
+        }
+        
+        function extractMetrics(result) {
+            const metrics = [];
+            
+            // Common metrics
+            if (result.confidence !== undefined) {
+                metrics.push({
+                    label: 'Confidence',
+                    value: (result.confidence * 100).toFixed(1) + '%'
+                });
+            }
+            
+            // Model-specific metrics
+            if (result.anomaly_score !== undefined) {
+                metrics.push({
+                    label: 'Anomaly Score',
+                    value: result.anomaly_score.toFixed(4)
+                });
+            }
+            
+            if (result.decision_score !== undefined) {
+                metrics.push({
+                    label: 'Decision Score',
+                    value: result.decision_score.toFixed(4)
+                });
+            }
+            
+            if (result.vader_score !== undefined) {
+                metrics.push({
+                    label: 'VADER Score',
+                    value: result.vader_score.toFixed(3)
+                });
+            }
+            
+            if (result.textblob_score !== undefined) {
+                metrics.push({
+                    label: 'TextBlob Score',
+                    value: result.textblob_score.toFixed(3)
+                });
+            }
+            
+            if (result.sequence_length !== undefined) {
+                metrics.push({
+                    label: 'Sequence Length',
+                    value: result.sequence_length.toString()
+                });
+            }
+            
+            if (result.raw_text_length !== undefined) {
+                metrics.push({
+                    label: 'Text Length',
+                    value: result.raw_text_length.toString() + ' chars'
+                });
+            }
+            
+            return metrics;
+        }
+        
+        function formatModelName(name) {
+            const nameMap = {
+                'isolation_forest': '🌲 Isolation Forest',
+                'one_class_svm': '🎯 One-Class SVM',
+                'dbscan': '🔗 DBSCAN Clustering',
+                'deeplog_lstm': '🧠 DeepLog LSTM',
+                'sentiment_analysis': '💭 Sentiment Analysis',
+                'preprocessing': '⚙️ Preprocessing'
+            };
+            return nameMap[name] || name;
+        }
+        
+        function getPredictionClass(prediction) {
+            if (prediction.includes('anomaly') || prediction.includes('negative') || prediction.includes('outlier')) {
+                return 'anomaly';
+            } else if (prediction.includes('normal') || prediction.includes('positive')) {
+                return 'normal';
+            } else if (prediction.includes('uncertain') || prediction.includes('insufficient')) {
+                return 'uncertain';
+            } else {
+                return 'error';
+            }
+        }
+        
+        function addCollapsibleListeners() {
+            // Auto-expand first model or if only one model
+            const collapsibles = document.querySelectorAll('.collapsible-content');
+            if (collapsibles.length <= 2) {
+                collapsibles.forEach(content => {
+                    content.classList.add('active');
+                });
+            }
+        }
+        
+        function toggleCollapsible(header) {
+            const content = header.nextElementSibling;
+            content.classList.toggle('active');
+        }
+        
+        function displayError(message) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `
+                <div class="error-message">
+                    <strong>❌ Error:</strong> ${message}
+                </div>
+            `;
+        }
+        
+        // BERT Analysis Functions
+        function switchBertTab(tabName) {
+            // Hide all BERT tab contents
+            const tabContents = ['bertImportanceContent', 'bertPatternsContent', 'bertAttentionContent', 'bertHeatmapContent'];
+            tabContents.forEach(contentId => {
+                document.getElementById(contentId).style.display = 'none';
+            });
+            
+            // Remove active class from all BERT tabs
+            const tabs = document.querySelectorAll('#bertAnalysisSection .session-tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected BERT tab content and mark tab as active
+            document.getElementById(`bert${tabName.charAt(0).toUpperCase() + tabName.slice(1)}Content`).style.display = 'block';
+            event.target.classList.add('active');
+        }
+        
+        async function analyzeBertAttention() {
+            const sessionId = new URLSearchParams(window.location.search).get('session_id');
+            if (!sessionId) {
+                alert('No session ID found');
+                return;
+            }
+            
+            const button = document.getElementById('analyzeBertBtn');
+            const originalText = button.textContent;
+            button.textContent = '🔄 Analyzing...';
+            button.disabled = true;
+            
+            try {
+                // Show BERT analysis section
+                document.getElementById('bertAnalysisSection').style.display = 'block';
+                
+                // Set loading states
+                document.getElementById('bertImportanceDisplay').innerHTML = '<div class="text-loading">🔄 Analyzing token importance...</div>';
+                document.getElementById('bertPatternsDisplay').innerHTML = '<div class="text-loading">🔄 Detecting patterns...</div>';
+                document.getElementById('bertAttentionDisplay').innerHTML = '<div class="text-loading">🔄 Analyzing attention layers...</div>';
+                document.getElementById('bertHeatmapDisplay').innerHTML = '<div class="text-loading">🔄 Generating attention heatmap...</div>';
+                
+                // Fetch BERT analysis
+                const analysisResponse = await fetch(`/api/v1/sessions/${sessionId}/bert-analysis`);
+                if (!analysisResponse.ok) {
+                    throw new Error(`Analysis failed: ${analysisResponse.status}`);
+                }
+                const analysisData = await analysisResponse.json();
+                
+                // Fetch BERT visualizations
+                const vizResponse = await fetch(`/api/v1/sessions/${sessionId}/bert-visualizations`);
+                let vizData = null;
+                if (vizResponse.ok) {
+                    vizData = await vizResponse.json();
+                }
+                
+                // Display results
+                displayBertTokenImportance(analysisData.results);
+                displayBertPatterns(analysisData.results);
+                displayBertAttentionAnalysis(analysisData.results);
+                displayBertHeatmap(vizData);
+                
+            } catch (error) {
+                console.error('BERT analysis error:', error);
+                
+                // Display error in all tabs
+                const errorMessage = `<div class="error-message">❌ Analysis failed: ${error.message}</div>`;
+                document.getElementById('bertImportanceDisplay').innerHTML = errorMessage;
+                document.getElementById('bertPatternsDisplay').innerHTML = errorMessage;
+                document.getElementById('bertAttentionDisplay').innerHTML = errorMessage;
+                document.getElementById('bertHeatmapDisplay').innerHTML = errorMessage;
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+        
+        function displayBertTokenImportance(results) {
+            const display = document.getElementById('bertImportanceDisplay');
+            
+            if (!results.token_importance || !Array.isArray(results.token_importance)) {
+                display.innerHTML = '<div class="error-message">❌ No token importance data available</div>';
+                return;
+            }
+            
+            let html = '<div style="padding: 20px;"><h4>🎯 Token Importance Analysis</h4>';
+            html += '<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px;">';
+            
+            results.token_importance.forEach(token => {
+                const intensity = Math.min(255, Math.max(0, token.importance * 255));
+                const bgColor = `rgb(${255-intensity}, 255, ${255-intensity})`;
+                html += `
+                    <span style="
+                        background-color: ${bgColor}; 
+                        padding: 6px 12px; 
+                        border-radius: 4px; 
+                        font-family: monospace; 
+                        font-size: 14px;
+                        border: 1px solid #ddd;
+                        margin: 2px;
+                    " title="Importance: ${token.importance.toFixed(3)}">
+                        ${token.token} (${token.importance.toFixed(3)})
+                    </span>
+                `;
+            });
+            
+            html += '</div></div>';
+            display.innerHTML = html;
+        }
+        
+        function displayBertPatterns(results) {
+            const display = document.getElementById('bertPatternsDisplay');
+            
+            if (!results.detected_patterns || !Array.isArray(results.detected_patterns)) {
+                display.innerHTML = '<div class="error-message">❌ No pattern data available</div>';
+                return;
+            }
+            
+            let html = '<div style="padding: 20px;"><h4>🔍 Detected Patterns</h4>';
+            html += '<div style="margin-top: 15px;">';
+            
+            results.detected_patterns.forEach(pattern => {
+                const confidenceColor = pattern.confidence > 0.7 ? '#10b981' : pattern.confidence > 0.5 ? '#f59e0b' : '#ef4444';
+                html += `
+                    <div style="
+                        background: #f9fafb; 
+                        border: 1px solid #e5e7eb; 
+                        border-radius: 6px; 
+                        padding: 15px; 
+                        margin-bottom: 10px;
+                    ">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <strong style="color: #1f2937;">${pattern.type}</strong>
+                            <span style="
+                                background: ${confidenceColor}; 
+                                color: white; 
+                                padding: 4px 8px; 
+                                border-radius: 4px; 
+                                font-size: 12px;
+                            ">
+                                ${(pattern.confidence * 100).toFixed(1)}%
+                            </span>
+                        </div>
+                        <p style="margin: 0; color: #6b7280; font-size: 14px;">${pattern.description}</p>
+                    </div>
+                `;
+            });
+            
+            html += '</div></div>';
+            display.innerHTML = html;
+        }
+        
+        function displayBertAttentionAnalysis(results) {
+            const display = document.getElementById('bertAttentionDisplay');
+            
+            if (!results.attention_analysis) {
+                display.innerHTML = '<div class="error-message">❌ No attention analysis data available</div>';
+                return;
+            }
+            
+            const attention = results.attention_analysis;
+            let html = '<div style="padding: 20px;"><h4>🧠 Attention Analysis</h4>';
+            
+            // Dominant layers
+            if (attention.dominant_layers && attention.dominant_layers.length > 0) {
+                html += '<div style="margin-bottom: 20px;"><h5>🔍 Dominant Layers:</h5><ul>';
+                attention.dominant_layers.forEach(layer => {
+                    html += `<li style="margin-bottom: 5px;">${layer}</li>`;
+                });
+                html += '</ul></div>';
+            }
+            
+            // Key heads
+            if (attention.key_heads && attention.key_heads.length > 0) {
+                html += '<div style="margin-bottom: 20px;"><h5>🎯 Key Attention Heads:</h5><ul>';
+                attention.key_heads.forEach(head => {
+                    html += `<li style="margin-bottom: 5px;">${head}</li>`;
+                });
+                html += '</ul></div>';
+            }
+            
+            // Attention distribution
+            if (attention.attention_distribution) {
+                html += `<div><h5>📊 Attention Distribution:</h5><p>${attention.attention_distribution}</p></div>`;
+            }
+            
+            html += '</div>';
+            display.innerHTML = html;
+        }
+        
+        function displayBertHeatmap(vizData) {
+            const display = document.getElementById('bertHeatmapDisplay');
+            
+            if (!vizData || !vizData.visualizations) {
+                display.innerHTML = '<div class="error-message">❌ No visualization data available</div>';
+                return;
+            }
+            
+            const viz = vizData.visualizations;
+            let html = '<div style="padding: 20px;"><h4>🔥 Attention Heatmap</h4>';
+            
+            // Display attention heatmap if available
+            if (viz.attention_heatmap) {
+                html += `<div style="margin-top: 15px; text-align: center;">
+                    <img src="data:image/png;base64,${viz.attention_heatmap}" 
+                         alt="BERT Attention Heatmap"
+                         style="max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px; background: white;">
+                </div>`;
+            } else {
+                html += '<div class="error-message">❌ Attention heatmap not available</div>';
+            }
+            
+            // Additional visualization info
+            html += `<div style="margin-top: 15px; background: #f3f4f6; padding: 10px; border-radius: 4px; font-size: 14px;">
+                <strong>Analysis Summary:</strong><br>
+                📝 Original text: ${vizData.original_text_length || 0} characters<br>
+                🧹 Cleaned text: ${vizData.cleaned_text_length || 0} characters<br>
+                🔤 Processed tokens: ${vizData.token_count || 0} tokens
+            </div>`;
+            
+            html += '</div>';
+            display.innerHTML = html;
+        }
+        
+        // DeepLog Analysis Functions
+        function switchDeeplogTab(tabName) {
+            // Hide all DeepLog tab contents
+            const tabContents = ['deeplogPredictionContent', 'deeplogEventsContent', 'deeplogExplanationContent', 'deeplogModelContent'];
+            tabContents.forEach(contentId => {
+                document.getElementById(contentId).style.display = 'none';
+            });
+            
+            // Remove active class from all DeepLog tabs
+            const tabs = document.querySelectorAll('#deeplogAnalysisSection .session-tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected DeepLog tab content and mark tab as active
+            document.getElementById(`deeplog${tabName.charAt(0).toUpperCase() + tabName.slice(1)}Content`).style.display = 'block';
+            event.target.classList.add('active');
+        }
+        
+        async function analyzeDeeplogSession() {
+            const sessionId = new URLSearchParams(window.location.search).get('session_id');
+            if (!sessionId) {
+                alert('No session ID found');
+                return;
+            }
+            
+            const button = document.getElementById('analyzeDeeplogBtn');
+            const originalText = button.textContent;
+            button.textContent = '🔄 Analyzing...';
+            button.disabled = true;
+            
+            try {
+                // Show DeepLog analysis section
+                document.getElementById('deeplogAnalysisSection').style.display = 'block';
+                
+                // Load model status first
+                await loadDeeplogModelStatus();
+                
+                // Set loading states
+                document.getElementById('deeplogPredictionDisplay').innerHTML = '<div class="text-loading">🔄 Running DeepLog LSTM prediction...</div>';
+                document.getElementById('deeplogEventsDisplay').innerHTML = '<div class="text-loading">🔄 Identifying important events...</div>';
+                document.getElementById('deeplogExplanationDisplay').innerHTML = '<div class="text-loading">🔄 Generating model explanation...</div>';
+                
+                // Get the cleaned text for analysis
+                const sessionTextsResponse = await fetch(`/api/v1/sessions/${sessionId}/texts`);
+                if (!sessionTextsResponse.ok) {
+                    throw new Error('Failed to get session text data');
+                }
+                const sessionTextsData = await sessionTextsResponse.json();
+                const cleanedText = sessionTextsData.cleaned_text;
+                
+                if (!cleanedText || cleanedText === 'Cleaned text not available') {
+                    throw new Error('No cleaned text available for analysis');
+                }
+                
+                // Run DeepLog prediction
+                const predictionResponse = await fetch('/api/v1/bert-deeplog/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_text: cleanedText,
+                        session_id: sessionId
+                    })
+                });
+                
+                if (!predictionResponse.ok) {
+                    const errorData = await predictionResponse.json();
+                    throw new Error(errorData.detail || `HTTP ${predictionResponse.status}`);
+                }
+                
+                const predictionData = await predictionResponse.json();
+                
+                // Try to get explanation
+                let explanationData = null;
+                try {
+                    const explanationResponse = await fetch(`/api/v1/bert-deeplog/explanation/${sessionId}`);
+                    if (explanationResponse.ok) {
+                        explanationData = await explanationResponse.json();
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch explanation:', e);
+                }
+                
+                // Display results
+                displayDeeplogPrediction(predictionData, cleanedText);
+                displayDeeplogEvents(predictionData);
+                displayDeeplogExplanation(explanationData, predictionData);
+                
+            } catch (error) {
+                console.error('DeepLog analysis error:', error);
+                
+                // Display error in all tabs
+                const errorMessage = `<div class="error-message">❌ DeepLog Analysis failed: ${error.message}</div>`;
+                document.getElementById('deeplogPredictionDisplay').innerHTML = errorMessage;
+                document.getElementById('deeplogEventsDisplay').innerHTML = errorMessage;
+                document.getElementById('deeplogExplanationDisplay').innerHTML = errorMessage;
+                
+                // Load model status to show if training is needed
+                await loadDeeplogModelStatus();
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+        
+        async function loadDeeplogModelStatus() {
+            try {
+                const response = await fetch('/api/v1/bert-deeplog/model-info');
+                if (response.ok) {
+                    const data = await response.json();
+                    displayDeeplogModelStatus(data);
+                } else {
+                    document.getElementById('deeplogModelDisplay').innerHTML = '<div class="error-message">❌ Could not load DeepLog model status</div>';
+                }
+            } catch (error) {
+                document.getElementById('deeplogModelDisplay').innerHTML = '<div class="error-message">❌ Error loading model status: ' + error.message + '</div>';
+            }
+        }
+        
+        function displayDeeplogPrediction(predictionData, cleanedText) {
+            const display = document.getElementById('deeplogPredictionDisplay');
+            
+            if (!predictionData) {
+                display.innerHTML = '<div class="error-message">❌ No prediction data available</div>';
+                return;
+            }
+            
+            const isAnomaly = predictionData.is_anomaly;
+            const anomalyProb = predictionData.anomaly_probability || 0;
+            const confidence = predictionData.confidence || 0;
+            const processingTime = predictionData.processing_time_ms || 0;
+            
+            let html = '<div style="padding: 20px;"><h4>🧠 DeepLog LSTM Prediction Results</h4>';
+            
+            // Main prediction result
+            const statusColor = isAnomaly ? '#ef4444' : '#10b981';
+            const statusBg = isAnomaly ? '#fef2f2' : '#f0fdf4';
+            const statusBorder = isAnomaly ? '#fca5a5' : '#86efac';
+            
+            html += `
+                <div style="
+                    background: ${statusBg}; 
+                    border: 2px solid ${statusBorder}; 
+                    border-radius: 8px; 
+                    padding: 20px; 
+                    margin: 15px 0;
+                    text-align: center;
+                ">
+                    <div style="color: ${statusColor}; font-size: 18px; font-weight: bold; margin-bottom: 10px;">
+                        ${isAnomaly ? '⚠️ ANOMALY DETECTED' : '✅ NORMAL SESSION'}
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 15px;">
+                        <div>
+                            <div style="color: #6b7280; font-size: 14px;">Anomaly Probability</div>
+                            <div style="font-size: 20px; font-weight: bold; color: ${statusColor};">${(anomalyProb * 100).toFixed(1)}%</div>
+                        </div>
+                        <div>
+                            <div style="color: #6b7280; font-size: 14px;">Confidence</div>
+                            <div style="font-size: 20px; font-weight: bold; color: ${statusColor};">${(confidence * 100).toFixed(1)}%</div>
+                        </div>
+                        <div>
+                            <div style="color: #6b7280; font-size: 14px;">Processing Time</div>
+                            <div style="font-size: 20px; font-weight: bold;">${processingTime.toFixed(1)}ms</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Session text summary
+            html += `
+                <div style="background: #f3f4f6; padding: 15px; border-radius: 6px; margin-top: 15px;">
+                    <h5 style="margin: 0 0 10px 0; color: #374151;">Analyzed Session Text:</h5>
+                    <div style="font-family: monospace; font-size: 14px; color: #6b7280; max-height: 100px; overflow-y: auto; border: 1px solid #e5e7eb; padding: 10px; background: white; border-radius: 4px;">
+                        ${cleanedText.substring(0, 500)}${cleanedText.length > 500 ? '...' : ''}
+                    </div>
+                    <div style="margin-top: 8px; font-size: 12px; color: #9ca3af;">
+                        Text length: ${cleanedText.length} characters
+                    </div>
+                </div>
+            `;
+            
+            html += '</div>';
+            display.innerHTML = html;
+        }
+        
+        function displayDeeplogEvents(predictionData) {
+            const display = document.getElementById('deeplogEventsDisplay');
+            
+            if (!predictionData || !predictionData.important_events) {
+                display.innerHTML = '<div class="error-message">❌ No important events data available</div>';
+                return;
+            }
+            
+            const events = predictionData.important_events;
+            let html = '<div style="padding: 20px;"><h4>🎯 Important Events Detected</h4>';
+            
+            if (events.length === 0) {
+                html += '<div style="text-align: center; color: #6b7280; padding: 20px;">No important events identified in this session.</div>';
+            } else {
+                html += '<div style="margin-top: 15px;">';
+                
+                events.forEach((event, index) => {
+                    const importance = event.importance || 0;
+                    const importanceColor = importance > 0.8 ? '#ef4444' : importance > 0.6 ? '#f59e0b' : importance > 0.4 ? '#10b981' : '#6b7280';
+                    
+                    html += `
+                        <div style="
+                            background: #f9fafb; 
+                            border: 1px solid #e5e7eb; 
+                            border-radius: 6px; 
+                            padding: 15px; 
+                            margin-bottom: 10px;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                        ">
+                            <div>
+                                <div style="font-weight: bold; color: #1f2937; font-family: monospace;">
+                                    ${event.token || event.event || 'Unknown Event'}
+                                </div>
+                                ${event.position !== undefined ? `<div style="font-size: 12px; color: #6b7280;">Position: ${event.position}</div>` : ''}
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="
+                                    background: ${importanceColor}; 
+                                    color: white; 
+                                    padding: 4px 8px; 
+                                    border-radius: 4px; 
+                                    font-size: 12px; 
+                                    font-weight: bold;
+                                ">
+                                    ${(importance * 100).toFixed(1)}%
+                                </div>
+                                <div style="font-size: 10px; color: #9ca3af; margin-top: 2px;">importance</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            display.innerHTML = html;
+        }
+        
+        function displayDeeplogExplanation(explanationData, predictionData) {
+            const display = document.getElementById('deeplogExplanationDisplay');
+            
+            let html = '<div style="padding: 20px;"><h4>🔍 Model Explanation</h4>';
+            
+            if (explanationData && explanationData.model_reasoning) {
+                // Full explanation available
+                html += '<div style="margin-top: 15px;">';
+                
+                // Model reasoning
+                if (explanationData.model_reasoning.length > 0) {
+                    html += '<div style="margin-bottom: 20px;"><h5 style="color: #374151;">Model Reasoning:</h5><ul style="margin-left: 20px;">';
+                    explanationData.model_reasoning.forEach(reason => {
+                        html += `<li style="margin-bottom: 5px; color: #6b7280;">${reason}</li>`;
+                    });
+                    html += '</ul></div>';
+                }
+                
+                // Event analysis
+                if (explanationData.event_analysis && explanationData.event_analysis.length > 0) {
+                    html += '<div><h5 style="color: #374151;">Event Analysis:</h5>';
+                    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px;">';
+                    
+                    explanationData.event_analysis.slice(0, 6).forEach(eventAnalysis => {
+                        const contributionColor = 
+                            eventAnalysis.contribution_type === 'Critical' ? '#ef4444' :
+                            eventAnalysis.contribution_type === 'High' ? '#f59e0b' :
+                            eventAnalysis.contribution_type === 'Medium' ? '#eab308' : '#6b7280';
+                        
+                        html += `
+                            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px;">
+                                <div style="font-weight: bold; margin-bottom: 5px;">${eventAnalysis.event}</div>
+                                <div style="
+                                    display: inline-block; 
+                                    background: ${contributionColor}; 
+                                    color: white; 
+                                    padding: 2px 6px; 
+                                    border-radius: 3px; 
+                                    font-size: 11px; 
+                                    margin-bottom: 5px;
+                                ">
+                                    ${eventAnalysis.contribution_type}
+                                </div>
+                                <div style="font-size: 13px; color: #6b7280;">${eventAnalysis.explanation}</div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div></div>';
+                }
+                
+                html += '</div>';
+            } else {
+                // Basic explanation from prediction data
+                html += '<div style="margin-top: 15px;">';
+                
+                if (predictionData && predictionData.is_anomaly !== undefined) {
+                    const isAnomaly = predictionData.is_anomaly;
+                    const probability = predictionData.anomaly_probability || 0;
+                    
+                    html += `
+                        <div style="background: #f3f4f6; padding: 15px; border-radius: 6px;">
+                            <h5 style="margin: 0 0 10px 0;">Basic Analysis:</h5>
+                            <ul style="margin-left: 20px; color: #6b7280;">
+                                <li>Session classified as: <strong>${isAnomaly ? 'Anomalous' : 'Normal'}</strong></li>
+                                <li>Anomaly probability: <strong>${(probability * 100).toFixed(1)}%</strong></li>
+                                <li>Model used: <strong>DeepLog LSTM</strong></li>
+                                <li>Analysis based on sequence patterns and BERT embeddings</li>
+                            </ul>
+                        </div>
+                    `;
+                } else {
+                    html += '<div style="text-align: center; color: #6b7280; padding: 20px;">No explanation data available. This could indicate the model needs to be trained or the session analysis failed.</div>';
+                }
+                
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            display.innerHTML = html;
+        }
+        
+        function displayDeeplogModelStatus(modelInfo) {
+            const display = document.getElementById('deeplogModelDisplay');
+            
+            let html = '<div style="padding: 20px;"><h4>📊 DeepLog Model Status</h4>';
+            
+            // Model availability
+            const isAvailable = modelInfo.model_available;
+            const statusColor = isAvailable ? '#10b981' : '#ef4444';
+            const statusBg = isAvailable ? '#f0fdf4' : '#fef2f2';
+            
+            html += `
+                <div style="
+                    background: ${statusBg}; 
+                    border: 1px solid ${statusColor}; 
+                    border-radius: 6px; 
+                    padding: 15px; 
+                    margin: 15px 0;
+                ">
+                    <div style="color: ${statusColor}; font-weight: bold; margin-bottom: 10px;">
+                        ${isAvailable ? '✅ Model Available' : '❌ Model Not Available'}
+                    </div>
+                    ${isAvailable ? '<div style="color: #6b7280;">DeepLog LSTM model is trained and ready for predictions.</div>' : '<div style="color: #6b7280;">DeepLog model needs to be trained first. Visit the <a href="/dashboard/deeplog" target="_blank" style="color: #6366f1;">DeepLog Dashboard</a> to train the model.</div>'}
+                </div>
+            `;
+            
+            // Model statistics if available
+            if (modelInfo.model_stats) {
+                const stats = modelInfo.model_stats;
+                html += '<div style="margin-top: 20px;"><h5>Model Statistics:</h5>';
+                html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
+                
+                Object.entries(stats).forEach(([key, value]) => {
+                    html += `
+                        <div style="background: #f9fafb; padding: 12px; border-radius: 6px;">
+                            <div style="color: #6b7280; font-size: 14px;">${key.replace(/_/g, ' ').toUpperCase()}</div>
+                            <div style="font-weight: bold; font-size: 16px;">${value}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+            }
+            
+            // Training history length
+            if (modelInfo.training_history_length) {
+                html += `
+                    <div style="margin-top: 15px; background: #f3f4f6; padding: 12px; border-radius: 6px;">
+                        <strong>Training History:</strong> ${modelInfo.training_history_length} sessions
+                    </div>
+                `;
+            }
+            
+            // Last training info
+            if (modelInfo.last_training) {
+                html += `
+                    <div style="margin-top: 15px; background: #f3f4f6; padding: 12px; border-radius: 6px;">
+                        <strong>Last Training:</strong> ${modelInfo.last_training}
+                    </div>
+                `;
+            }
+            
+            // Cached predictions
+            if (modelInfo.cached_predictions) {
+                html += `
+                    <div style="margin-top: 15px; background: #f3f4f6; padding: 12px; border-radius: 6px;">
+                        <strong>Cached Predictions:</strong> ${modelInfo.cached_predictions}
+                    </div>
+                `;
+            }
+            
+            // Link to dashboard
+            html += `
+                <div style="margin-top: 20px; text-align: center;">
+                    <a href="/dashboard/deeplog" target="_blank" style="
+                        display: inline-block;
+                        background: #6366f1; 
+                        color: white; 
+                        padding: 10px 20px; 
+                        border-radius: 6px; 
+                        text-decoration: none; 
+                        font-weight: bold;
+                    ">
+                        🧠 Open DeepLog Dashboard
+                    </a>
+                </div>
+            `;
+            
+            html += '</div>';
+            display.innerHTML = html;
+        }
+        
+        // Header functionality
+        function handleForceProcessInput() {
+            const confirm = window.confirm('🔄 Force process any EJ files in the input directory? This will scan for and process any unprocessed files.');
+            if (!confirm) return;
+
+            fetch('/api/v1/process/force-input', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.files_processed > 0) {
+                    alert(`✅ Successfully processed ${result.files_processed} files from input directory.`);
+                } else {
+                    alert(`ℹ️ ${result.message}`);
+                }
+                window.location.reload();
+            })
+            .catch(error => {
+                console.error('Force process error:', error);
+                alert('❌ Failed to process input directory. Please try again.');
+            });
+        }
+
+        function handleClearAllData() {
+            const firstConfirm = window.confirm('⚠️ Are you sure you want to clear ALL data? This will permanently remove all transactions, training data, and reset the system.');
+            if (!firstConfirm) return;
+
+            const secondConfirm = window.prompt('🔴 FINAL CONFIRMATION: Type "CLEAR ALL" to confirm you want to clear all data:');
+            if (secondConfirm !== 'CLEAR ALL') {
+                alert('❌ Operation cancelled. Data was not cleared.');
+                return;
+            }
+
+            fetch('/api/v1/data/clear-all?confirm=true', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    alert('✅ All data has been successfully cleared. The system has been reset.');
+                    window.location.reload();
+                } else {
+                    return response.text().then(error => {
+                        alert(`❌ Failed to clear data: ${error}`);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Clear data error:', error);
+                alert('❌ Failed to clear data. Please try again.');
+            });
+        }
+
+        // File upload handler
+        document.getElementById('file-upload').addEventListener('change', async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/v1/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    alert('File uploaded successfully. Processing will begin shortly.');
+                } else {
+                    alert('Failed to upload file');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                alert('Failed to upload file');
+            }
+        });
+
+        // Update timestamp
+        function updateTimestamp() {
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Initialize
+        updateTimestamp();
+        setInterval(updateTimestamp, 30000); // Update every 30 seconds
+    </script>
+    </div> <!-- Close main-container -->
+</body>
+</html>

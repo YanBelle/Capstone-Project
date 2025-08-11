@@ -94,6 +94,7 @@ class TransactionSession:
     raw_text: str
     start_time: Optional[datetime]
     end_time: Optional[datetime]
+    terminal_id: Optional[str] = None  # ABM Terminal ID extracted from filename
     embedding: Optional[np.ndarray] = None
     
     # Multi-anomaly support
@@ -299,7 +300,44 @@ class MLFirstAnomalyDetector:
             'ml_ensemble': {'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0},
             'clustering': {'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0}
         }
-    
+
+    def load_pretrained_ml_models(self):
+        """Load pre-trained ML models if available"""
+        try:
+            # Try to load BERT model and tokenizer
+            if self.model_name:
+                try:
+                    from transformers import BertTokenizer, BertModel
+                    self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
+                    self.bert_model = BertModel.from_pretrained(self.model_name)
+                    logger.info(f"Successfully loaded BERT model: {self.model_name}")
+                except Exception as e:
+                    logger.warning(f"Could not load BERT model {self.model_name}: {e}")
+                    self.tokenizer = None
+                    self.bert_model = None
+            
+            # Try to load any saved ML models
+            models_dir = '/app/models'
+            if os.path.exists(models_dir):
+                try:
+                    isolation_forest_path = os.path.join(models_dir, 'isolation_forest.pkl')
+                    if os.path.exists(isolation_forest_path):
+                        self.isolation_forest = joblib.load(isolation_forest_path)
+                        logger.info("Loaded pre-trained Isolation Forest model")
+                except Exception as e:
+                    logger.warning(f"Could not load Isolation Forest model: {e}")
+                
+                try:
+                    svm_path = os.path.join(models_dir, 'one_class_svm.pkl')
+                    if os.path.exists(svm_path):
+                        self.one_class_svm = joblib.load(svm_path)
+                        logger.info("Loaded pre-trained One-Class SVM model")
+                except Exception as e:
+                    logger.warning(f"Could not load One-Class SVM model: {e}")
+                    
+        except Exception as e:
+            logger.warning(f"Error loading pre-trained models: {e}")
+
     def collect_expert_feedback(self, session_id: str, expert_label: str, 
                                expert_confidence: float, feedback_type: str, 
                                expert_explanation: str = None) -> bool:
@@ -650,22 +688,28 @@ class MLFirstAnomalyDetector:
         - Take the session start time from the line immediately above the session start marker
         - Continue capturing all lines until the next "TRANSACTION START" or "CARDLESS TRANSACTION START" is found
         - This ensures we capture everything including post-transaction errors
+        - Extract terminal ID from filename in format: ABM{terminal_id}EJ_YYYYMMDD_YYYYMMDD.txt
         """
         logger.info("Splitting logs into transaction sessions")
         
         sessions = []
         
-        # Extract file identifier for unique session IDs
+        # Extract file identifier and terminal ID for unique session IDs
         file_identifier = "unknown"
+        terminal_id = None
+        
         if file_path:
             file_name = os.path.basename(file_path)
-            # Extract ABM number and date from filename like ABM175EJ_20250624_20250624.txt
+            # Extract ABM number and date from filename like ABM416EJ_20250101_20250630.txt
             file_match = re.search(r'ABM(\d+)EJ_(\d{8})_(\d{8})', file_name)
             if file_match:
+                terminal_id = file_match.group(1)  # Extract terminal ID (e.g., "416")
                 abm_num = file_match.group(1)
                 start_date = file_match.group(2)
                 file_identifier = f"ABM{abm_num}_{start_date}"
+                logger.info(f"Extracted terminal ID: {terminal_id} from filename: {file_name}")
             else:
+                logger.warning(f"Could not extract terminal ID from filename: {file_name}. Expected format: ABM{{terminal_id}}EJ_YYYYMMDD_YYYYMMDD.txt")
                 file_identifier = file_name.replace('.txt', '').replace('.', '_')
         
         # Add timestamp to ensure uniqueness across runs
@@ -728,7 +772,8 @@ class MLFirstAnomalyDetector:
                     session_id=session_id,
                     raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
+                    terminal_id=terminal_id  # Include terminal ID from filename
                 )
                 sessions.append(session)
         else:
@@ -781,7 +826,8 @@ class MLFirstAnomalyDetector:
                     session_id=session_id,
                     raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
+                    terminal_id=terminal_id  # Include terminal ID from filename
                 )
                 sessions.append(session)
         

@@ -1,0 +1,17 @@
+{
+  "description": "ATM cash depletion predictions and alerts", 
+  "iframe_url": "/cash-forecasting/", 
+  "api_endpoints": {
+    "status": "/api/cash-forecasting/terminal-status", 
+    "alerts": "/api/cash-forecasting/alerts", 
+    "predictions": "/api/cash-forecasting/predictions"
+  }, 
+  "height": 600, 
+  "id": "cash-forecasting", 
+  "color": "success", 
+  "refresh_interval": 300, 
+  "title": "Cash Forecasting", 
+  "width": 12, 
+  "icon": "fas fa-money-bill-wave", 
+  "type": "iframe"
+}

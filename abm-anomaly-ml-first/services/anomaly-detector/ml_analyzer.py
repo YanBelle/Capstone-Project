@@ -90,6 +90,7 @@ class TransactionSession:
     raw_text: str
     start_time: Optional[datetime]
     end_time: Optional[datetime]
+    terminal_id: Optional[str] = None  # ABM Terminal ID extracted from filename
     embedding: Optional[np.ndarray] = None
     
     # Multi-anomaly support
@@ -241,6 +242,13 @@ class MLFirstAnomalyDetector:
             kernel='rbf',
             gamma='auto',
             nu=0.05
+        )
+        
+        # DBSCAN for density-based anomaly detection
+        self.dbscan = DBSCAN(
+            eps=0.5,
+            min_samples=3,
+            metric='cosine'  # Works well with text embeddings
         )
         
         self.autoencoder = None
@@ -541,22 +549,28 @@ class MLFirstAnomalyDetector:
         - Take the session start time from the line immediately above the session start marker
         - Continue capturing all lines until the next "TRANSACTION START" or "CARDLESS TRANSACTION START" is found
         - This ensures we capture everything including post-transaction errors
+        - Extract terminal ID from filename in format: ABM{terminal_id}EJ_YYYYMMDD_YYYYMMDD.txt
         """
         logger.info("Splitting logs into transaction sessions")
         
         sessions = []
         
-        # Extract file identifier for unique session IDs
+        # Extract file identifier and terminal ID for unique session IDs
         file_identifier = "unknown"
+        terminal_id = None
+        
         if file_path:
             file_name = os.path.basename(file_path)
-            # Extract ABM number and date from filename like ABM175EJ_20250624_20250624.txt
+            # Extract ABM number and date from filename like ABM416EJ_20250101_20250630.txt
             file_match = re.search(r'ABM(\d+)EJ_(\d{8})_(\d{8})', file_name)
             if file_match:
+                terminal_id = file_match.group(1)  # Extract terminal ID (e.g., "416")
                 abm_num = file_match.group(1)
                 start_date = file_match.group(2)
                 file_identifier = f"ABM{abm_num}_{start_date}"
+                logger.info(f"Extracted terminal ID: {terminal_id} from filename: {file_name}")
             else:
+                logger.warning(f"Could not extract terminal ID from filename: {file_name}. Expected format: ABM{{terminal_id}}EJ_YYYYMMDD_YYYYMMDD.txt")
                 file_identifier = file_name.replace('.txt', '').replace('.', '_')
         
         # Add timestamp to ensure uniqueness across runs
@@ -619,7 +633,8 @@ class MLFirstAnomalyDetector:
                     session_id=session_id,
                     raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
+                    terminal_id=terminal_id  # Include terminal ID from filename
                 )
                 sessions.append(session)
         else:
@@ -672,7 +687,8 @@ class MLFirstAnomalyDetector:
                     session_id=session_id,
                     raw_text=cleaned_session_text,  # Store cleaned text as raw_text
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
+                    terminal_id=terminal_id  # Include terminal ID from filename
                 )
                 sessions.append(session)
         
@@ -829,18 +845,33 @@ class MLFirstAnomalyDetector:
         svm_predictions = self.one_class_svm.fit_predict(embeddings_scaled)
         svm_scores = self.one_class_svm.decision_function(embeddings_scaled)
         
+        # DBSCAN clustering - outliers are marked as -1
+        # Optimize DBSCAN parameters if we have enough data
+        if len(self.sessions) >= 20:
+            optimal_params = self.optimize_dbscan_parameters(embeddings_scaled)
+            self.dbscan.set_params(**optimal_params)
+            logger.info(f"Updated DBSCAN with optimized parameters: {optimal_params}")
+        
+        dbscan_labels = self.dbscan.fit_predict(embeddings_scaled)
+        dbscan_predictions = np.where(dbscan_labels == -1, -1, 1)  # Convert to anomaly format
+        
+        # Calculate DBSCAN anomaly scores based on distance to cluster centers
+        dbscan_scores = self._calculate_dbscan_scores(embeddings_scaled, dbscan_labels)
+        
         # Update sessions with results and apply expert knowledge for multi-anomaly detection
         for i, session in enumerate(self.sessions):
             # Normalize scores to 0-1 range
             if_score_norm = (if_scores[i] - if_scores.min()) / (if_scores.max() - if_scores.min() + 1e-8)
             svm_score_norm = (svm_scores[i] - svm_scores.min()) / (svm_scores.max() - svm_scores.min() + 1e-8)
+            dbscan_score_norm = (dbscan_scores[i] - dbscan_scores.min()) / (dbscan_scores.max() - dbscan_scores.min() + 1e-8)
             
             # Check for multiple types of anomalies
             self._detect_multiple_anomalies(session, if_predictions[i], svm_predictions[i], 
-                                           if_score_norm, svm_score_norm)
+                                           dbscan_predictions[i], if_score_norm, svm_score_norm, dbscan_score_norm)
             
-            # Update legacy fields for backwards compatibility
-            session.overall_anomaly_score = max(if_score_norm, svm_score_norm)
+            # Update legacy fields for backwards compatibility - ensemble voting
+            ensemble_score = max(if_score_norm, svm_score_norm, dbscan_score_norm)
+            session.overall_anomaly_score = ensemble_score
             session.is_anomaly = len(session.anomalies) > 0
             
             if session.anomalies:
@@ -853,12 +884,98 @@ class MLFirstAnomalyDetector:
             'if_predictions': if_predictions,
             'if_scores': if_scores,
             'svm_predictions': svm_predictions,
-            'svm_scores': svm_scores
+            'svm_scores': svm_scores,
+            'dbscan_predictions': dbscan_predictions,
+            'dbscan_scores': dbscan_scores,
+            'dbscan_labels': dbscan_labels
         }
     
+    def _calculate_dbscan_scores(self, embeddings_scaled: np.ndarray, dbscan_labels: np.ndarray) -> np.ndarray:
+        """Calculate anomaly scores for DBSCAN based on distance to cluster centers"""
+        from sklearn.metrics.pairwise import cosine_distances
+        
+        scores = np.zeros(len(embeddings_scaled))
+        
+        # For points in clusters, calculate distance to cluster center
+        unique_labels = np.unique(dbscan_labels)
+        cluster_centers = {}
+        
+        for label in unique_labels:
+            if label != -1:  # Skip noise points
+                cluster_mask = dbscan_labels == label
+                cluster_points = embeddings_scaled[cluster_mask]
+                cluster_centers[label] = np.mean(cluster_points, axis=0)
+        
+        for i, point in enumerate(embeddings_scaled):
+            if dbscan_labels[i] == -1:
+                # Noise point - calculate distance to nearest cluster center
+                if cluster_centers:
+                    min_distance = float('inf')
+                    for center in cluster_centers.values():
+                        distance = cosine_distances([point], [center])[0][0]
+                        min_distance = min(min_distance, distance)
+                    scores[i] = min_distance
+                else:
+                    scores[i] = 1.0  # Maximum anomaly if no clusters found
+            else:
+                # Point in cluster - calculate distance to its cluster center
+                center = cluster_centers[dbscan_labels[i]]
+                scores[i] = cosine_distances([point], [center])[0][0]
+        
+        return scores
+    
+    def optimize_dbscan_parameters(self, embeddings_scaled: np.ndarray) -> dict:
+        """Optimize DBSCAN parameters (eps and min_samples) for the given data"""
+        from sklearn.neighbors import NearestNeighbors
+        from sklearn.metrics import silhouette_score
+        
+        best_params = {'eps': 0.5, 'min_samples': 3}
+        best_score = -1
+        
+        # Find optimal eps using k-distance graph (k=3 for min_samples)
+        neighbors = NearestNeighbors(n_neighbors=3, metric='cosine')
+        neighbors_fit = neighbors.fit(embeddings_scaled)
+        distances, indices = neighbors_fit.kneighbors(embeddings_scaled)
+        
+        # Sort 3rd nearest neighbor distances
+        k_distances = np.sort(distances[:, 2], axis=0)
+        
+        # Try different eps values around the knee point
+        knee_point = k_distances[int(len(k_distances) * 0.9)]  # 90th percentile as knee
+        eps_candidates = np.linspace(knee_point * 0.5, knee_point * 2.0, 10)
+        min_samples_candidates = [2, 3, 4, 5]
+        
+        for eps in eps_candidates:
+            for min_samples in min_samples_candidates:
+                try:
+                    dbscan_test = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
+                    labels = dbscan_test.fit_predict(embeddings_scaled)
+                    
+                    # Skip if all points are noise or all in one cluster
+                    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+                    if n_clusters < 2 or n_clusters > len(embeddings_scaled) // 2:
+                        continue
+                    
+                    # Calculate silhouette score for non-noise points
+                    if len(set(labels)) > 1:
+                        mask = labels != -1
+                        if np.sum(mask) > 1:
+                            score = silhouette_score(embeddings_scaled[mask], labels[mask])
+                            if score > best_score:
+                                best_score = score
+                                best_params = {'eps': eps, 'min_samples': min_samples}
+                                
+                except Exception as e:
+                    continue
+        
+        logger.info(f"Optimized DBSCAN parameters: eps={best_params['eps']:.3f}, "
+                   f"min_samples={best_params['min_samples']}, silhouette_score={best_score:.3f}")
+        
+        return best_params
+    
     def _detect_multiple_anomalies(self, session: TransactionSession, if_pred: int, svm_pred: int, 
-                                  if_score: float, svm_score: float):
-        """Detect multiple types of anomalies in a single session"""
+                                  dbscan_pred: int, if_score: float, svm_score: float, dbscan_score: float):
+        """Detect multiple types of anomalies in a single session using ensemble of three models"""
         events = self.extract_key_events(session.raw_text)
         
         # First check for normal patterns that should override anomaly detection
@@ -882,6 +999,15 @@ class MLFirstAnomalyDetector:
                 detection_method="one_class_svm",
                 description="Session identified as statistical outlier by One-Class SVM",
                 severity=self._determine_severity(1.0 - svm_score)
+            )
+        
+        if dbscan_pred == -1:
+            session.add_anomaly(
+                anomaly_type="density_outlier",
+                confidence=dbscan_score,  # Higher distance = higher anomaly confidence
+                detection_method="dbscan",
+                description="Session identified as density-based outlier by DBSCAN clustering",
+                severity=self._determine_severity(dbscan_score)
             )
         
         # Check for specific anomaly patterns
@@ -1426,6 +1552,125 @@ class MLFirstAnomalyDetector:
         else:
             return "low"
     
+    def parse_cassette_counters(self, session: TransactionSession) -> Optional[Dict[str, Any]]:
+        """
+        Parse cassette counter information from EJ session for cash forecasting.
+        
+        Returns cassette counter data if the session contains a successful withdrawal,
+        None otherwise.
+        
+        Expected format in EJ logs:
+        MACHINE 416
+        DATE TIME 2025/01/15 14:30:25
+        DENOMINATION    20    50   100    20
+        DISPENSED        2     1     0     3
+        REJECTED         0     0     0     0
+        REMAINING      498   799   300   597
+        """
+        text = session.raw_text
+        
+        # Only parse cassette data for sessions with "NOTES PRESENTED" (successful withdrawals)
+        if "NOTES PRESENTED" not in text.upper():
+            return None
+        
+        try:
+            # Extract machine number
+            machine_match = re.search(r"MACHINE\s+(\d+)", text, re.IGNORECASE)
+            
+            # Extract date/time
+            datetime_match = re.search(r"DATE\s+TIME\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})", text, re.IGNORECASE)
+            
+            # Extract cassette information - precise regex to capture exactly 4 numbers
+            denom_match = re.search(r"DENOMINATION\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            dispensed_match = re.search(r"DISPENSED\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            rejected_match = re.search(r"REJECTED\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            remaining_match = re.search(r"REMAINING\s+((?:\d+\s*){4})", text, re.IGNORECASE)
+            
+            # Verify all required data is present
+            if not all([denom_match, dispensed_match, rejected_match, remaining_match]):
+                logger.debug(f"Missing cassette data in session {session.session_id}")
+                return None
+            
+            # Parse the numeric data
+            denominations = [int(x) for x in denom_match.group(1).split()]
+            dispensed = [int(x) for x in dispensed_match.group(1).split()]
+            rejected = [int(x) for x in rejected_match.group(1).split()]
+            remaining = [int(x) for x in remaining_match.group(1).split()]
+            
+            # Verify we have data for exactly 4 cassettes
+            if not all(len(lst) == 4 for lst in [denominations, dispensed, rejected, remaining]):
+                logger.warning(f"Incorrect cassette count in session {session.session_id}. Expected 4 cassettes.")
+                return None
+            
+            # Extract machine and datetime
+            machine = machine_match.group(1) if machine_match else "UNKNOWN"
+            
+            if datetime_match:
+                dt_str = f"{datetime_match.group(1)} {datetime_match.group(2)}"
+                transaction_datetime = datetime.strptime(dt_str, "%Y/%m/%d %H:%M:%S")
+            else:
+                # Fallback to session start time or current time
+                transaction_datetime = session.start_time or datetime.now()
+            
+            # Calculate total amounts
+            total_dispensed = sum(dispensed[i] * denominations[i] for i in range(4))
+            total_rejected = sum(rejected[i] * denominations[i] for i in range(4))
+            
+            # Extract raw cassette section for debugging
+            cassette_section_match = re.search(
+                r"(DENOMINATION.*?REMAINING\s+[\d\s]+)", 
+                text, 
+                re.IGNORECASE | re.DOTALL
+            )
+            raw_cassette_data = cassette_section_match.group(1) if cassette_section_match else ""
+            
+            cassette_data = {
+                "session_id": session.session_id,
+                "terminal_id": session.terminal_id,  # Use terminal_id (same as machine number)
+                "transaction_datetime": transaction_datetime,
+                
+                # Remaining counts after withdrawal
+                "cassette_1_remaining": remaining[0],
+                "cassette_2_remaining": remaining[1],
+                "cassette_3_remaining": remaining[2],
+                "cassette_4_remaining": remaining[3],
+                
+                # Denominations
+                "cassette_1_denomination": denominations[0],
+                "cassette_2_denomination": denominations[1],
+                "cassette_3_denomination": denominations[2],
+                "cassette_4_denomination": denominations[3],
+                
+                # Dispensed amounts for this transaction
+                "cassette_1_dispensed": dispensed[0],
+                "cassette_2_dispensed": dispensed[1],
+                "cassette_3_dispensed": dispensed[2],
+                "cassette_4_dispensed": dispensed[3],
+                
+                # Rejected amounts for this transaction
+                "cassette_1_rejected": rejected[0],
+                "cassette_2_rejected": rejected[1],
+                "cassette_3_rejected": rejected[2],
+                "cassette_4_rejected": rejected[3],
+                
+                # Totals
+                "total_dispensed_amount": total_dispensed,
+                "total_rejected_amount": total_rejected,
+                "withdrawal_successful": total_dispensed > 0,
+                
+                # Metadata
+                "raw_cassette_data": raw_cassette_data
+            }
+            
+            logger.info(f"Parsed cassette data for session {session.session_id}: "
+                       f"Terminal {session.terminal_id}, Total dispensed: ${total_dispensed}")
+            
+            return cassette_data
+            
+        except Exception as e:
+            logger.error(f"Error parsing cassette counters for session {session.session_id}: {str(e)}")
+            return None
+
     def _analyze_unable_to_process_context(self, text: str, events: List[str]) -> Dict[str, Any]:
         """Analyze the context of 'UNABLE TO PROCESS' to categorize the host decline reason"""
         
@@ -2455,6 +2700,10 @@ class MLFirstAnomalyDetector:
                 joblib.dump(self.one_class_svm, os.path.join(model_dir, 'one_class_svm.pkl'))
                 logger.info("Saved One-Class SVM model")
                 
+            if hasattr(self, 'dbscan') and self.dbscan is not None:
+                joblib.dump(self.dbscan, os.path.join(model_dir, 'dbscan.pkl'))
+                logger.info("Saved DBSCAN model")
+                
             # Save supervised classifier if it exists
             if hasattr(self, 'supervised_classifier') and self.supervised_classifier is not None:
                 joblib.dump(self.supervised_classifier, os.path.join(model_dir, 'supervised_classifier.pkl'))
@@ -2672,7 +2921,19 @@ class MLFirstAnomalyDetector:
         Analyze text for negative sentiment and failure indicators
         Returns sentiment scores and detected negative patterns
         """
-        text = session.raw_text
+
+         # Import and use BertViz for text preprocessing
+        try:
+            from bertviz_analyzer import BertVisualizationAnalyzer
+            bert_analyzer = BertVisualizationAnalyzer()
+            text = bert_analyzer._process_text(session.raw_text)
+        except ImportError:
+            logger.warning("BertViz analyzer not available, using raw text")
+            text = session.raw_text
+        except Exception as e:
+            logger.warning(f"Error in BertViz text processing: {str(e)}, using raw text")
+            text = session.raw_text
+
         sentiment_results = {
             'vader_score': 0.0,
             'textblob_score': 0.0,
@@ -3056,8 +3317,19 @@ class MLFirstAnomalyDetector:
             return
         
         try:
-            # Extract event sequence for DeepLog analysis
-            event_sequence = self.deeplog_analyzer.extract_event_sequence(session.raw_text)
+            try:
+                # Extract event sequence for DeepLog analysis
+                from bertviz_analyzer import BertVisualizationAnalyzer
+                bert_analyzer = BertVisualizationAnalyzer()
+                text = bert_analyzer._process_text(session.raw_text)
+            except ImportError:
+                logger.warning("BertViz analyzer not available, using raw text")
+                text = session.raw_text
+            except Exception as e:
+                logger.warning(f"Error in BertViz text processing: {str(e)}, using raw text")
+                text = session.raw_text
+                
+            event_sequence = self.deeplog_analyzer.extract_event_sequence(text)
             
             if len(event_sequence) < 2:  # Need at least 2 events for sequence analysis
                 return
