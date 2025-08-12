@@ -1,0 +1,56 @@
+TRANSACTION START
+Card Inserted: **** **** **** 1234
+PIN Verified
+Balance Inquiry Request
+Account: CHK 123456789
+Balance: $1,250.50
+Receipt Printed
+Card Removed
+TRANSACTION END
+
+TRANSACTION START
+Card Inserted: **** **** **** 5678
+PIN Verified
+Cash Withdrawal Request
+Account: SAV 987654321
+Amount: $100.00
+Cash Dispensed: $100.00
+Balance: $875.25
+Receipt Printed
+Card Removed
+TRANSACTION END
+
+TRANSACTION START
+Card Inserted: **** **** **** 9012
+PIN Verified
+Transfer Request
+From Account: CHK 111111111
+To Account: SAV 222222222
+Amount: $250.00
+Transfer Completed
+New Balance CHK: $1,750.00
+New Balance SAV: $3,250.00
+Receipt Printed
+Card Removed
+TRANSACTION END
+
+TRANSACTION START
+Card Inserted: **** **** **** 3456
+PIN Entry Attempt 1: FAILED
+PIN Entry Attempt 2: FAILED
+PIN Entry Attempt 3: FAILED
+Card Retained
+Security Alert Generated
+TRANSACTION END
+
+TRANSACTION START
+Card Inserted: **** **** **** 7890
+PIN Verified
+Deposit Request
+Account: CHK 555555555
+Deposit Amount: $500.00
+Cash Accepted: $500.00
+New Balance: $2,100.75
+Receipt Printed
+Card Removed
+TRANSACTION END

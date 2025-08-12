@@ -19,6 +19,8 @@ import {
 import TrainingVisualization from './components/TrainingVisualization';
 
 const SessionReview = () => {
+  console.log('SessionReview component loaded - Live Data Fix v2.0');
+  
   const [activeTab, setActiveTab] = useState('sessions');
   const [sessions, setSessions] = useState([]);
   const [filteredSessions, setFilteredSessions] = useState([]);
@@ -43,29 +45,34 @@ const SessionReview = () => {
   const fetchSessions = async () => {
     try {
       setLoading(true);
+      console.log('SessionReview: Starting to fetch sessions from API...');
       
-      // Try to fetch real sessions from continuous learning feedback endpoint
-      const response = await fetch('/api/v1/continuous-learning/feedback-sessions?limit=1000');
+      // Fetch all sessions from the main sessions endpoint
+      const response = await fetch('/api/v1/sessions?limit=1000&anomaly_filter=all');
+      console.log('SessionReview: API response status:', response.status);
+      
       const data = await response.json();
+      console.log('SessionReview: API data received:', data);
       
-      if (data.status === 'success' && data.sessions) {
-        // Transform the feedback sessions to match our UI format
+      if (data.sessions && Array.isArray(data.sessions)) {
+        // Transform the database sessions to match our UI format
         const transformedSessions = data.sessions.map(session => ({
           session_id: session.session_id,
-          status: session.anomaly_score > 0.5 ? 'anomaly' : 'normal',
-          anomaly_type: session.anomaly_type || (session.anomaly_score > 0.5 ? 'Unknown Anomaly' : null),
-          start_time: session.start_time,
-          transaction_count: Math.floor(Math.random() * 50) + 1, // Will be filled from session details
-          confidence_score: session.anomaly_score
+          status: session.is_anomaly ? 'anomaly' : 'normal',
+          anomaly_type: session.anomaly_type || (session.is_anomaly ? 'Unknown Anomaly' : null),
+          start_time: session.timestamp || session.created_at,
+          transaction_count: session.session_length || 0,
+          confidence_score: session.anomaly_score || 0.0
         }));
         
         setSessions(transformedSessions);
+        console.log(`SessionReview: Successfully loaded ${transformedSessions.length} sessions from database (total: ${data.total})`);
       } else {
-        console.warn('No feedback sessions available, falling back to mock data');
+        console.warn('SessionReview: No sessions returned from API, falling back to mock data');
         setSessions(generateMockSessions());
       }
     } catch (error) {
-      console.error('Error fetching sessions:', error);
+      console.error('SessionReview: Error fetching sessions:', error);
       // Use mock data if API fails
       setSessions(generateMockSessions());
     } finally {
@@ -176,41 +183,39 @@ const SessionReview = () => {
     setLoadingDetails(true);
     
     try {
-      // Fetch actual session details from API
-      const response = await fetch(`/api/v1/continuous-learning/session-details/${session.session_id}`);
+      // Fetch session text data from the sessions API
+      const response = await fetch(`/api/v1/sessions/${session.session_id}/texts`);
       
       if (response.ok) {
         const data = await response.json();
         
-        if (data.status === 'success' && data.session) {
-          const sessionData = data.session;
-          
-          // Use the cleaned text provided by the API (BertViz preprocessed)
-          const rawEJ = sessionData.raw_text || 'Raw EJ data not available';
-          const cleanedEJ = sessionData.cleaned_text || rawEJ;
+        if (data.status === 'success') {
+          // Use the text data provided by the API
+          const rawEJ = data.raw_text || 'Raw EJ data not available';
+          const cleanedEJ = data.cleaned_text || rawEJ;
           
           setSessionDetails({
             session_id: session.session_id,
             raw_ej: rawEJ,
             cleaned_ej: cleanedEJ,
-            start_time: sessionData.start_time || session.start_time,
-            end_time: sessionData.end_time || session.end_time,
+            start_time: session.start_time,
+            end_time: session.end_time || 'N/A',
             status: session.status,
             anomaly_type: session.anomaly_type,
             confidence_score: session.confidence_score,
-            transaction_count: sessionData.session_length || session.transaction_count,
+            transaction_count: session.transaction_count,
             processing_info: {
-              detected_patterns: sessionData.detected_patterns || [],
-              critical_events: sessionData.critical_events || [],
-              expert_override: sessionData.expert_override_applied,
-              expert_reason: sessionData.expert_override_reason,
+              detected_patterns: data.structured_events?.detected_patterns || [],
+              critical_events: data.structured_events?.critical_events || [],
+              expert_override: false,
+              expert_reason: null,
               preprocessing_applied: true,
               cleaning_method: 'BertViz Enhanced Server-side Preprocessing',
-              preprocessing_details: sessionData.preprocessing_info || {}
+              text_lengths: data.text_lengths || {}
             }
           });
         } else {
-          throw new Error(`API returned error: ${data.message || 'Session data not found'}`);
+          throw new Error(`API returned error: ${data.message || 'Session text data not found'}`);
         }
       } else if (response.status === 404) {
         // Session not found, try alternative endpoint
@@ -324,13 +329,18 @@ Please check the session ID and try again.`,
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Session Review</h1>
-        <button
-          onClick={fetchSessions}
-          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </button>
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">
+            Live Data Fix Applied - Build 2.0
+          </span>
+          <button
+            onClick={fetchSessions}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Tab Navigation */}

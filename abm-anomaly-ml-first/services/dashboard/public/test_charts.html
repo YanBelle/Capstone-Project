@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cash Forecasting Charts Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .chart-container { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+        canvas { max-width: 100%; height: 300px; }
+    </style>
+</head>
+<body>
+    <h1>Cash Forecasting Visualizations - Test Page</h1>
+    <p>Testing Chart.js integration with cash forecasting API</p>
+    
+    <div class="chart-container">
+        <h2>Terminal 416 Charts</h2>
+        <div class="chart-grid">
+            <div>
+                <h3>Historical Cash Levels</h3>
+                <canvas id="historical-chart"></canvas>
+            </div>
+            <div>
+                <h3>Daily Trends</h3>
+                <canvas id="trend-chart"></canvas>
+            </div>
+            <div>
+                <h3>Usage by Hour</h3>
+                <canvas id="usage-chart"></canvas>
+            </div>
+            <div>
+                <h3>7-Day Predictions</h3>
+                <canvas id="predictions-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div id="status">Loading charts...</div>
+
+    <script>
+        async function loadCharts() {
+            try {
+                const response = await fetch('/api/cash-forecasting/visualization-data/416');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                document.getElementById('status').innerHTML = `<strong>Data loaded successfully!</strong><br>Generated at: ${data.generated_at}`;
+                
+                // Historical Cash Levels Chart
+                const histCtx = document.getElementById('historical-chart').getContext('2d');
+                new Chart(histCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.charts.historical_cash_levels.map(d => new Date(d.timestamp).toLocaleTimeString()),
+                        datasets: [{
+                            label: 'Cash Level',
+                            data: data.charts.historical_cash_levels.map(d => d.cash_level),
+                            borderColor: 'rgb(75, 192, 192)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+
+                // Daily Trend Chart
+                const trendCtx = document.getElementById('trend-chart').getContext('2d');
+                new Chart(trendCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.charts.daily_trend.map(d => d.date),
+                        datasets: [{
+                            label: 'Average Cash',
+                            data: data.charts.daily_trend.map(d => d.average_cash),
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+
+                // Usage by Hour Chart
+                const usageCtx = document.getElementById('usage-chart').getContext('2d');
+                const hourlyData = data.charts.usage_by_hour;
+                new Chart(usageCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(hourlyData).map(h => `${h}:00`),
+                        datasets: [{
+                            label: 'Average Dispensed',
+                            data: Object.values(hourlyData).map(d => d.average_dispensed),
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+
+                // Predictions Chart
+                const predCtx = document.getElementById('predictions-chart').getContext('2d');
+                new Chart(predCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.charts.predictions.map(d => d.date),
+                        datasets: [{
+                            label: 'Predicted Cash',
+                            data: data.charts.predictions.map(d => d.predicted_cash),
+                            borderColor: 'rgb(255, 159, 64)',
+                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+
+                console.log('All charts loaded successfully');
+                
+            } catch (error) {
+                console.error('Error loading charts:', error);
+                document.getElementById('status').innerHTML = `<strong style="color: red;">Error loading charts:</strong> ${error.message}`;
+            }
+        }
+
+        // Load charts when page is ready
+        document.addEventListener('DOMContentLoaded', loadCharts);
+    </script>
+</body>
+</html>

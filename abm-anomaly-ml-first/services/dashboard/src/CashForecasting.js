@@ -17,20 +17,23 @@ const CashForecasting = () => {
       setLoading(true);
       setError(null);
 
+      // Use the nginx proxied endpoints
+      const API_BASE = '/api/cash-forecasting';
+
       // Fetch terminal status
-      const statusResponse = await fetch('/api/cash-forecasting/terminal-status');
+      const statusResponse = await fetch(`${API_BASE}/terminal-status`);
       if (!statusResponse.ok) throw new Error('Failed to fetch terminal status');
       const statusData = await statusResponse.json();
       setTerminalStatus(statusData);
 
       // Fetch alerts
-      const alertsResponse = await fetch('/api/cash-forecasting/alerts');
+      const alertsResponse = await fetch(`${API_BASE}/alerts`);
       if (!alertsResponse.ok) throw new Error('Failed to fetch alerts');
       const alertsData = await alertsResponse.json();
       setAlerts(alertsData);
 
       // Fetch predictions
-      const predictionsResponse = await fetch('/api/cash-forecasting/predictions');
+      const predictionsResponse = await fetch(`${API_BASE}/predictions`);
       if (!predictionsResponse.ok) throw new Error('Failed to fetch predictions');
       const predictionsData = await predictionsResponse.json();
       setPredictions(predictionsData);
@@ -54,7 +57,8 @@ const CashForecasting = () => {
   // Trigger model retraining
   const triggerRetraining = async () => {
     try {
-      const response = await fetch('/api/cash-forecasting/retrain', {
+      const API_BASE = '/api/cash-forecasting';
+      const response = await fetch(`${API_BASE}/retrain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });

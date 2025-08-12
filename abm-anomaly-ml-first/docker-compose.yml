@@ -46,6 +46,7 @@ services:
       - ./data/input:/app/input
       - ./data/output:/app/output
       - ./data/sessions:/app/data/sessions
+      - ./shared:/app/shared  # Add shared directory for unified ML analyzer
       - transformer-cache:/app/cache
       - /var/log/abm-ml-anomaly-detector:/app/logs  # Host-persisted logs
     depends_on:
@@ -82,6 +83,7 @@ services:
       - ./data/input:/app/input
       - ./data/processed:/app/data/processed
       - ./data/sessions:/app/data/sessions
+      - ./shared:/app/shared  # Add shared directory for unified ML analyzer
     depends_on:
       - postgres
       - redis
