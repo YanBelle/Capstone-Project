@@ -15,8 +15,39 @@ from typing import List, Dict, Tuple, Any
 import re
 from sklearn.preprocessing import LabelEncoder
 
-# Import the ML-first anomaly detector
-from ml_analyzer import MLFirstAnomalyDetector
+# Import the ML-first anomaly detector - Use unified analyzer
+try:
+    # Try to import unified analyzer from shared directory
+    import sys
+    import os
+    
+    # Try multiple paths for the shared directory (dev vs container environments)
+    shared_paths = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'shared'),  # Development
+        '/app/shared',  # Container path
+        '/app/../shared',  # Container relative path
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '../../shared'))  # Absolute dev path
+    ]
+    
+    unified_imported = False
+    for shared_path in shared_paths:
+        try:
+            if os.path.exists(shared_path):
+                sys.path.insert(0, shared_path)
+                from ml_analyzer_unified import UnifiedMLAnomalyDetector as MLFirstAnomalyDetector
+                logger.info(f"Using Unified ML Analyzer from {shared_path}")
+                unified_imported = True
+                break
+        except ImportError:
+            continue
+    
+    if not unified_imported:
+        raise ImportError("Unified analyzer not found in any path")
+        
+except ImportError as e:
+    # Fallback to original analyzer
+    from ml_analyzer import MLFirstAnomalyDetector
+    logger.info(f"Using original ML Analyzer (fallback): {e}")
 
 load_dotenv()
 
@@ -41,8 +72,22 @@ class MLFirstEJProcessor:
             decode_responses=True
         )
         
-        # Initialize ML detector with database connection
-        self.detector = MLFirstAnomalyDetector(db_engine=self.db_engine)
+        # Initialize ML detector with database connection and service mode
+        try:
+            # Try unified analyzer first
+            self.detector = MLFirstAnomalyDetector(
+                model_name='bert-base-uncased', 
+                db_engine=self.db_engine, 
+                service_mode='anomaly-detector'
+            )
+            logger.info("Successfully initialized unified ML analyzer")
+        except TypeError:
+            # Fallback to original analyzer constructor (no service_mode parameter)
+            self.detector = MLFirstAnomalyDetector(
+                model_name='bert-base-uncased', 
+                db_engine=self.db_engine
+            )
+            logger.info("Successfully initialized original ML analyzer (fallback)")
         
         # Load existing models if available
         self.load_models()
@@ -1047,8 +1092,11 @@ class MLFirstEJProcessor:
     def process_realtime_session(self, session_text: str, terminal_id: str = None) -> dict:
         """Process a single session in real-time (enhanced for production)"""
         try:
-            # Create a temporary session
-            from ml_analyzer import TransactionSession
+            # Create a temporary session - Import from unified analyzer
+            try:
+                from ml_analyzer_unified import TransactionSession
+            except ImportError:
+                from ml_analyzer import TransactionSession
             
             session = TransactionSession(
                 session_id=f"realtime_{datetime.now().timestamp()}",

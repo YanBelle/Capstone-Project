@@ -523,6 +523,9 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
         Dictionary with processing results
     """
     try:
+        # Initialize processed_raw_content to avoid UnboundLocalError
+        processed_raw_content = raw_ej_content
+        
         # Apply BertViz preprocessing to raw EJ content before any other processing
         try:
             from bertviz_analyzer import BertVisualizationAnalyzer
@@ -533,10 +536,10 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
             # Use the cleaned content for further processing
             processed_raw_content = bertviz_cleaned_content
         except ImportError:
-            logger.warning("BertViz analyzer not available, using original raw content")
+            logger.warning("BertViz analyzer not available, using original raw content FUNC: process_and_store_ej_session")
             processed_raw_content = raw_ej_content
         except Exception as e:
-            logger.error(f"Error applying BertViz cleaning: {str(e)}, using original raw content")
+            logger.error(f"Error applying BertViz cleaning: {str(e)}, using original raw content FUNC: process_and_store_ej_session")
             processed_raw_content = raw_ej_content
         
         if not EJ_CLEANER_AVAILABLE:
@@ -549,7 +552,7 @@ def process_and_store_ej_session(session_id: str, raw_ej_content: str,
             }
         else:
             # Clean the processed EJ content with the EJ cleaner
-            cleaned_result = ej_cleaner.clean_ej_log(processed_raw_content)
+            cleaned_result = ej_cleaner.clean_ej_log(raw_ej_content)
         
         # Store in database
         with db_engine.connect() as conn:
@@ -685,8 +688,61 @@ def batch_process_ej_files(input_directory: str = "/app/input/processed") -> Dic
                         update_ej_processing_progress(operation_id, i, current_file=filename, error="Empty file")
                     continue
                 
-                # Process and store
-                result = process_and_store_ej_session(session_id, raw_content)
+                # Use ML analyzer to sessionize the file content into individual transactions
+                if ml_analyzer is not None:
+                    logger.info(f"Using ML analyzer to sessionize {filename} into individual transactions")
+                    try:
+                        # Use the ML analyzer to split the file into individual transaction sessions
+                        sessions = ml_analyzer.split_into_sessions(raw_content, file_path)
+                        logger.info(f"ML analyzer found {len(sessions)} individual transactions in {filename}")
+                        
+                        # Process each session individually
+                        session_results = []
+                        for session_idx, session in enumerate(sessions):
+                            # Create unique session ID for each transaction
+                            transaction_session_id = f"{session_id}_txn_{session_idx+1:03d}"
+                            
+                            # Extract session content (lines combined)
+                            session_content = '\n'.join(session.content)
+                            
+                            # Process and store this individual transaction session
+                            session_result = process_and_store_ej_session(transaction_session_id, session_content)
+                            session_results.append(session_result)
+                            
+                            if session_result['status'] == 'success':
+                                logger.info(f"Stored transaction session {transaction_session_id}")
+                            else:
+                                logger.error(f"Failed to store transaction session {transaction_session_id}: {session_result.get('error', 'Unknown error')}")
+                        
+                        # Aggregate results for this file
+                        successful_sessions = sum(1 for r in session_results if r['status'] == 'success')
+                        failed_sessions = len(session_results) - successful_sessions
+                        
+                        result = {
+                            'status': 'success' if successful_sessions > 0 else 'error',
+                            'session_id': session_id,
+                            'sessions_created': successful_sessions,
+                            'sessions_failed': failed_sessions,
+                            'total_sessions': len(sessions),
+                            'original_length': len(raw_content),
+                            'ml_analysis_applied': True,
+                            'error': f"{failed_sessions} sessions failed" if failed_sessions > 0 else None
+                        }
+                        
+                    except Exception as ml_error:
+                        logger.error(f"ML analyzer failed for {filename}: {ml_error}")
+                        # Fallback to single session processing
+                        result = process_and_store_ej_session(session_id, raw_content)
+                        result['ml_analysis_applied'] = False
+                        result['sessions_created'] = 1 if result['status'] == 'success' else 0
+                        result['fallback_reason'] = f"ML analyzer error: {str(ml_error)}"
+                else:
+                    # Fallback to original method if ML analyzer not available
+                    logger.warning(f"ML analyzer not available, falling back to single session processing for {filename}")
+                    result = process_and_store_ej_session(session_id, raw_content)
+                    result['ml_analysis_applied'] = False
+                    result['sessions_created'] = 1 if result['status'] == 'success' else 0
+                
                 processed_results.append(result)
                 
                 if result['status'] == 'success':
@@ -727,22 +783,36 @@ def batch_process_ej_files(input_directory: str = "/app/input/processed") -> Dic
             total_original = sum(r.get('original_length', 0) for r in successful_results)
             total_cleaned = sum(r.get('cleaned_length', 0) for r in successful_results)
             total_events = sum(r.get('events_extracted', 0) for r in successful_results)
+            total_sessions_created = sum(r.get('sessions_created', 1) for r in successful_results)  # Default to 1 for backward compatibility
+            ml_processed_count = sum(1 for r in successful_results if r.get('ml_analysis_applied', False))
             
             summary_stats = {
                 'total_files_found': len(ej_files),
                 'successful_processing': successful_count,
                 'processing_errors': error_count,
+                'total_sessions_created': total_sessions_created,
+                'ml_processed_files': ml_processed_count,
+                'fallback_processed_files': successful_count - ml_processed_count,
                 'total_original_chars': total_original,
                 'total_cleaned_chars': total_cleaned,
                 'overall_compression_ratio': total_cleaned / total_original if total_original > 0 else 0,
                 'total_events_extracted': total_events,
-                'average_events_per_session': total_events / successful_count if successful_count > 0 else 0
+                'average_events_per_session': total_events / total_sessions_created if total_sessions_created > 0 else 0,
+                'average_sessions_per_file': total_sessions_created / successful_count if successful_count > 0 else 0
             }
         else:
+            successful_results = [r for r in processed_results if r['status'] == 'success']
+            total_sessions_created = sum(r.get('sessions_created', 1) for r in successful_results)
+            ml_processed_count = sum(1 for r in successful_results if r.get('ml_analysis_applied', False))
+            
             summary_stats = {
                 'total_files_found': len(ej_files),
                 'successful_processing': successful_count,
                 'processing_errors': error_count,
+                'total_sessions_created': total_sessions_created,
+                'ml_processed_files': ml_processed_count,
+                'fallback_processed_files': successful_count - ml_processed_count,
+                'average_sessions_per_file': total_sessions_created / successful_count if successful_count > 0 else 0,
                 'note': 'EJ Cleaner not available - raw storage only'
             }
         
@@ -852,13 +922,25 @@ async def startup_event():
     # Initialize ML analyzer
     global ml_analyzer
     try:
-        # Import here to avoid circular imports
-        from ml_analyzer import MLFirstAnomalyDetector
-        ml_analyzer = MLFirstAnomalyDetector('bert-base-uncased')
-        logger.info("ML Analyzer initialized successfully for session evaluation")
+        # Import unified ML analyzer from shared directory
+        import sys
+        import os
+        shared_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'shared')
+        sys.path.append(shared_path)
+        
+        from ml_analyzer_unified import UnifiedMLAnomalyDetector
+        ml_analyzer = UnifiedMLAnomalyDetector(model_name='bert-base-uncased', service_mode='api')
+        logger.info("Unified ML Analyzer initialized successfully for API service")
     except Exception as e:
-        logger.warning(f"Failed to initialize ML Analyzer: {e}")
-        ml_analyzer = None
+        logger.warning(f"Failed to initialize Unified ML Analyzer: {e}")
+        # Fallback to original analyzer
+        try:
+            from ml_analyzer import MLFirstAnomalyDetector
+            ml_analyzer = MLFirstAnomalyDetector('bert-base-uncased')
+            logger.info("Fallback ML Analyzer initialized successfully")
+        except Exception as fallback_e:
+            logger.warning(f"Failed to initialize fallback ML Analyzer: {fallback_e}")
+            ml_analyzer = None
     
     # Initialize BertViz analyzer for EJ preprocessing
     global bertviz_analyzer
@@ -1086,16 +1168,14 @@ async def clear_all_data(confirm: bool = False):
 
 @app.post("/api/v1/process/force-input")
 async def force_process_input_directory():
-    """Force the anomaly detection system to process any EJ files in the input directory"""
+    """Force the anomaly detection system to process any EJ files in the input directory with sessionization"""
     try:
         import os
         import glob
-        import time
-        from pathlib import Path
         
         # Define input directory path - corrected to match Docker volume mapping
-        input_dir = "/app/input"  # Changed from "/data/input" to "/app/input"
-        processed_dir = "/app/input/processed"  # Updated path
+        input_dir = "/app/input"
+        processed_dir = "/app/input/processed"
         
         # Ensure directories exist
         os.makedirs(input_dir, exist_ok=True)
@@ -1129,92 +1209,46 @@ async def force_process_input_directory():
                 "directory_contents": dir_contents
             }
         
-        processed_files = []
-        error_files = []
-        
-        # Process each file
-        for file_path in ej_files:
-            try:
-                filename = os.path.basename(file_path)
-                logger.info(f"Processing file: {filename}")
-                
-                # Read and process the file content
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # Create a simple session ID for tracking
-                session_id = f"force_processed_{int(time.time())}_{filename}"
-                
-                # Count lines for transaction count
-                lines = content.split('\n')
-                transaction_count = len([line for line in lines if line.strip()])
-                
-                # Insert session record directly into database
-                try:
-                    with db_engine.connect() as conn:
-                        # Insert into ml_sessions table
-                        insert_session_query = """
-                        INSERT INTO ml_sessions (
-                            session_id, timestamp, uploaded_file, file_size,
-                            processing_status, transaction_count
-                        ) VALUES (
-                            :session_id, :timestamp, :uploaded_file, :file_size,
-                            :processing_status, :transaction_count
-                        )
-                        """
-                        
-                        conn.execute(text(insert_session_query), {
-                            "session_id": session_id,
-                            "timestamp": datetime.now(),
-                            "uploaded_file": filename,
-                            "file_size": len(content),
-                            "processing_status": "completed",
-                            "transaction_count": transaction_count
-                        })
-                        conn.commit()
-                        
-                        logger.info(f"Created session {session_id} with {transaction_count} transactions")
-                        
-                except Exception as db_error:
-                    logger.warning(f"Could not insert into database: {str(db_error)}")
-                
-                # Move processed file to processed directory
-                processed_path = os.path.join(processed_dir, filename)
-                os.rename(file_path, processed_path)
-                
-                processed_files.append({
-                    "filename": filename,
-                    "session_id": session_id,
-                    "transaction_count": transaction_count,
-                    "status": "processed"
-                })
-                
-            except Exception as file_error:
-                logger.error(f"Error processing file {filename}: {str(file_error)}")
-                error_files.append({
-                    "filename": filename,
-                    "error": str(file_error)
-                })
+        # Use the same sessionization approach as process_input method
+        logger.info("Starting force processing with ML analyzer sessionization")
+        logger.info("Calling batch_process_ej_files for sessionization and processing")
+        processing_result = batch_process_ej_files(input_dir)
+        logger.info(f"batch_process_ej_files completed with result: {processing_result.get('status', 'unknown')}")
         
         # Clear Redis cache to force refresh
         try:
             redis_client.delete('latest_ml_summary')
             redis_client.delete('dashboard_stats')
             redis_client.flushdb()  # Clear all Redis cache
+            logger.info("Redis cache cleared successfully")
         except Exception as redis_error:
             logger.warning(f"Could not clear Redis cache: {str(redis_error)}")
         
-        return {
-            "status": "success",
-            "message": f"Force processed {len(processed_files)} files from input directory",
-            "input_directory": input_dir,
-            "files_found": len(ej_files),
-            "files_processed": len(processed_files),
-            "files_with_errors": len(error_files),
-            "processed_files": processed_files,
-            "error_files": error_files,
-            "timestamp": datetime.now().isoformat()
-        }
+        # Return enhanced response with sessionization details
+        if processing_result['status'] == 'success':
+            return {
+                "status": "success",
+                "message": "EJ files force processed with sessionization successfully",
+                "input_directory": input_dir,
+                "files_found": len(ej_files),
+                "processing_summary": processing_result['summary'],
+                "detailed_results": processing_result.get('detailed_results', []),
+                "sessionization_enabled": True,
+                "ml_analyzer_used": processing_result['summary'].get('ml_processed_files', 0) > 0,
+                "total_sessions_created": processing_result['summary'].get('total_sessions_created', 0),
+                "average_sessions_per_file": processing_result['summary'].get('average_sessions_per_file', 0),
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            return {
+                "status": "warning", 
+                "message": processing_result.get('message', 'Force processing completed with issues'),
+                "input_directory": input_dir,
+                "files_found": len(ej_files),
+                "processing_summary": processing_result.get('summary', {}),
+                "sessionization_enabled": True,
+                "timestamp": datetime.now().isoformat()
+            }
         
     except Exception as e:
         logger.error(f"Error force processing input directory: {str(e)}")
@@ -2805,10 +2839,16 @@ def submit_expert_feedback(
 ):
     """Submit expert feedback for continuous learning"""
     try:
-        # Import detector (using relative import or add to path)
+        # Import unified analyzer with fallback
         import sys
-        sys.path.append('/app/services/anomaly-detector')
-        from ml_analyzer import MLFirstAnomalyDetector
+        import os
+        try:
+            shared_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'shared')
+            sys.path.append(shared_path)
+            from ml_analyzer_unified import UnifiedMLAnomalyDetector as MLFirstAnomalyDetector
+        except ImportError:
+            sys.path.append('/app/services/anomaly-detector')
+            from ml_analyzer import MLFirstAnomalyDetector
         
         # Get or create detector instance
         detector = MLFirstAnomalyDetector('bert-base-uncased', db_engine)
@@ -2840,9 +2880,16 @@ def submit_expert_feedback(
 async def get_continuous_learning_status():
     """Get continuous learning system status"""
     try:
+        # Import unified analyzer with fallback
         import sys
-        sys.path.append('/app/services/anomaly-detector')
-        from ml_analyzer import MLFirstAnomalyDetector
+        import os
+        try:
+            shared_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'shared')
+            sys.path.append(shared_path)
+            from ml_analyzer_unified import UnifiedMLAnomalyDetector as MLFirstAnomalyDetector
+        except ImportError:
+            sys.path.append('/app/services/anomaly-detector')
+            from ml_analyzer import MLFirstAnomalyDetector
         
         detector = MLFirstAnomalyDetector('bert-base-uncased', db_engine)
         status = detector.get_continuous_learning_status()
@@ -2878,10 +2925,17 @@ def perform_continuous_retraining():
     try:
         logger.info("Starting manual continuous retraining...")
         
+        # Import unified analyzer with fallback
         import sys
-        sys.path.append('/app/services/anomaly-detector')
-        from ml_analyzer import MLFirstAnomalyDetector
-        detector = MLFirstAnomalyDetector('bert-base-uncased', db_engine)
+        import os
+        try:
+            shared_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'shared')
+            sys.path.append(shared_path)
+            from ml_analyzer_unified import UnifiedMLAnomalyDetector as MLFirstAnomalyDetector
+        except ImportError:
+            sys.path.append('/app/services/anomaly-detector')
+            from ml_analyzer import MLFirstAnomalyDetector
+        detector = MLFirstAnomalyDetector('bert-base-uncased', db_engine, service_mode='api')
         
         # Check if there's enough feedback
         status = detector.get_continuous_learning_status()

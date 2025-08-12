@@ -1,1 +1,710 @@
 2025-08-11 03:15:02,372 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:01:57,163 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:06:06,642 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 03:06:06,647 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 03:06:06,647 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 03:06:06,649 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:10:32,692 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:16:09,084 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 03:16:09,090 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 03:16:09,091 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 03:16:09,093 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:19:53,860 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 03:19:53,866 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 03:19:53,867 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 03:19:53,924 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.19.0.8:5000
+2025-08-12 03:19:53,924 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-12 03:32:05,326 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:36:52,094 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 03:36:52,114 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 03:36:52,119 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 03:36:52,120 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:40:57,764 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 03:40:57,770 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 03:40:57,771 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 03:40:57,855 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.19.0.8:5000
+2025-08-12 03:40:57,855 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-12 03:44:19,922 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:49:33,148 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 03:49:33,153 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 03:49:33,153 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 03:49:33,155 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 03:53:25,110 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 03:53:25,117 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 03:53:25,118 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 03:53:25,188 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.19.0.8:5000
+2025-08-12 03:53:25,188 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-12 04:04:33,851 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:04:33,860 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 04:08:25,747 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:08:25,757 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 04:19:34,481 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:19:34,487 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 04:23:26,338 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:23:26,343 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 04:34:35,184 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:34:35,194 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 04:38:27,047 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:38:27,053 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 04:49:35,774 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:49:35,798 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 04:53:27,690 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 04:53:27,716 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:04:36,374 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 05:04:36,390 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:08:28,277 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 05:08:28,280 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:19:36,826 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 05:19:36,830 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:23:28,892 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 05:23:28,897 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:34:37,246 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 05:34:37,259 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:39:42,033 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 05:44:24,511 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 05:44:24,515 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 05:44:24,515 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:44:24,517 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 05:48:09,793 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 05:48:09,801 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 05:48:09,802 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 05:48:09,835 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.21.0.9:5000
+2025-08-12 05:48:09,835 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-12 05:57:32,851 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 06:02:47,723 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 06:02:47,730 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:02:47,730 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:02:47,732 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 06:07:34,775 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 06:07:34,813 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:07:34,814 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:07:34,865 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.19.0.9:5000
+2025-08-12 06:07:34,865 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-12 06:13:40,994 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 06:17:48,348 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:17:48,365 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:18:43,177 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 06:18:43,190 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:18:43,191 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:18:43,193 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 06:22:29,032 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 06:22:29,044 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:22:29,045 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:22:29,083 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.23.0.4:5000
+2025-08-12 06:22:29,083 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-12 06:22:35,246 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:22:35,274 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:32:48,914 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:32:48,920 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:33:43,946 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:33:43,950 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:37:29,756 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:37:29,769 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:37:35,898 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:37:35,908 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:47:49,540 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:47:49,551 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:48:44,419 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:48:44,427 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:52:30,301 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:52:30,311 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 06:52:36,488 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 06:52:36,497 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:02:50,053 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:02:50,074 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:03:45,046 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:03:45,059 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:07:31,000 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:07:31,048 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:07:37,066 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:07:37,069 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:11:54,923 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 07:11:55,229 - werkzeug - INFO - 172.19.0.12 - - [12/Aug/2025 07:11:55] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 07:17:50,640 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:17:50,645 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:18:45,576 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:18:45,598 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:22:31,729 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:22:31,736 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:22:37,719 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:22:37,722 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:32:51,340 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:32:51,352 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:33:46,313 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:33:46,333 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:37:32,415 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:37:32,419 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:37:38,027 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:37:38,032 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:47:51,705 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:47:51,711 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:48:46,907 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:48:46,915 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:49:30,460 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 07:49:30,482 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 07:49:30] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 07:52:32,934 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:52:32,947 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:52:38,547 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 07:52:38,577 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 07:54:30,537 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 07:54:30,553 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 07:54:30] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:01:01,807 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:01:01,826 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:01:01] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:02:52,292 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:02:52,298 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:03:47,383 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:03:47,402 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:06:01,727 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:06:01,739 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:06:01] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:07:33,571 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:07:33,577 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:07:39,118 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:07:39,122 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:11:01,761 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:11:01,776 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:11:01] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:16:01,717 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:16:01,728 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:16:01] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:17:52,750 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:17:52,754 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:18:47,929 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:18:47,944 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:20:01,935 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:20:01,946 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:20:01] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:20:14,333 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:20:14,341 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:20:14] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:20:18,772 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:20:18,773 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:20:18] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:20:25,674 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:20:25,679 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:20:25] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:20:43,935 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:20:43,943 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:20:43] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:22:34,153 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:22:34,165 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:22:39,636 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:22:39,639 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:24:57,805 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:24:57,826 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:24:57] "[35m[1mGET /api/terminal-status?id=850cd049-63d3-40f1-a4fd-93ce1a750236&vscodeBrowserReqId=1754987097780 HTTP/1.0[0m" 500 -
+2025-08-12 08:25:03,838 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:25:03,841 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:25:03] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:26:33,209 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:26:33,222 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:26:33] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:26:40,500 - cash_forecasting_app - ERROR - Exception on /api/predictions [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 172, in get_predictions
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+TypeError: keys must be str, int, float, bool or None, not numpy.int64
+2025-08-12 08:26:40,506 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:26:40] "[35m[1mGET /api/predictions?id=850cd049-63d3-40f1-a4fd-93ce1a750236&vscodeBrowserReqId=1754987200486 HTTP/1.0[0m" 500 -
+2025-08-12 08:26:46,345 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:26:46] "GET /api/alerts?id=850cd049-63d3-40f1-a4fd-93ce1a750236&vscodeBrowserReqId=1754987206335 HTTP/1.0" 200 -
+2025-08-12 08:29:22,658 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 08:29:45,496 - cash_forecasting_app - ERROR - Exception on /api/terminal-status [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 2190, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1486, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/usr/local/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1484, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/usr/local/lib/python3.9/site-packages/flask/app.py", line 1469, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)
+  File "/app/cash_forecasting_app.py", line 304, in get_terminal_status
+    return jsonify({
+  File "/usr/local/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 215, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 180, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/local/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/local/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/local/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/local/lib/python3.9/site-packages/flask/json/provider.py", line 120, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type int64 is not JSON serializable
+2025-08-12 08:29:45,501 - werkzeug - INFO - 172.19.0.11 - - [12/Aug/2025 08:29:45] "[35m[1mGET /api/terminal-status HTTP/1.0[0m" 500 -
+2025-08-12 08:31:37,995 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 08:33:18,736 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 08:33:18,742 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:33:18,743 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:33:18,748 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 08:35:52,329 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 08:35:52,332 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:35:52,333 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:35:52,334 - __main__ - INFO - Initializing cash forecasting system...
+2025-08-12 08:37:22,602 - __main__ - INFO - Cash forecasting system initialized successfully
+2025-08-12 08:37:22,619 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:37:22,621 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:37:22,683 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.23.0.4:5000
+2025-08-12 08:37:22,683 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-12 08:48:19,400 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:48:19,419 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:52:23,247 - __main__ - INFO - Updating cash depletion predictions...
+2025-08-12 08:52:23,257 - __main__ - INFO - Updated predictions for 5 terminals
+2025-08-12 08:52:54,819 - __main__ - INFO - Initializing cash forecasting system...
