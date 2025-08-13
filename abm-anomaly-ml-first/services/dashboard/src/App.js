@@ -100,6 +100,16 @@ const AlertsPage = React.lazy(() => import('./AlertsPage').catch(err => {
   return { default: () => <div>Error loading AlertsPage component</div> };
 }));
 
+const OverviewPage = React.lazy(() => import('./OverviewPage').catch(err => {
+  console.error('Error loading OverviewPage:', err);
+  return { default: () => <div>Error loading OverviewPage component</div> };
+}));
+
+const AnalyticsPage = React.lazy(() => import('./AnalyticsPage').catch(err => {
+  console.error('Error loading AnalyticsPage:', err);
+  return { default: () => <div>Error loading AnalyticsPage component</div> };
+}));
+
 const CashForecasting = React.lazy(() => import('./CashForecasting').catch(err => {
   console.error('Error loading CashForecasting:', err);
   return { default: () => <div>Error loading CashForecasting component</div> };
@@ -113,10 +123,11 @@ function App() {
       <Router>
         <React.Suspense fallback={<div style={{ padding: '20px' }}>Loading...</div>}>
           <Routes>
-            <Route path="/" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/" element={<LayoutFixed><OverviewPage /></LayoutFixed>} />
+            <Route path="/overview" element={<LayoutFixed><OverviewPage /></LayoutFixed>} />
             <Route path="/anomalies" element={<LayoutFixed><AnomaliesPage /></LayoutFixed>} />
             <Route path="/alerts" element={<LayoutFixed><AlertsPage /></LayoutFixed>} />
-            <Route path="/analytics" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/analytics" element={<LayoutFixed><AnalyticsPage /></LayoutFixed>} />
             <Route path="/cash-forecasting" element={<LayoutFixed><CashForecasting /></LayoutFixed>} />
             <Route path="/multi-anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />
             <Route path="/expert-labeling" element={<LayoutFixed><ExpertLabelingInterface /></LayoutFixed>} />
@@ -128,11 +139,24 @@ function App() {
             <Route path="/bert-analysis" element={<LayoutFixed><BertAnalysisInterface /></LayoutFixed>} />
             <Route path="/deeplog" element={<LayoutFixed><DeepLogDashboard /></LayoutFixed>} />
             <Route path="/dbscan" element={<DBSCANVisualization />} />
+            {/* Dashboard routes with tab-based navigation */}
+            <Route path="/dashboard" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/overview" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/anomalies" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/alerts" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/analytics" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/multi-anomaly" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/expert-labeling" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/continuous-learning" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/session-review" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/realtime" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/dashboard/svm-debug" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
             {/* Case-insensitive routing - uppercase variants */}
             <Route path="/Dashboard" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Overview" element={<LayoutFixed><OverviewPage /></LayoutFixed>} />
             <Route path="/Anomalies" element={<LayoutFixed><AnomaliesPage /></LayoutFixed>} />
             <Route path="/Alerts" element={<LayoutFixed><AlertsPage /></LayoutFixed>} />
-            <Route path="/Analytics" element={<LayoutFixed><Dashboard /></LayoutFixed>} />
+            <Route path="/Analytics" element={<LayoutFixed><AnalyticsPage /></LayoutFixed>} />
             <Route path="/Cash-Forecasting" element={<LayoutFixed><CashForecasting /></LayoutFixed>} />
             <Route path="/Multi-anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />
             <Route path="/Multi-Anomaly" element={<LayoutFixed><MultiAnomalyView /></LayoutFixed>} />

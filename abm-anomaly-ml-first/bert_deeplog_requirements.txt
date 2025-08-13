@@ -1,0 +1,28 @@
+# BERT-DeepLog Requirements
+# Install these packages to run the BERT-DeepLog anomaly detection system
+
+# Core ML libraries
+torch>=1.9.0
+transformers>=4.15.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+
+# Data processing
+pandas>=1.3.0
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Progress tracking
+tqdm>=4.62.0
+
+# Configuration
+pyyaml>=6.0
+
+# Logging
+colorlog>=6.6.0
+
+# Optional: For GPU acceleration (if available)
+# torch-audio  # For audio processing if needed
+# torch-vision  # For image processing if needed

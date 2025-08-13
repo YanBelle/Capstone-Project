@@ -10,6 +10,8 @@ import RealtimeMonitoringInterface from './RealtimeMonitoringInterface';
 import SVMDebugDashboard from './SVMDebugDashboard';
 import AnomaliesPage from './AnomaliesPage';
 import AlertsPage from './AlertsPage';
+import OverviewPage from './OverviewPage';
+import AnalyticsPage from './AnalyticsPage';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -288,12 +290,7 @@ const ATMDashboard = () => {
   return (
     <>
       <div className="space-y-6">
-        {getCurrentTab() === 'overview' && (
-          <div>
-            <h2 className="text-2xl font-bold mb-6">Overview Dashboard</h2>
-            <p>Dashboard content will be here</p>
-          </div>
-        )}
+        {getCurrentTab() === 'overview' && <OverviewPage />}
 
         {getCurrentTab() === 'session-review' && (
           <div>
@@ -309,12 +306,7 @@ const ATMDashboard = () => {
         {getCurrentTab() === 'continuous-learning' && <ContinuousLearningInterface />}
         {getCurrentTab() === 'monitoring' && <RealtimeMonitoringInterface />}
         {getCurrentTab() === 'svm-debug' && <SVMDebugDashboard />}
-        {getCurrentTab() === 'analytics' && (
-          <div>
-            <h2 className="text-2xl font-bold mb-6">Analytics</h2>
-            <p>Analytics content will be here</p>
-          </div>
-        )}
+        {getCurrentTab() === 'analytics' && <AnalyticsPage />}
       </div>
     </>
   );
