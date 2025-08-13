@@ -585,28 +585,42 @@ async function forceChartCreation() {
     }
 }
 
-// Initialize charts after a delay to let the dashboard load
+// Only initialize charts if we're on a cash-forecasting page
+function shouldInitializeCharts() {
+    const path = window.location.pathname;
+    return path.includes('cash-forecasting') || path.includes('Cash-Forecasting');
+}
+
+// Initialize charts after a delay to let the dashboard load - but only on cash forecasting pages
 setTimeout(() => {
-    console.log('Starting charts initialization...');
-    addChartsToTerminals();
+    if (shouldInitializeCharts()) {
+        console.log('Starting charts initialization on cash forecasting page...');
+        addChartsToTerminals();
+    } else {
+        console.log('Skipping chart initialization - not on cash forecasting page');
+    }
 }, 3000);
 
-// Force chart creation after a longer delay
+// Force chart creation after a longer delay - but only on cash forecasting pages
 setTimeout(() => {
-    console.log('Starting forced chart creation...');
-    forceChartCreation();
+    if (shouldInitializeCharts()) {
+        console.log('Starting forced chart creation on cash forecasting page...');
+        forceChartCreation();
+    }
 }, 5000);
 
-// Immediate injection after very short delay
+// Immediate injection after very short delay - but only on cash forecasting pages
 setTimeout(() => {
-    console.log('Starting immediate chart injection...');
-    immediateChartInjection();
-    setTimeout(forceChartCreation, 2000);
+    if (shouldInitializeCharts()) {
+        console.log('Starting immediate chart injection on cash forecasting page...');
+        immediateChartInjection();
+        setTimeout(forceChartCreation, 2000);
+    }
 }, 1000);
 
-// Also try charts on page interaction
+// Also try charts on page interaction - but only on cash forecasting pages
 document.addEventListener('click', () => {
-    if (!chartsInitialized) {
+    if (!chartsInitialized && shouldInitializeCharts()) {
         setTimeout(() => {
             addChartsToTerminals();
             setTimeout(forceChartCreation, 1000);
