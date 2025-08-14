@@ -1,0 +1,36 @@
+# DeepLog + BERT Training Dependencies
+# Core ML libraries
+torch>=1.9.0
+transformers>=4.20.0
+scikit-learn>=1.0.0
+numpy>=1.21.0
+
+# Additional dependencies for enhanced functionality
+pandas>=1.3.0
+matplotlib>=3.4.0
+seaborn>=0.11.0
+tqdm>=4.62.0
+
+# Optional: For GPU acceleration
+# torch-audio  # Uncomment if using audio features
+# torch-vision  # Uncomment if using vision features
+
+# Text processing
+nltk>=3.7
+spacy>=3.4.0
+
+# Model persistence and serialization
+joblib>=1.1.0
+pickle5>=0.0.11
+
+# Logging and monitoring
+tensorboard>=2.8.0
+wandb>=0.12.0  # Optional: For experiment tracking
+
+# FastAPI integration (if using as service)
+fastapi>=0.75.0
+uvicorn>=0.17.0
+
+# Database connectivity (for integration with existing system)
+psycopg2-binary>=2.9.0
+sqlalchemy>=1.4.0

@@ -44,7 +44,7 @@ const AnalyticsPage = () => {
   const fetchAnalyticsData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(apiConfig.endpoint(`api/v1/analytics/data?timeframe=${selectedTimeRange}`));
+      const response = await fetch(apiConfig.endpoint(`/api/v1/analytics/data?timeframe=${selectedTimeRange}`));
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -219,28 +219,28 @@ const AnalyticsPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <MetricCard
                 title="Model Accuracy"
-                value={`${(analyticsData.model_performance.accuracy * 100).toFixed(2)}%`}
+                value={`${((analyticsData?.model_performance?.ensemble_model?.accuracy || 0) * 100).toFixed(2)}%`}
                 icon={Target}
                 color="bg-green-600"
                 subtitle="Overall accuracy"
               />
               <MetricCard
                 title="Precision"
-                value={`${(analyticsData.model_performance.precision * 100).toFixed(2)}%`}
+                value={`${((analyticsData?.model_performance?.ensemble_model?.precision || 0) * 100).toFixed(2)}%`}
                 icon={Zap}
                 color="bg-blue-600"
                 subtitle="Anomaly detection precision"
               />
               <MetricCard
                 title="Recall"
-                value={`${(analyticsData.model_performance.recall * 100).toFixed(2)}%`}
+                value={`${((analyticsData?.model_performance?.ensemble_model?.recall || 0) * 100).toFixed(2)}%`}
                 icon={Database}
                 color="bg-purple-600"
                 subtitle="Anomaly detection recall"
               />
               <MetricCard
                 title="F1 Score"
-                value={analyticsData.model_performance.f1_score.toFixed(3)}
+                value={(analyticsData?.model_performance?.ensemble_model?.f1_score || 0).toFixed(3)}
                 icon={BarChart3}
                 color="bg-orange-600"
                 subtitle="Harmonic mean"
@@ -301,28 +301,32 @@ const AnalyticsPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <MetricCard
                 title="High Risk Terminals"
-                value={analyticsData.terminal_analytics.high_risk_terminals.length}
+                value={analyticsData?.terminal_analytics?.filter(t => t.risk_level === 'HIGH')?.length || 0}
                 icon={AlertTriangle}
                 color="bg-red-600"
                 subtitle="Immediate attention needed"
               />
               <MetricCard
                 title="Avg Risk Score"
-                value={analyticsData.terminal_analytics.average_risk_score.toFixed(2)}
+                value={analyticsData?.terminal_analytics?.length > 0 ? 
+                  (analyticsData.terminal_analytics.reduce((sum, t) => sum + (t.avg_anomaly_score || 0), 0) / analyticsData.terminal_analytics.length).toFixed(2) : 
+                  '0.00'}
                 icon={Shield}
                 color="bg-yellow-600"
                 subtitle="Across all terminals"
               />
               <MetricCard
                 title="Active Terminals"
-                value={analyticsData.terminal_analytics.total_terminals}
+                value={analyticsData?.terminal_analytics?.length || 0}
                 icon={Activity}
                 color="bg-green-600"
                 subtitle="Currently monitored"
               />
               <MetricCard
                 title="Performance Score"
-                value={`${(analyticsData.terminal_analytics.performance_score * 100).toFixed(1)}%`}
+                value={analyticsData?.terminal_analytics?.length > 0 ? 
+                  `${(100 - (analyticsData.terminal_analytics.reduce((sum, t) => sum + (t.anomaly_rate || 0), 0) / analyticsData.terminal_analytics.length)).toFixed(1)}%` :
+                  '0.0%'}
                 icon={TrendingUp}
                 color="bg-blue-600"
                 subtitle="Overall performance"
@@ -337,7 +341,11 @@ const AnalyticsPage = () => {
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
-                      data={analyticsData.terminal_analytics.risk_distribution}
+                      data={analyticsData?.terminal_analytics ? [
+                        {name: 'HIGH', count: analyticsData.terminal_analytics.filter(t => t.risk_level === 'HIGH').length},
+                        {name: 'MEDIUM', count: analyticsData.terminal_analytics.filter(t => t.risk_level === 'MEDIUM').length},
+                        {name: 'LOW', count: analyticsData.terminal_analytics.filter(t => t.risk_level === 'LOW').length}
+                      ].filter(item => item.count > 0) : []}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
@@ -346,7 +354,11 @@ const AnalyticsPage = () => {
                       fill="#8884d8"
                       dataKey="count"
                     >
-                      {analyticsData.terminal_analytics.risk_distribution.map((entry, index) => (
+                      {(analyticsData?.terminal_analytics ? [
+                        {name: 'HIGH', count: analyticsData.terminal_analytics.filter(t => t.risk_level === 'HIGH').length},
+                        {name: 'MEDIUM', count: analyticsData.terminal_analytics.filter(t => t.risk_level === 'MEDIUM').length},
+                        {name: 'LOW', count: analyticsData.terminal_analytics.filter(t => t.risk_level === 'LOW').length}
+                      ].filter(item => item.count > 0) : []).map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
@@ -359,12 +371,20 @@ const AnalyticsPage = () => {
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h3 className="text-lg font-semibold mb-4">Terminal Performance Metrics</h3>
                 <ResponsiveContainer width="100%" height={300}>
-                  <ScatterChart data={analyticsData.terminal_analytics.high_risk_terminals}>
+                  <ScatterChart data={analyticsData?.terminal_analytics?.map(t => ({
+                    risk_score: t.avg_anomaly_score || 0,
+                    anomaly_count: t.anomaly_count || 0,
+                    terminal_id: t.terminal_id
+                  })) || []}>
                     <CartesianGrid />
                     <XAxis dataKey="risk_score" name="Risk Score" />
                     <YAxis dataKey="anomaly_count" name="Anomaly Count" />
                     <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                    <Scatter name="Terminals" data={analyticsData.terminal_analytics.high_risk_terminals} fill="#8884d8" />
+                    <Scatter name="Terminals" data={analyticsData?.terminal_analytics?.map(t => ({
+                      risk_score: t.avg_anomaly_score || 0,
+                      anomaly_count: t.anomaly_count || 0,
+                      terminal_id: t.terminal_id
+                    })) || []} fill="#8884d8" />
                   </ScatterChart>
                 </ResponsiveContainer>
               </div>
@@ -379,31 +399,31 @@ const AnalyticsPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <MetricCard
                 title="Unique Patterns"
-                value={analyticsData.pattern_analysis.pattern_types.length}
+                value={analyticsData?.pattern_analysis?.most_common_patterns?.length || 0}
                 icon={BarChart3}
                 color="bg-indigo-600"
                 subtitle="Detected patterns"
               />
-              <MetricCard
-                title="Most Common"
-                value={analyticsData.pattern_analysis.most_common_pattern.pattern_type}
+                            <MetricCard
+                title="Top Pattern"
+                value={analyticsData?.pattern_analysis?.most_common_patterns?.[0]?.pattern || 'No data'}
                 icon={TrendingUp}
                 color="bg-green-600"
-                subtitle={`${analyticsData.pattern_analysis.most_common_pattern.frequency} occurrences`}
+                subtitle={`${analyticsData?.pattern_analysis?.most_common_patterns?.[0]?.count || 0} occurrences`}
               />
               <MetricCard
-                title="Confidence Score"
-                value={`${(analyticsData.pattern_analysis.confidence_score * 100).toFixed(1)}%`}
+                title="Pattern Confidence"
+                value={`${(analyticsData?.pattern_analysis?.most_common_patterns?.[0]?.percentage || 0).toFixed(1)}%`}
                 icon={Target}
                 color="bg-blue-600"
                 subtitle="Pattern reliability"
               />
               <MetricCard
                 title="Recent Patterns"
-                value={analyticsData.pattern_analysis.recent_patterns.length}
+                value={analyticsData?.pattern_analysis?.most_common_patterns?.length || 0}
                 icon={Clock}
                 color="bg-purple-600"
-                subtitle="Last 24 hours"
+                subtitle="Pattern types"
               />
             </div>
 
@@ -413,7 +433,10 @@ const AnalyticsPage = () => {
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h3 className="text-lg font-semibold mb-4">Pattern Types Distribution</h3>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analyticsData.pattern_analysis.pattern_types}>
+                  <BarChart data={analyticsData?.pattern_analysis?.most_common_patterns?.map(p => ({
+                    pattern_type: p.pattern,
+                    count: p.count
+                  })) || []}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="pattern_type" angle={-45} textAnchor="end" height={100} />
                     <YAxis />
@@ -427,16 +450,16 @@ const AnalyticsPage = () => {
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h3 className="text-lg font-semibold mb-4">Recent Pattern Timeline</h3>
                 <div className="space-y-3 max-h-80 overflow-y-auto">
-                  {analyticsData.pattern_analysis.recent_patterns.map((pattern, index) => (
+                  {(analyticsData?.pattern_analysis?.most_common_patterns || []).map((pattern, index) => (
                     <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
                       <div>
-                        <span className="font-medium text-gray-900">{pattern.pattern_type}</span>
+                        <span className="font-medium text-gray-900">{pattern?.pattern || 'Unknown'}</span>
                         <div className="text-sm text-gray-500">
-                          Confidence: {(pattern.confidence * 100).toFixed(1)}%
+                          Count: {pattern?.count || 0} ({(pattern?.percentage || 0).toFixed(1)}%)
                         </div>
                       </div>
                       <div className="text-sm text-gray-400">
-                        {new Date(pattern.timestamp).toLocaleTimeString()}
+                        Common Pattern
                       </div>
                     </div>
                   ))}
@@ -542,10 +565,10 @@ const AnalyticsPage = () => {
                           {terminal.risk} Risk
                         </div>
                         <div className={`text-xs ${
-                          terminal.risk === 'HIGH' ? 'text-red-500' :
-                          terminal.risk === 'MEDIUM' ? 'text-yellow-500' : 'text-green-500'
+                          terminal?.risk === 'HIGH' ? 'text-red-500' :
+                          terminal?.risk === 'MEDIUM' ? 'text-yellow-500' : 'text-green-500'
                         }`}>
-                          {terminal.percentage.toFixed(1)}% capacity
+                          {(terminal?.percentage || 0).toFixed(1)}% capacity
                         </div>
                       </div>
                     </div>
@@ -563,31 +586,31 @@ const AnalyticsPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <MetricCard
                 title="Overall Risk Score"
-                value={analyticsData.risk_assessment.overall_risk_score.toFixed(2)}
+                value={(analyticsData?.risk_assessment?.overall_risk_score || 0).toFixed(2)}
                 icon={Shield}
                 color="bg-orange-600"
                 subtitle="System-wide risk"
               />
               <MetricCard
                 title="High Risk Events"
-                value={analyticsData.risk_assessment.high_risk_events}
+                value={analyticsData?.risk_assessment?.risk_distribution?.high || 0}
                 icon={AlertTriangle}
                 color="bg-red-600"
                 subtitle="Immediate attention"
               />
               <MetricCard
                 title="Risk Trend"
-                value={analyticsData.risk_assessment.risk_trend > 0 ? "Increasing" : "Decreasing"}
+                value={(analyticsData?.risk_assessment?.risk_factors?.[0]?.trend || "stable")}
                 icon={TrendingUp}
-                color={analyticsData.risk_assessment.risk_trend > 0 ? "bg-red-600" : "bg-green-600"}
-                subtitle={`${Math.abs(analyticsData.risk_assessment.risk_trend).toFixed(1)}% change`}
+                color={(analyticsData?.risk_assessment?.risk_factors?.[0]?.trend || "").includes("increas") ? "bg-red-600" : "bg-green-600"}
+                subtitle={`${(analyticsData?.risk_assessment?.risk_factors?.[0]?.impact || 0).toFixed(1)} impact score`}
               />
               <MetricCard
-                title="Mitigation Actions"
-                value={analyticsData.risk_assessment.mitigation_actions.length}
+                title="Critical Risks"
+                value={analyticsData?.risk_assessment?.risk_distribution?.critical || 0}
                 icon={Settings}
                 color="bg-blue-600"
-                subtitle="Recommended actions"
+                subtitle="High priority items"
               />
             </div>
 
@@ -595,9 +618,12 @@ const AnalyticsPage = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Risk Categories */}
               <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Risk Categories</h3>
+                <h3 className="text-lg font-semibold mb-4">Risk Factors Impact</h3>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={analyticsData.risk_assessment.risk_categories}>
+                  <BarChart data={(analyticsData?.risk_assessment?.risk_factors || []).map(factor => ({
+                    category: factor.factor,
+                    score: factor.impact
+                  }))}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="category" angle={-45} textAnchor="end" height={100} />
                     <YAxis />
@@ -607,18 +633,18 @@ const AnalyticsPage = () => {
                 </ResponsiveContainer>
               </div>
 
-              {/* Mitigation Actions */}
+              {/* Risk Factors Details */}
               <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Recommended Actions</h3>
+                <h3 className="text-lg font-semibold mb-4">Risk Factors Analysis</h3>
                 <div className="space-y-3 max-h-80 overflow-y-auto">
-                  {analyticsData.risk_assessment.mitigation_actions.map((action, index) => (
+                  {(analyticsData?.risk_assessment?.risk_factors || []).map((factor, index) => (
                     <div key={index} className="p-3 bg-blue-50 rounded-md">
-                      <div className="font-medium text-blue-900">{action.action}</div>
+                      <div className="font-medium text-blue-900">{factor.factor}</div>
                       <div className="text-sm text-blue-600 mt-1">
-                        Priority: {action.priority} • Impact: {action.impact}
+                        Impact: {factor.impact} • Trend: {factor.trend}
                       </div>
                       <div className="text-xs text-blue-500 mt-1">
-                        {action.description}
+                        Risk factor trending {factor.trend}
                       </div>
                     </div>
                   ))}

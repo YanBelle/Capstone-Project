@@ -170,8 +170,14 @@ class MLFirstEJProcessor:
                 # Publish real-time updates
                 self.publish_updates(results_df)
                 
-                # Save updated models
-                self.detector.save_models("/app/models")
+                # Save updated models if method exists
+                try:
+                    if hasattr(self.detector, 'save_models'):
+                        self.detector.save_models("/app/models")
+                    else:
+                        logger.debug("Detector does not have save_models method")
+                except Exception as e:
+                    logger.warning(f"Failed to save models: {e}")
                 
                 logger.info(f"Training mode processing complete. Found {len(anomalies_df)} anomalies.")
                 
@@ -260,8 +266,14 @@ class MLFirstEJProcessor:
             # Evaluate model performance
             performance_metrics = self.evaluate_supervised_model(X_train, y_train)
             
-            # Save model and metrics
-            self.detector.save_models("/app/models")
+            # Save model and metrics if method exists
+            try:
+                if hasattr(self.detector, 'save_models'):
+                    self.detector.save_models("/app/models")
+                else:
+                    logger.debug("Detector does not have save_models method")
+            except Exception as e:
+                logger.warning(f"Failed to save models: {e}")
             self.save_model_performance_metrics(performance_metrics)
             
             logger.info(f"Supervised training complete. Accuracy: {performance_metrics['accuracy']:.3f}")
@@ -426,10 +438,11 @@ class MLFirstEJProcessor:
             # Get the embedding for this session
             embedding = self.detector.sessions[i].embedding
             
-            # Store raw text
+            # Store texts on file system instead of database
             session_id = row['session_id']
             raw_text = self.detector.sessions[i].raw_text
-            self.store_session_raw_text(session_id, raw_text)
+            cleaned_text = self.detector.sessions[i].cleaned_text
+            self.store_session_texts(session_id, raw_text, cleaned_text)
             
             session_data = {
                 'session_id': session_id,
@@ -441,8 +454,8 @@ class MLFirstEJProcessor:
                 'detected_patterns': json.dumps(row['detected_patterns']),
                 'critical_events': json.dumps(row['critical_events']),
                 'embedding_vector': embedding.tobytes() if embedding is not None else None,
-                'raw_text': raw_text,  # Store raw text in database
-                'terminal_id': self.detector.sessions[i].terminal_id,  # Include terminal ID from session
+                # Removed raw_text from database storage - now stored on file system
+                'terminal_id': self.detector.sessions[i].terminal_id,
                 
                 # Multi-anomaly fields
                 'anomaly_count': row.get('anomaly_count', 0),
@@ -481,34 +494,117 @@ class MLFirstEJProcessor:
         else:
             logger.info("No cassette counter data found in sessions")
     
-    def store_session_raw_text(self, session_id: str, raw_text: str):
-        """Store raw text for a session"""
-        # Store in file system
+    def store_session_texts(self, session_id: str, raw_text: str, cleaned_text: str = None):
+        """Store raw and cleaned text for a session on file system"""
+        # Store in file system with session_id prefix directories for better organization
         output_dir = f"/app/data/sessions/{session_id[:2]}"
         os.makedirs(output_dir, exist_ok=True)
         
-        with open(f"{output_dir}/{session_id}.txt", 'w') as f:
+        # Store raw text
+        with open(f"{output_dir}/{session_id}_raw.txt", 'w', encoding='utf-8') as f:
             f.write(raw_text)
+        
+        # Store cleaned text if provided
+        if cleaned_text:
+            with open(f"{output_dir}/{session_id}_cleaned.txt", 'w', encoding='utf-8') as f:
+                f.write(cleaned_text)
+    
+    def store_session_raw_text(self, session_id: str, raw_text: str):
+        """Store raw text for a session - deprecated, use store_session_texts"""
+        logger.warning("store_session_raw_text is deprecated, use store_session_texts instead")
+        self.store_session_texts(session_id, raw_text)
+    
+    def get_session_raw_text(self, session_id: str) -> str:
+        """Retrieve raw text for a session from file system"""
+        file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}_raw.txt"
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            # Fallback to old file naming convention
+            old_file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
+            try:
+                with open(old_file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except FileNotFoundError:
+                logger.warning(f"Raw text file not found for session {session_id}")
+                return ""
+        except Exception as e:
+            logger.error(f"Error reading raw text for session {session_id}: {e}")
+            return ""
+    
+    def get_session_cleaned_text(self, session_id: str) -> str:
+        """Retrieve cleaned text for a session from file system"""
+        file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}_cleaned.txt"
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.warning(f"Cleaned text file not found for session {session_id}")
+            return ""
+        except Exception as e:
+            logger.error(f"Error reading cleaned text for session {session_id}: {e}")
+            return ""
+    
+    def get_session_texts(self, session_id: str) -> dict:
+        """Retrieve both raw and cleaned text for a session from file system"""
+        return {
+            'raw_text': self.get_session_raw_text(session_id),
+            'cleaned_text': self.get_session_cleaned_text(session_id)
+        }
     
     def store_anomalies(self, anomalies_df: pd.DataFrame):
         """Store detected anomalies with ML-based details"""
+        stored_count = 0
+        error_count = 0
+        
         for _, anomaly in anomalies_df.iterrows():
-            anomaly_data = {
-                'session_id': anomaly['session_id'],
-                'anomaly_type': anomaly['anomaly_type'] if anomaly['anomaly_type'] else 'unknown',
-                'anomaly_score': float(anomaly['anomaly_score']),
-                'detected_patterns': json.dumps(anomaly['detected_patterns']),
-                'critical_events': json.dumps(anomaly['critical_events']),
-                'model_name': 'ml_ensemble',
-                'detected_at': datetime.now()
-            }
-            
-            pd.DataFrame([anomaly_data]).to_sql(
-                'ml_anomalies', 
-                self.db_engine, 
-                if_exists='append', 
-                index=False
-            )
+            try:
+                session_id = anomaly['session_id']
+                
+                # First verify the session exists in ml_sessions table
+                check_query = text("SELECT COUNT(*) FROM ml_sessions WHERE session_id = :session_id")
+                
+                with self.db_engine.connect() as conn:
+                    result = conn.execute(check_query, {"session_id": session_id})
+                    session_exists = result.scalar() > 0
+                
+                if not session_exists:
+                    logger.warning(f"Session {session_id} not found in ml_sessions table, skipping anomaly insertion")
+                    error_count += 1
+                    continue
+                
+                # Insert anomaly record
+                insert_query = text("""
+                    INSERT INTO ml_anomalies 
+                    (session_id, anomaly_type, anomaly_score, detected_patterns, 
+                     critical_events, model_name, detected_at)
+                    VALUES 
+                    (:session_id, :anomaly_type, :anomaly_score, :detected_patterns,
+                     :critical_events, :model_name, :detected_at)
+                """)
+                
+                anomaly_data = {
+                    'session_id': session_id,
+                    'anomaly_type': anomaly['anomaly_type'] if anomaly['anomaly_type'] else 'unknown',
+                    'anomaly_score': float(anomaly['anomaly_score']),
+                    'detected_patterns': json.dumps(anomaly['detected_patterns']),
+                    'critical_events': json.dumps(anomaly['critical_events']),
+                    'model_name': 'ml_ensemble',
+                    'detected_at': datetime.now()
+                }
+                
+                with self.db_engine.connect() as conn:
+                    conn.execute(insert_query, anomaly_data)
+                    conn.commit()
+                    stored_count += 1
+                    logger.debug(f"Stored anomaly for session {session_id}")
+                    
+            except Exception as e:
+                error_count += 1
+                logger.error(f"Failed to store anomaly for session {session_id}: {e}")
+        
+        logger.info(f"Anomaly storage complete - Stored: {stored_count}, Errors: {error_count}")
     
     def generate_alerts(self, anomalies_df: pd.DataFrame):
         """Generate alerts for detected anomalies"""
@@ -1248,33 +1344,71 @@ class MLFirstEJProcessor:
                             detected_patterns = :detected_patterns,
                             critical_events = :critical_events,
                             embedding_vector = :embedding_vector,
-                            raw_text = :raw_text,
                             terminal_id = :terminal_id,
                             created_at = :created_at
                         WHERE session_id = :session_id
                     """)
                     
+                    # Prepare data for database - only include columns that exist in the schema
+                    db_data = {
+                        'session_id': session_data['session_id'],
+                        'timestamp': session_data['timestamp'],
+                        'session_length': session_data['session_length'],
+                        'is_anomaly': session_data['is_anomaly'],
+                        'anomaly_score': session_data['anomaly_score'],
+                        'anomaly_type': session_data['anomaly_type'],
+                        'detected_patterns': session_data['detected_patterns'],
+                        'critical_events': session_data['critical_events'],
+                        'embedding_vector': session_data['embedding_vector'],
+                        'terminal_id': session_data.get('terminal_id'),
+                        'created_at': session_data['created_at']
+                    }
+                    
                     with self.db_engine.connect() as conn:
-                        conn.execute(update_query, session_data)
+                        conn.execute(update_query, db_data)
                         conn.commit()
                         duplicate_count += 1
                         logger.debug(f"Updated existing session: {session_data['session_id']}")
+                        
+                    # Store raw text to file system
+                    if 'raw_text' in session_data:
+                        self.store_session_texts(session_data['session_id'], session_data['raw_text'])
+                        
                 else:
                     # Insert new session
                     insert_query = text("""
                         INSERT INTO ml_sessions 
                         (session_id, timestamp, session_length, is_anomaly, anomaly_score, 
-                         anomaly_type, detected_patterns, critical_events, embedding_vector, raw_text, terminal_id, created_at)
+                         anomaly_type, detected_patterns, critical_events, embedding_vector, terminal_id, created_at)
                         VALUES 
                         (:session_id, :timestamp, :session_length, :is_anomaly, :anomaly_score,
-                         :anomaly_type, :detected_patterns, :critical_events, :embedding_vector, :raw_text, :terminal_id, :created_at)
+                         :anomaly_type, :detected_patterns, :critical_events, :embedding_vector, :terminal_id, :created_at)
                     """)
                     
+                    # Prepare data for database - only include columns that exist in the schema
+                    db_data = {
+                        'session_id': session_data['session_id'],
+                        'timestamp': session_data['timestamp'],
+                        'session_length': session_data['session_length'],
+                        'is_anomaly': session_data['is_anomaly'],
+                        'anomaly_score': session_data['anomaly_score'],
+                        'anomaly_type': session_data['anomaly_type'],
+                        'detected_patterns': session_data['detected_patterns'],
+                        'critical_events': session_data['critical_events'],
+                        'embedding_vector': session_data['embedding_vector'],
+                        'terminal_id': session_data.get('terminal_id'),
+                        'created_at': session_data['created_at']
+                    }
+                    
                     with self.db_engine.connect() as conn:
-                        conn.execute(insert_query, session_data)
+                        conn.execute(insert_query, db_data)
                         conn.commit()
                         success_count += 1
                         logger.debug(f"Inserted new session: {session_data['session_id']}")
+                        
+                    # Store raw text to file system
+                    if 'raw_text' in session_data:
+                        self.store_session_texts(session_data['session_id'], session_data['raw_text'])
                         
             except Exception as e:
                 error_count += 1

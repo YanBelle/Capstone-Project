@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import apiConfig from './config/api';
 
 const CashForecasting = () => {
   const [terminalStatus, setTerminalStatus] = useState({
@@ -17,23 +18,20 @@ const CashForecasting = () => {
       setLoading(true);
       setError(null);
 
-      // Use the nginx proxied endpoints
-      const API_BASE = '/api/cash-forecasting';
-
       // Fetch terminal status
-      const statusResponse = await fetch(`${API_BASE}/terminal-status`);
+      const statusResponse = await fetch(apiConfig.endpoint('/api/cash-forecasting/terminal-status'));
       if (!statusResponse.ok) throw new Error('Failed to fetch terminal status');
       const statusData = await statusResponse.json();
       setTerminalStatus(statusData);
 
       // Fetch alerts
-      const alertsResponse = await fetch(`${API_BASE}/alerts`);
+      const alertsResponse = await fetch(apiConfig.endpoint('/api/cash-forecasting/alerts'));
       if (!alertsResponse.ok) throw new Error('Failed to fetch alerts');
       const alertsData = await alertsResponse.json();
       setAlerts(alertsData);
 
       // Fetch predictions
-      const predictionsResponse = await fetch(`${API_BASE}/predictions`);
+      const predictionsResponse = await fetch(apiConfig.endpoint('/api/cash-forecasting/predictions'));
       if (!predictionsResponse.ok) throw new Error('Failed to fetch predictions');
       const predictionsData = await predictionsResponse.json();
       setPredictions(predictionsData);
@@ -57,8 +55,7 @@ const CashForecasting = () => {
   // Trigger model retraining
   const triggerRetraining = async () => {
     try {
-      const API_BASE = '/api/cash-forecasting';
-      const response = await fetch(`${API_BASE}/retrain`, {
+      const response = await fetch(apiConfig.endpoint('/api/cash-forecasting/retrain'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -293,7 +290,7 @@ const CashForecasting = () => {
             🤖 Retrain Models
           </button>
           <a 
-            href="/api/cash-forecasting/predictions" 
+            href={apiConfig.endpoint('/api/cash-forecasting/predictions')} 
             target="_blank" 
             rel="noopener noreferrer"
             className="action-button export"

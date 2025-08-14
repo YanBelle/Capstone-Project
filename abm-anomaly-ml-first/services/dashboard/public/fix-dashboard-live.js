@@ -1,9 +1,15 @@
 console.log("Enhanced Dashboard Fix Script with Charts - Version 4.0");
 
-// Configuration
+// Configuration - Environment-aware API endpoints
+const getApiBaseUrl = () => {
+    // Check if we're in production (served through nginx) or development
+    const isProduction = window.location.hostname !== 'localhost' || window.location.port === '80' || window.location.port === '';
+    return isProduction ? '' : 'http://localhost:8000';
+};
+
 const CONFIG = {
-    API_ENDPOINT: '/api/v1/dashboard/stats',
-    CASH_FORECASTING_ENDPOINT: '/api/cash-forecasting',
+    API_ENDPOINT: `${getApiBaseUrl()}/api/v1/dashboard/stats`,
+    CASH_FORECASTING_ENDPOINT: `${getApiBaseUrl()}/api/cash-forecasting`,
     UPDATE_INTERVAL: 5000, // 5 seconds for more frequent updates
     MAX_RETRIES: 5,
     RETRY_DELAY: 1000 // 1 second

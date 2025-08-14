@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Target, Clock, Check, AlertTriangle, RefreshCw, Eye } from 'lucide-react';
+import apiConfig from '../config/api';
 
 const TrainingVisualization = () => {
   const [trainingResults, setTrainingResults] = useState(null);
@@ -17,7 +18,7 @@ const TrainingVisualization = () => {
 
   const fetchTrainingData = async () => {
     try {
-      const response = await fetch('/api/v1/models/training-results');
+      const response = await fetch(apiConfig.endpoint('/api/v1/models/training-results'));
       const data = await response.json();
       console.log('Training data response:', data); // Debug log
       if (data.status === 'success') {
@@ -33,7 +34,7 @@ const TrainingVisualization = () => {
 
   const fetchTrainingStatus = async () => {
     try {
-      const response = await fetch('/api/v1/expert/training-status');
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/training-status'));
       const data = await response.json();
       setTrainingStatus(data);
     } catch (error) {
@@ -43,7 +44,7 @@ const TrainingVisualization = () => {
 
   const fetchTrainingInfo = async () => {
     try {
-      const response = await fetch('/api/v1/expert/training-data-info');
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/training-data-info'));
       const data = await response.json();
       setTrainingInfo(data);
     } catch (error) {
@@ -56,7 +57,7 @@ const TrainingVisualization = () => {
   const startTraining = async () => {
     setIsTraining(true);
     try {
-      const response = await fetch('/api/v1/expert/train-supervised', {
+      const response = await fetch(apiConfig.endpoint('/api/v1/expert/train-supervised'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
