@@ -64,20 +64,27 @@ async function fetchCurrentData() {
     }
 }
 
-// Enhanced dashboard update function with aggressive replacement
+// Enhanced dashboard update function with selective replacement (non-intrusive for cash forecasting)
 function updateDashboard(apiData) {
     if (isUpdating) {
         console.log("Update already in progress, skipping...");
         return;
     }
     
+    // Skip aggressive updates on cash forecasting pages to avoid text conflicts
+    if (shouldInitializeCharts()) {
+        console.log("Skipping aggressive text updates on cash forecasting page");
+        addFixIndicator(apiData, 0);
+        return;
+    }
+    
     isUpdating = true;
-    console.log("🔄 AGGRESSIVE UPDATE - Updating dashboard with fresh data:", apiData);
+    console.log("🔄 SELECTIVE UPDATE - Updating dashboard with fresh data:", apiData);
     
     try {
         let updatesApplied = 0;
         
-        // AGGRESSIVE MODE: Find and replace ALL instances of cached values
+        // SELECTIVE MODE: Only update specific elements on non-cash-forecasting pages
         const allElements = document.querySelectorAll('*');
         console.log(`🔍 Scanning ${allElements.length} elements for cached data...`);
         
@@ -87,57 +94,45 @@ function updateDashboard(apiData) {
             
             const directText = element.childNodes.length === 1 && element.childNodes[0].nodeType === 3 ? element.textContent.trim() : null;
             
-            // AGGRESSIVE: Update Total Transactions (1,250 or 1250)
+            // Only update if on overview/main dashboard page (not cash forecasting)
             if (directText && (directText === '1,250' || directText === '1250') && !element.dataset.fixed) {
                 element.textContent = apiData.total_transactions.toString();
                 element.dataset.fixed = 'transactions';
-                element.style.color = '#10b981'; // Green to show it's been updated
+                element.style.color = '#10b981'; 
                 console.log(`✅ [${index}] FIXED Total Transactions: ${apiData.total_transactions}`);
                 updatesApplied++;
             }
             
-            // AGGRESSIVE: Update Total Anomalies (23)
             else if (directText && directText === '23' && !directText.includes('2023') && !element.dataset.fixed) {
                 element.textContent = apiData.total_anomalies.toString();
                 element.dataset.fixed = 'anomalies';
-                element.style.color = '#10b981'; // Green to show it's been updated
+                element.style.color = '#10b981'; 
                 console.log(`✅ [${index}] FIXED Total Anomalies: ${apiData.total_anomalies}`);
                 updatesApplied++;
             }
             
-            // AGGRESSIVE: Update Anomaly Rate (1.84%)
             else if (directText && directText === '1.84%' && !element.dataset.fixed) {
                 const newRate = (apiData.anomaly_rate * 100).toFixed(2) + '%';
                 element.textContent = newRate;
                 element.dataset.fixed = 'rate';
-                element.style.color = '#10b981'; // Green to show it's been updated
+                element.style.color = '#10b981'; 
                 console.log(`✅ [${index}] FIXED Anomaly Rate: ${newRate}`);
                 updatesApplied++;
             }
             
-            // AGGRESSIVE: Update High Risk Count (5)
             else if (directText && directText === '5' && !element.dataset.fixed) {
-                // Check if parent context suggests this is high risk count
                 const parentText = element.parentElement ? element.parentElement.textContent.toLowerCase() : '';
                 if (parentText.includes('high') || parentText.includes('risk') || parentText.includes('alert')) {
                     element.textContent = apiData.high_risk_count.toString();
                     element.dataset.fixed = 'highrisk';
-                    element.style.color = '#10b981'; // Green to show it's been updated
+                    element.style.color = '#10b981'; 
                     console.log(`✅ [${index}] FIXED High Risk Count: ${apiData.high_risk_count}`);
                     updatesApplied++;
                 }
             }
         });
         
-        console.log(`🎯 AGGRESSIVE UPDATE COMPLETED - ${updatesApplied} values updated out of ${allElements.length} elements`);
-        
-        // Force update any React state by dispatching events
-        try {
-            window.dispatchEvent(new CustomEvent('forceUpdate'));
-            console.log("📡 Dispatched forceUpdate event");
-        } catch (e) {
-            console.log("ℹ️ forceUpdate event failed (expected)");
-        }
+        console.log(`🎯 SELECTIVE UPDATE COMPLETED - ${updatesApplied} values updated out of ${allElements.length} elements`);
         
         // Add visual indicator that fix is active
         addFixIndicator(apiData, updatesApplied);
@@ -149,8 +144,20 @@ function updateDashboard(apiData) {
     }
 }
 
-// Add a visual indicator that the fix is active
+// Add a minimal visual indicator that the fix is active (non-intrusive)
 function addFixIndicator(data, updatesCount = 0) {
+    // Only show indicator on non-cash-forecasting pages or if explicitly needed
+    const shouldShowIndicator = !shouldInitializeCharts() || window.location.search.includes('debug=true');
+    
+    if (!shouldShowIndicator) {
+        // Remove any existing indicator on cash forecasting pages
+        const existingIndicator = document.getElementById('fix-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
+        return;
+    }
+    
     let indicator = document.getElementById('fix-indicator');
     if (!indicator) {
         indicator = document.createElement('div');
@@ -161,22 +168,22 @@ function addFixIndicator(data, updatesCount = 0) {
             right: 10px;
             background: #10b981;
             color: white;
-            padding: 8px 12px;
+            padding: 6px 10px;
             border-radius: 6px;
-            font-size: 12px;
+            font-size: 11px;
             z-index: 9999;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            max-width: 250px;
+            max-width: 200px;
+            opacity: 0.8;
+            font-family: monospace;
         `;
         document.body.appendChild(indicator);
     }
     
     const lastUpdate = new Date().toLocaleTimeString();
     indicator.innerHTML = `
-        ✅ Live Data Active<br>
-        📊 ${data.total_transactions} transactions, ${data.total_anomalies} anomalies<br>
-        🔄 ${updatesCount} values fixed<br>
-        ⏰ ${lastUpdate}
+        ✅ Live: ${data.total_transactions}/${data.total_anomalies}<br>
+        🔄 ${updatesCount} updates | ${lastUpdate}
     `;
 }
 
@@ -276,29 +283,77 @@ async function fetchVisualizationData(terminalId) {
     }
 }
 
-// Create chart section HTML
+// Create enhanced chart section HTML
 function createChartSection(terminalId) {
     return `
-        <div class="chart-section" id="charts-${terminalId}" style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #f9f9f9;">
-            <h3 style="color: #333; margin-bottom: 15px;">Terminal ${terminalId} - Cash Forecasting Charts</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                <div>
-                    <h4>Historical Cash Levels (48h)</h4>
-                    <canvas id="historical-chart-${terminalId}" width="400" height="200"></canvas>
-                </div>
-                <div>
-                    <h4>Daily Trend (7 days)</h4>
-                    <canvas id="trend-chart-${terminalId}" width="400" height="200"></canvas>
+        <div class="visualization-section" id="charts-${terminalId}">
+            <div class="visualization-header">
+                <h3 class="chart-title">
+                    <span class="chart-icon">📊</span>
+                    Terminal ${terminalId} Analytics Dashboard
+                </h3>
+                <div class="chart-status">
+                    <span class="status-indicator active"></span>
+                    Real-time data
                 </div>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                <div>
-                    <h4>Usage by Hour</h4>
-                    <canvas id="usage-chart-${terminalId}" width="400" height="200"></canvas>
+            
+            <div class="charts-container">
+                <div class="chart-grid">
+                    <div class="chart-card primary">
+                        <div class="chart-header">
+                            <h4>💰 Cash Level Trend (48 Hours)</h4>
+                            <div class="chart-info">Historical cash depletion pattern</div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="historical-chart-${terminalId}" width="400" height="250"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-card secondary">
+                        <div class="chart-header">
+                            <h4>📅 Daily Average (7 Days)</h4>
+                            <div class="chart-info">Weekly cash level trends</div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="trend-chart-${terminalId}" width="400" height="250"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-card tertiary">
+                        <div class="chart-header">
+                            <h4>⏰ Usage by Hour</h4>
+                            <div class="chart-info">Transaction patterns throughout the day</div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="usage-chart-${terminalId}" width="400" height="250"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-card quaternary">
+                        <div class="chart-header">
+                            <h4>🔮 7-Day Predictions</h4>
+                            <div class="chart-info">AI-powered cash depletion forecast</div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="predictions-chart-${terminalId}" width="400" height="250"></canvas>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <h4>7-Day Predictions</h4>
-                    <canvas id="predictions-chart-${terminalId}" width="400" height="200"></canvas>
+                
+                <div class="chart-summary">
+                    <div class="summary-item">
+                        <span class="summary-label">Current Status:</span>
+                        <span class="summary-value operational">Operational</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Data Source:</span>
+                        <span class="summary-value">Real-time API</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Last Updated:</span>
+                        <span class="summary-value">${new Date().toLocaleTimeString()}</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -512,49 +567,156 @@ async function addChartsToTerminals() {
 // Start the permanent fix
 initializeFix();
 
-// Immediate chart injection - very aggressive approach
+// Enhanced chart injection - integrated with React components
 function immediateChartInjection() {
-    console.log('Starting immediate chart injection...');
+    console.log('Starting enhanced chart injection...');
     
-    // Inject charts at the very bottom of the page
+    // Wait for React components to load
+    setTimeout(() => {
+        injectChartsIntoTerminalCards();
+    }, 1000);
+    
+    // Also inject full charts section at the bottom
     const chartHTML = `
-        <div style="padding: 20px; background: #f5f5f5; margin: 20px 0; border-radius: 8px;">
-            <h2>Cash Forecasting Visualizations</h2>
-            <p>Real-time charts for ATM terminals</p>
+        <div class="visualization-dashboard" style="margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; color: white;">
+            <div class="viz-header" style="text-align: center; margin-bottom: 30px;">
+                <h2 style="margin: 0; font-size: 2rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">📊 Advanced Analytics Dashboard</h2>
+                <p style="margin: 10px 0 0 0; opacity: 0.9;">Real-time terminal monitoring and predictive analytics</p>
+            </div>
             
-            <div id="charts-416">
-                <h3>Terminal 416 Charts</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
-                    <div>
-                        <h4>Historical Cash Levels</h4>
-                        <canvas id="historical-chart-416" width="400" height="200"></canvas>
+            <div id="charts-416" style="background: rgba(255,255,255,0.95); border-radius: 12px; padding: 20px; color: #333;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #667eea;">
+                    <h3 style="margin: 0; color: #667eea; display: flex; align-items: center;">
+                        <span style="margin-right: 10px;">🏛️</span>
+                        Terminal 416 - Comprehensive Analytics
+                    </h3>
+                    <div class="chart-controls" style="display: flex; gap: 10px;">
+                        <button onclick="refreshCharts()" style="padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            🔄 Refresh
+                        </button>
+                        <button onclick="exportChartData()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            📥 Export
+                        </button>
                     </div>
-                    <div>
-                        <h4>Daily Trends</h4>
-                        <canvas id="trend-chart-416" width="400" height="200"></canvas>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 25px; margin: 20px 0;">
+                    <div class="chart-container" style="background: #f8f9fa; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                        <h4 style="margin: 0 0 15px 0; color: #495057; display: flex; align-items: center;">
+                            <span style="margin-right: 8px;">💰</span>
+                            Historical Cash Levels (48 Hours)
+                        </h4>
+                        <div style="position: relative;">
+                            <canvas id="historical-chart-416" width="400" height="250"></canvas>
+                        </div>
                     </div>
-                    <div>
-                        <h4>Usage by Hour</h4>
-                        <canvas id="usage-chart-416" width="400" height="200"></canvas>
+                    
+                    <div class="chart-container" style="background: #f8f9fa; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                        <h4 style="margin: 0 0 15px 0; color: #495057; display: flex; align-items: center;">
+                            <span style="margin-right: 8px;">📊</span>
+                            Daily Trends (7 Days)
+                        </h4>
+                        <div style="position: relative;">
+                            <canvas id="trend-chart-416" width="400" height="250"></canvas>
+                        </div>
                     </div>
-                    <div>
-                        <h4>7-Day Predictions</h4>
-                        <canvas id="predictions-chart-416" width="400" height="200"></canvas>
+                    
+                    <div class="chart-container" style="background: #f8f9fa; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                        <h4 style="margin: 0 0 15px 0; color: #495057; display: flex; align-items: center;">
+                            <span style="margin-right: 8px;">⏰</span>
+                            Usage by Hour
+                        </h4>
+                        <div style="position: relative;">
+                            <canvas id="usage-chart-416" width="400" height="250"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-container" style="background: #f8f9fa; border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                        <h4 style="margin: 0 0 15px 0; color: #495057; display: flex; align-items: center;">
+                            <span style="margin-right: 8px;">🔮</span>
+                            7-Day Predictions
+                        </h4>
+                        <div style="position: relative;">
+                            <canvas id="predictions-chart-416" width="400" height="250"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     `;
     
-    // Try multiple injection points
+    // Inject at the bottom of the dashboard
     const body = document.body;
-    const container = document.querySelector('.container, .main-content, main') || body;
+    const container = document.querySelector('.cash-forecasting-dashboard, .dashboard-container, .container, .main-content, main') || body;
     
     container.insertAdjacentHTML('beforeend', chartHTML);
-    console.log('Chart HTML injected');
+    console.log('Enhanced chart HTML injected');
     
     return true;
 }
+
+// Inject charts into terminal cards
+function injectChartsIntoTerminalCards() {
+    try {
+        console.log('Looking for terminal chart placeholders...');
+        
+        // Find all terminal chart placeholders
+        const terminalPlaceholders = document.querySelectorAll('.terminal-chart-placeholder');
+        console.log(`Found ${terminalPlaceholders.length} terminal chart placeholders`);
+        
+        if (terminalPlaceholders.length > 0) {
+            // Inject mini charts into each terminal placeholder
+            terminalPlaceholders.forEach((placeholder, index) => {
+                const terminalId = placeholder.id.replace('terminal-chart-', '') || '416';
+                console.log(`Injecting mini chart for terminal ${terminalId}`);
+                
+                // Create compact chart for terminal card
+                const compactChart = `
+                    <div class="terminal-chart-container" style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                        <div class="mini-chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span class="chart-title" style="font-weight: 600; color: #495057; display: flex; align-items: center;">
+                                <span style="margin-right: 6px;">📊</span>
+                                Quick Analytics
+                            </span>
+                            <button class="expand-chart-btn" onclick="scrollToFullCharts()" style="padding: 4px 8px; background: #667eea; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">
+                                View Details
+                            </button>
+                        </div>
+                        <div class="chart-status" style="font-size: 0.8rem; color: #6c757d; text-align: center;">
+                            📈 Live data available in detailed view below
+                        </div>
+                    </div>
+                `;
+                
+                placeholder.innerHTML = compactChart;
+            });
+        }
+        
+        return true;
+    } catch (error) {
+        console.error('Error injecting charts into terminal cards:', error);
+        return false;
+    }
+}
+
+// Helper functions for chart controls
+window.refreshCharts = function() {
+    console.log('Refreshing charts...');
+    fetchVisualizationData('416').then(data => {
+        if (data) initializeTerminalCharts('416', data);
+    });
+};
+
+window.exportChartData = function() {
+    window.open('/api/cash-forecasting/visualization-data/416', '_blank');
+};
+
+window.scrollToFullCharts = function() {
+    const chartsSection = document.querySelector('#charts-416');
+    if (chartsSection) {
+        chartsSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+};
 
 // Simple forced chart initialization for known terminals
 async function forceChartCreation() {
