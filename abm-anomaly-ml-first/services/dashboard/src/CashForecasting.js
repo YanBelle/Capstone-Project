@@ -81,16 +81,6 @@ const CashForecasting = () => {
     }
   };
 
-  // Get status badge class
-  const getStatusBadgeClass = (riskLevel) => {
-    switch (riskLevel?.toLowerCase()) {
-      case 'high': return 'badge bg-danger';
-      case 'medium': return 'badge bg-warning';
-      case 'low': return 'badge bg-success';
-      default: return 'badge bg-secondary';
-    }
-  };
-
   if (loading && terminalStatus.terminals.length === 0) {
     return (
       <div className="dashboard-container">
@@ -118,60 +108,111 @@ const CashForecasting = () => {
   }
 
   return (
-    <div className="dashboard-container">
-      {/* Header */}
-      <div className="dashboard-header">
-        <h1>💰 Cash Forecasting Dashboard</h1>
-        <p>ML-powered ATM cash depletion prediction and monitoring system</p>
-        <div className="last-updated">
-          Last updated: {lastUpdated || 'Loading...'}
-        </div>
-      </div>
-
-      {/* Summary Metrics */}
-      <div className="dashboard-section">
-        <h2>📊 System Overview</h2>
-        <div className="metrics-grid">
-          <div className="metric-card">
-            <div className="metric-value">{terminalStatus.summary.total_terminals}</div>
-            <div className="metric-label">Total Terminals</div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-value">{terminalStatus.summary.healthy}</div>
-            <div className="metric-label">Healthy (Low Risk)</div>
-          </div>
-          <div className="metric-card anomaly">
-            <div className="metric-value">{terminalStatus.summary.warning}</div>
-            <div className="metric-label">Medium Risk</div>
-          </div>
-          <div className="metric-card anomaly">
-            <div className="metric-value">{terminalStatus.summary.critical}</div>
-            <div className="metric-label">High Risk (Critical)</div>
+    <div className="dashboard-container cash-forecasting-dashboard">
+      {/* Clean Header with Better Structure */}
+      <div className="dashboard-header cash-forecast-header">
+        <div className="header-content">
+          <div className="header-main">
+            <div className="header-title-section">
+              <h1 className="dashboard-title">💰 Cash Forecasting Dashboard</h1>
+              <p className="dashboard-subtitle">AI-powered ATM cash depletion prediction and risk assessment</p>
+            </div>
+            <div className="header-status-section">
+              <div className="status-badges">
+                <div className="status-badge system-online">
+                  <span className="status-icon">✅</span>
+                  <span className="status-text">System Online</span>
+                </div>
+                <div className="status-badge last-update">
+                  <span className="status-icon">🕒</span>
+                  <span className="status-text">Updated: {lastUpdated || 'Loading...'}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Active Alerts */}
+      {/* Enhanced Summary Metrics with Better Visual Hierarchy */}
+      <div className="dashboard-section summary-section">
+        <div className="section-header">
+          <h2>📊 System Overview</h2>
+          <div className="section-subtitle">Real-time monitoring across all ATM terminals</div>
+        </div>
+        
+        <div className="metrics-grid enhanced-metrics">
+          <div className="metric-card primary">
+            <div className="metric-icon">🏛️</div>
+            <div className="metric-content">
+              <div className="metric-value">{terminalStatus.summary.total_terminals}</div>
+              <div className="metric-label">Total Terminals</div>
+              <div className="metric-trend">Monitored 24/7</div>
+            </div>
+          </div>
+          
+          <div className="metric-card success">
+            <div className="metric-icon">✅</div>
+            <div className="metric-content">
+              <div className="metric-value">{terminalStatus.summary.healthy}</div>
+              <div className="metric-label">Healthy Terminals</div>
+              <div className="metric-trend">Low Risk Status</div>
+            </div>
+          </div>
+          
+          <div className="metric-card warning">
+            <div className="metric-icon">⚠️</div>
+            <div className="metric-content">
+              <div className="metric-value">{terminalStatus.summary.warning}</div>
+              <div className="metric-label">Medium Risk</div>
+              <div className="metric-trend">Requires Monitoring</div>
+            </div>
+          </div>
+          
+          <div className="metric-card critical">
+            <div className="metric-icon">🚨</div>
+            <div className="metric-content">
+              <div className="metric-value">{terminalStatus.summary.critical}</div>
+              <div className="metric-label">Critical Risk</div>
+              <div className="metric-trend">Immediate Action</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Enhanced Active Alerts Section */}
       {alerts.alerts && alerts.alerts.length > 0 && (
-        <div className="dashboard-section">
-          <h2>🚨 Active Alerts ({alerts.total_alerts})</h2>
-          <div className="recommendations-sections">
+        <div className="dashboard-section alerts-section">
+          <div className="section-header">
+            <h2>🚨 Active Alerts</h2>
+            <div className="alert-badge">{alerts.total_alerts} active</div>
+          </div>
+          
+          <div className="alerts-grid">
             {alerts.alerts.map((alert, index) => (
-              <div key={index} className="recommendation-card">
-                <div className="rec-header">
-                  <h4>Terminal {alert.terminal_id}</h4>
-                  <span className={getStatusBadgeClass(alert.level)}>
+              <div key={index} className={`alert-card alert-${alert.level?.toLowerCase()}`}>
+                <div className="alert-header">
+                  <div className="alert-title">
+                    <span className="alert-icon">
+                      {alert.level === 'CRITICAL' ? '🚨' : alert.level === 'WARNING' ? '⚠️' : 'ℹ️'}
+                    </span>
+                    <h4>Terminal {alert.terminal_id}</h4>
+                  </div>
+                  <span className={`alert-level-badge ${alert.level?.toLowerCase()}`}>
                     {alert.level}
                   </span>
                 </div>
-                <div className="rec-description">
-                  {alert.message}
-                </div>
-                <div className="rec-action">
-                  <strong>Priority:</strong> {alert.priority}
-                </div>
-                <div className="rec-impact">
-                  Created: {new Date(alert.created_at).toLocaleString()}
+                
+                <div className="alert-content">
+                  <div className="alert-message">{alert.message}</div>
+                  
+                  <div className="alert-metadata">
+                    <div className="alert-priority">
+                      <strong>Priority:</strong> {alert.priority}
+                    </div>
+                    <div className="alert-time">
+                      <strong>Created:</strong> {new Date(alert.created_at).toLocaleString()}
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
@@ -179,124 +220,252 @@ const CashForecasting = () => {
         </div>
       )}
 
-      {/* Terminal Status Grid */}
-      <div className="dashboard-section">
-        <h2>🏛️ Terminal Status</h2>
-        <div className="clusters-grid">
+      {/* Enhanced Terminal Status with Visual Improvements */}
+      <div className="dashboard-section terminals-section">
+        <div className="section-header">
+          <h2>🏛️ Terminal Status & Analytics</h2>
+          <div className="section-subtitle">Real-time cash levels and risk assessment</div>
+        </div>
+        
+        <div className="terminals-grid">
           {terminalStatus.terminals.map((terminal) => (
             <div 
               key={terminal.id} 
-              className={`cluster-card ${terminal.risk_level?.toLowerCase() === 'high' ? 'high-anomaly' : 
-                         terminal.risk_level?.toLowerCase() === 'medium' ? '' : 'low-anomaly'}`}
+              className={`terminal-card risk-${terminal.risk_level?.toLowerCase()}`}
             >
-              <div className="cluster-header">
-                <h3>Terminal {terminal.id}</h3>
-                <span className="cluster-size">{terminal.location || 'Unknown Location'}</span>
+              <div className="terminal-header">
+                <div className="terminal-info">
+                  <h3>Terminal {terminal.id}</h3>
+                  <span className="terminal-location">{terminal.location || 'Unknown Location'}</span>
+                </div>
+                <div className="risk-indicator">
+                  <span className={`risk-badge ${terminal.risk_level?.toLowerCase()}`}>
+                    {terminal.risk_level}
+                  </span>
+                </div>
               </div>
               
-              <div className="anomaly-rate">
-                <div className="rate-label">Cash Level</div>
-                <div className={`rate-value ${getRiskLevelClass(terminal.risk_level)}`}>
-                  {terminal.cash_level}%
+              <div className="cash-level-section">
+                <div className="cash-level-header">
+                  <span className="cash-label">Cash Level</span>
+                  <span className={`cash-percentage ${getRiskLevelClass(terminal.risk_level)}`}>
+                    {terminal.cash_level}%
+                  </span>
                 </div>
-                <div className="rate-bar">
+                
+                <div className="cash-progress-bar">
                   <div 
-                    className="rate-fill" 
+                    className={`cash-progress-fill ${terminal.risk_level?.toLowerCase()}`}
                     style={{ width: `${terminal.cash_level}%` }}
-                  ></div>
+                  >
+                    <div className="progress-indicator"></div>
+                  </div>
+                </div>
+                
+                <div className="cash-amount">
+                  ${terminal.cash_amount?.toLocaleString() || 'N/A'}
                 </div>
               </div>
               
-              <div className="cluster-description">
-                <strong>Risk Level:</strong> <span className={getRiskLevelClass(terminal.risk_level)}>
-                  {terminal.risk_level}
-                </span><br/>
-                <strong>Predicted Depletion:</strong> {terminal.predicted_depletion_days} days<br/>
-                <strong>Last Refill:</strong> {terminal.last_refill}
+              <div className="terminal-details">
+                <div className="detail-row">
+                  <span className="detail-label">📅 Predicted Depletion:</span>
+                  <span className="detail-value">{terminal.predicted_depletion_days} days</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">🔄 Last Refill:</span>
+                  <span className="detail-value">{terminal.last_refill}</span>
+                </div>
+              </div>
+              
+              {/* Chart placeholder for this terminal */}
+              <div className="terminal-chart-placeholder" id={`terminal-chart-${terminal.terminal_id || terminal.id.replace('ATM', '')}`}>
+                <div className="chart-loading">📊 Loading visualization...</div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ML Model Information */}
+      {/* Enhanced ML Model Information */}
       {predictions.model_info && (
-        <div className="dashboard-section">
-          <h2>🤖 ML Model Performance</h2>
-          <div className="info-grid">
-            <div className="info-item">
-              <strong>Algorithm:</strong> {predictions.model_info.algorithm || 'Random Forest + LSTM Ensemble'}
+        <div className="dashboard-section model-info-section">
+          <div className="section-header">
+            <h2>🤖 ML Model Performance</h2>
+            <div className="section-subtitle">Advanced forecasting algorithm metrics</div>
+          </div>
+          
+          <div className="model-metrics-grid">
+            <div className="model-metric-card">
+              <div className="metric-icon">🎯</div>
+              <div className="metric-content">
+                <div className="metric-label">Algorithm</div>
+                <div className="metric-value">{predictions.model_info.algorithm || 'Ensemble Forecasting'}</div>
+                <div className="metric-description">Multi-model approach</div>
+              </div>
             </div>
-            <div className="info-item">
-              <strong>Model Accuracy:</strong> {((predictions.model_info.accuracy || 0.91) * 100).toFixed(1)}%
+            
+            <div className="model-metric-card">
+              <div className="metric-icon">📊</div>
+              <div className="metric-content">
+                <div className="metric-label">Accuracy</div>
+                <div className="metric-value">{((predictions.model_info.accuracy || 0.91) * 100).toFixed(1)}%</div>
+                <div className="metric-description">Prediction reliability</div>
+              </div>
             </div>
-            <div className="info-item">
-              <strong>Last Trained:</strong> {predictions.model_info.last_trained ? 
-                new Date(predictions.model_info.last_trained).toLocaleString() : 'Unknown'}
+            
+            <div className="model-metric-card">
+              <div className="metric-icon">🔄</div>
+              <div className="metric-content">
+                <div className="metric-label">Last Trained</div>
+                <div className="metric-value">
+                  {predictions.model_info.last_trained ? 
+                    new Date(predictions.model_info.last_trained).toLocaleDateString() : 'N/A'}
+                </div>
+                <div className="metric-description">Model freshness</div>
+              </div>
             </div>
-            <div className="info-item">
-              <strong>Predictions Count:</strong> {predictions.predictions?.length || 0}
+            
+            <div className="model-metric-card">
+              <div className="metric-icon">📈</div>
+              <div className="metric-content">
+                <div className="metric-label">Active Predictions</div>
+                <div className="metric-value">{predictions.predictions?.length || 0}</div>
+                <div className="metric-description">Forecasts generated</div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Detailed Predictions */}
+      {/* Enhanced Predictions Section */}
       {predictions.predictions && predictions.predictions.length > 0 && (
-        <div className="dashboard-section">
-          <h2>📈 Detailed Predictions</h2>
-          <div className="methods-grid">
+        <div className="dashboard-section predictions-section">
+          <div className="section-header">
+            <h2>📈 Terminal Forecasts</h2>
+            <div className="section-subtitle">AI-powered depletion predictions and confidence intervals</div>
+          </div>
+          
+          <div className="predictions-grid">
             {predictions.predictions.map((prediction) => (
-              <div key={prediction.terminal_id} className="method-card">
-                <h3 className="method-name">Terminal {prediction.terminal_id}</h3>
-                <div className="method-metrics">
-                  <div className="metric">
-                    <span className="metric-label">Confidence</span>
-                    <span className="metric-value">{(prediction.confidence * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="metric">
-                    <span className="metric-label">Depletion Date</span>
-                    <span className="metric-value">
-                      {new Date(prediction.predicted_depletion_date).toLocaleDateString()}
-                    </span>
+              <div key={prediction.terminal_id} className="prediction-card">
+                <div className="prediction-header">
+                  <h3>Terminal {prediction.terminal_id}</h3>
+                  <div className="confidence-badge">
+                    {(prediction.confidence * 100).toFixed(1)}% confidence
                   </div>
                 </div>
-                {prediction.factors && (
-                  <div className="method-parameters">
-                    <h4>Key Factors</h4>
-                    <div className="method-tags">
-                      {prediction.factors.map((factor, index) => (
-                        <span key={index} className="method-tag">
-                          {factor.replace(/_/g, ' ')}
-                        </span>
-                      ))}
+                
+                <div className="prediction-content">
+                  <div className="prediction-main">
+                    <div className="prediction-date">
+                      <span className="date-label">Predicted Depletion</span>
+                      <span className="date-value">
+                        {new Date(prediction.predicted_depletion_date).toLocaleDateString('en-US', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
+                      </span>
+                      <span className="days-remaining">
+                        {Math.ceil((new Date(prediction.predicted_depletion_date) - new Date()) / (1000 * 60 * 60 * 24))} days
+                      </span>
+                    </div>
+                    
+                    <div className="confidence-meter">
+                      <div className="confidence-bar">
+                        <div 
+                          className="confidence-fill"
+                          style={{ width: `${prediction.confidence * 100}%` }}
+                        ></div>
+                      </div>
+                      <span className="confidence-label">Prediction Confidence</span>
                     </div>
                   </div>
-                )}
+                  
+                  {prediction.factors && (
+                    <div className="prediction-factors">
+                      <h4>Key Factors</h4>
+                      <div className="factors-tags">
+                        {prediction.factors.map((factor, index) => (
+                          <span key={index} className="factor-tag">
+                            {factor.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Actions */}
-      <div className="dashboard-section">
-        <h2>⚡ Actions</h2>
-        <div className="actions-buttons">
-          <button className="action-button refresh" onClick={fetchData} disabled={loading}>
-            {loading ? '🔄 Refreshing...' : '🔄 Refresh Data'}
-          </button>
-          <button className="action-button export" onClick={triggerRetraining}>
-            🤖 Retrain Models
-          </button>
-          <a 
-            href={apiConfig.endpoint('/api/cash-forecasting/predictions')} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="action-button export"
-          >
-            📊 Export Data
-          </a>
+      {/* Enhanced Actions Section */}
+      <div className="dashboard-section actions-section">
+        <div className="section-header">
+          <h2>⚡ Dashboard Actions</h2>
+          <div className="section-subtitle">System controls and data export options</div>
+        </div>
+        
+        <div className="actions-grid">
+          <div className="action-card">
+            <div className="action-icon">🔄</div>
+            <div className="action-content">
+              <h3>Refresh Data</h3>
+              <p>Update all terminal status and predictions</p>
+              <button 
+                className="action-button primary" 
+                onClick={fetchData} 
+                disabled={loading}
+              >
+                {loading ? '🔄 Updating...' : '🔄 Refresh All Data'}
+              </button>
+            </div>
+          </div>
+          
+          <div className="action-card">
+            <div className="action-icon">🤖</div>
+            <div className="action-content">
+              <h3>Retrain Models</h3>
+              <p>Update ML models with latest transaction data</p>
+              <button 
+                className="action-button secondary" 
+                onClick={triggerRetraining}
+              >
+                🚀 Retrain AI Models
+              </button>
+            </div>
+          </div>
+          
+          <div className="action-card">
+            <div className="action-icon">📊</div>
+            <div className="action-content">
+              <h3>Export Data</h3>
+              <p>Download predictions and analytics data</p>
+              <a 
+                href={apiConfig.endpoint('/api/cash-forecasting/predictions')} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="action-button export"
+              >
+                � Export JSON Data
+              </a>
+            </div>
+          </div>
+          
+          <div className="action-card">
+            <div className="action-icon">📈</div>
+            <div className="action-content">
+              <h3>View Charts</h3>
+              <p>Detailed visualization analytics</p>
+              <div className="chart-toggle-info">
+                Charts auto-load below terminal cards
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
