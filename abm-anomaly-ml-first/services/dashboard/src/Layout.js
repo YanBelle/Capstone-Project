@@ -198,9 +198,6 @@ const Layout = ({ children }) => {
               { key: 'expert-labeling', label: 'Expert Review', path: '/expert-labeling' },
               { key: 'continuous-learning', label: 'ML Training', path: '/continuous-learning' },
               { key: 'session-review', label: 'Session Review', path: '/session-review' },
-              { key: 'session-evaluation', label: 'Evaluate Session', path: '/session-evaluation' },
-              { key: 'bert-analysis', label: 'BERT Analysis', path: '/bert-analysis' },
-              { key: 'deeplog', label: 'DeepLog', path: '/deeplog' },
               { key: 'monitoring', label: 'Real-time Monitor', path: '/realtime' },
               { key: 'analytics', label: 'Analytics', path: '/analytics' }
             ].map((tab) => (

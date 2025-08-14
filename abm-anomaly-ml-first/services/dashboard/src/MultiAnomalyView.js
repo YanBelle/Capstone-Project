@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { AlertTriangle, Shield, Activity, TrendingUp, Database } from 'lucide-react';
+import apiConfig from './config/api';
 
 const SEVERITY_COLORS = {
   'critical': '#dc2626',
@@ -32,7 +33,7 @@ const MultiAnomalyView = ({ anomalies: anomaliesProp }) => {
         setLoading(true);
         try {
           console.log('Fetching anomalies data from API...');
-          const response = await fetch('/api/v1/anomalies?unlimited=true');
+          const response = await fetch(apiConfig.endpoint('/api/v1/anomalies?unlimited=true'));
           if (response.ok) {
             const data = await response.json();
             console.log('API response:', data);

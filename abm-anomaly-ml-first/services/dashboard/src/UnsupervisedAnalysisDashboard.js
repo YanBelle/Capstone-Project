@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Dashboard.css';
+import apiConfig from './config/api';
 
 const UnsupervisedAnalysisDashboard = () => {
   const [analysisData, setAnalysisData] = useState(null);
@@ -15,10 +16,10 @@ const UnsupervisedAnalysisDashboard = () => {
       
       // Fetch all unsupervised analysis data
       const [analysisRes, methodRes, clusterRes, recRes] = await Promise.all([
-        fetch('/api/v1/unsupervised/analysis-overview'),
-        fetch('/api/v1/unsupervised/method-comparison'),
-        fetch('/api/v1/unsupervised/clustering-results'),
-        fetch('/api/v1/unsupervised/recommendations')
+        fetch(apiConfig.endpoint('/api/v1/unsupervised/analysis-overview')),
+        fetch(apiConfig.endpoint('/api/v1/unsupervised/method-comparison')),
+        fetch(apiConfig.endpoint('/api/v1/unsupervised/clustering-results')),
+        fetch(apiConfig.endpoint('/api/v1/unsupervised/recommendations'))
       ]);
 
       if (!analysisRes.ok || !methodRes.ok || !clusterRes.ok || !recRes.ok) {

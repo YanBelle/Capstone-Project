@@ -381,20 +381,27 @@ class LogEntry(BaseModel):
 
 # Helper functions
 def get_session_raw_text(session_id: str) -> str:
-    """Retrieve raw text for a session from database or file system"""
+    """Retrieve raw text for a session from file system (preferred) or database (fallback)"""
     try:
-        # First try database
+        # First try file system storage (new method)
+        file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}_raw.txt"
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        # Fallback to old file naming convention
+        old_file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
+        if os.path.exists(old_file_path):
+            with open(old_file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        # Last resort: try database (legacy)
         with db_engine.connect() as conn:
             query = text("SELECT raw_text FROM ml_sessions WHERE session_id = :session_id")
             result = conn.execute(query, {"session_id": session_id}).fetchone()
             if result and result.raw_text:
+                logger.warning(f"Retrieved raw text from database for session {session_id} - consider migrating to file system")
                 return result.raw_text
-        
-        # Fallback to file system
-        file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}.txt"
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                return f.read()
                 
         # Try input directory for original files
         input_files = [
@@ -403,7 +410,7 @@ def get_session_raw_text(session_id: str) -> str:
         ]
         for file_path in input_files:
             if os.path.exists(file_path):
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                     # Look for session in the content
                     if session_id in content or session_id.replace('_', '') in content:
@@ -416,7 +423,7 @@ def get_session_raw_text(session_id: str) -> str:
         ]
         for file_path in processed_files:
             if os.path.exists(file_path):
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                     # Look for session in the content
                     if session_id in content or session_id.replace('_', '') in content:
@@ -429,7 +436,7 @@ def get_session_raw_text(session_id: str) -> str:
 
 def get_session_cleaned_text(session_id: str) -> str:
     """
-    Retrieve cleaned text for a session from database.
+    Retrieve cleaned text for a session from file system (preferred) or database (fallback).
     Uses BertViz _preprocess_text method to clean raw text if needed.
     Falls back to raw text if cleaned text not available.
     """
@@ -443,7 +450,14 @@ def get_session_cleaned_text(session_id: str) -> str:
             logger.warning("BertViz analyzer not available, using basic cleaning")
             bertviz_available = False
         
-        # Try to get cleaned text from database
+        # First try file system storage (new method)
+        cleaned_file_path = f"/app/data/sessions/{session_id[:2]}/{session_id}_cleaned.txt"
+        if os.path.exists(cleaned_file_path):
+            with open(cleaned_file_path, 'r', encoding='utf-8') as f:
+                logger.info(f"Retrieved cleaned text from file system for session {session_id}")
+                return f.read()
+        
+        # Try to get cleaned text from database (legacy)
         with db_engine.connect() as conn:
             result = conn.execute(
                 text("SELECT cleaned_text, raw_text FROM ml_sessions WHERE session_id = :session_id"),
@@ -451,7 +465,7 @@ def get_session_cleaned_text(session_id: str) -> str:
             ).fetchone()
             if result:
                 if result.cleaned_text:
-                    logger.info(f"Retrieved cleaned text from database for session {session_id}")
+                    logger.info(f"Retrieved cleaned text from database for session {session_id} - consider migrating to file system")
                     return result.cleaned_text
                 elif result.raw_text:
                     logger.info(f"No cleaned text available, cleaning raw text with BertViz for session {session_id}")
@@ -463,7 +477,7 @@ def get_session_cleaned_text(session_id: str) -> str:
                     else:
                         return result.raw_text
         
-        # Fallback to raw text function
+        # Fallback to raw text function and clean it
         raw_text = get_session_raw_text(session_id)
         if raw_text != "Raw text not available":
             # Apply BertViz cleaning to fallback raw text as well
@@ -478,6 +492,8 @@ def get_session_cleaned_text(session_id: str) -> str:
         return "Cleaned text not available"
         
     except Exception as e:
+        logger.error(f"Error retrieving cleaned text for session {session_id}: {str(e)}")
+        return "Cleaned text not available"
         logger.error(f"Error retrieving cleaned text for session {session_id}: {str(e)}")
         return "Cleaned text not available"
 
@@ -507,6 +523,36 @@ def get_session_events(session_id: str) -> List[Dict]:
     except Exception as e:
         logger.error(f"Error retrieving events for session {session_id}: {str(e)}")
         return []
+
+def store_session_texts(session_id: str, raw_text: str, cleaned_text: str = None):
+    """Store raw and cleaned text for a session on file system (API service helper)"""
+    # Store in file system with session_id prefix directories for better organization
+    output_dir = f"/app/data/sessions/{session_id[:2]}"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Store raw text
+    try:
+        with open(f"{output_dir}/{session_id}_raw.txt", 'w', encoding='utf-8') as f:
+            f.write(raw_text)
+        logger.debug(f"Stored raw text for session {session_id}")
+    except Exception as e:
+        logger.error(f"Error storing raw text for session {session_id}: {e}")
+    
+    # Store cleaned text if provided
+    if cleaned_text:
+        try:
+            with open(f"{output_dir}/{session_id}_cleaned.txt", 'w', encoding='utf-8') as f:
+                f.write(cleaned_text)
+            logger.debug(f"Stored cleaned text for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error storing cleaned text for session {session_id}: {e}")
+
+def get_session_texts(session_id: str) -> dict:
+    """Retrieve both raw and cleaned text for a session from file system (API service helper)"""
+    return {
+        'raw_text': get_session_raw_text(session_id),
+        'cleaned_text': get_session_cleaned_text(session_id)
+    }
 
 # EJ Processing and Storage Functions
 def process_and_store_ej_session(session_id: str, raw_ej_content: str, 
@@ -1035,6 +1081,8 @@ async def upload_ejournal(file: UploadFile = File(...)):
 @app.delete("/api/v1/data/clear-all")
 async def clear_all_data(confirm: bool = False):
     """Clear all transaction and session data from the system"""
+    logger.info(f"🔥 CLEAR ALL DATA ENDPOINT CALLED WITH confirm={confirm}")
+    
     if not confirm:
         raise HTTPException(
             status_code=400, 
@@ -1043,6 +1091,7 @@ async def clear_all_data(confirm: bool = False):
     
     try:
         deleted_counts = {}
+        logger.info("Starting database table clearing process...")
         
         # Clear database tables - Check table existence first to avoid failed transactions
         tables_to_clear = [
@@ -1057,63 +1106,90 @@ async def clear_all_data(confirm: bool = False):
         ]
         
         for table in tables_to_clear:
+            logger.info(f"🔥 Starting to clear table: {table}")
             try:
-                with db_engine.connect() as conn:
-                    # First check if table exists to avoid transaction failures
-                    table_exists_query = """
+                # Use raw psycopg2 connection to bypass SQLAlchemy entirely
+                import psycopg2
+                
+                conn = psycopg2.connect(
+                    host=os.getenv('POSTGRES_HOST', 'postgres'),
+                    database=os.getenv('POSTGRES_DB'),
+                    user=os.getenv('POSTGRES_USER'),
+                    password=os.getenv('POSTGRES_PASSWORD'),
+                    port=5432
+                )
+                conn.autocommit = True
+                
+                cursor = conn.cursor()
+                
+                # First check if table exists
+                cursor.execute("""
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables 
                         WHERE table_schema = 'public' 
-                        AND table_name = :table_name
+                        AND table_name = %s
                     )
-                    """
-                    
-                    exists_result = conn.execute(text(table_exists_query), {'table_name': table})
-                    table_exists = exists_result.scalar()
-                    
-                    if not table_exists:
-                        logger.info(f"Table {table} does not exist, skipping")
-                        deleted_counts[table] = 0
-                        continue
-                    
-                    # Table exists, proceed with deletion in a transaction
-                    trans = conn.begin()
-                    try:
-                        # Get count before deletion
-                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
-                        count = count_result.scalar() or 0
-                        
-                        # Clear the table using DELETE instead of TRUNCATE to avoid transaction issues
-                        conn.execute(text(f"DELETE FROM {table}"))
-                        logger.info(f"Cleared {count} records from {table}")
-                        deleted_counts[table] = count
-                        
-                        trans.commit()
-                        
-                    except Exception as table_error:
-                        trans.rollback()
-                        logger.warning(f"Could not clear table {table}: {str(table_error)}")
-                        deleted_counts[table] = f"Error: {str(table_error)}"
+                """, (table,))
+                
+                table_exists = cursor.fetchone()[0]
+                
+                if not table_exists:
+                    logger.info(f"Table {table} does not exist, skipping")
+                    deleted_counts[table] = 0
+                    cursor.close()
+                    conn.close()
+                    continue
+                
+                # Get count before deletion
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                count = cursor.fetchone()[0] or 0
+                
+                # Perform deletion
+                cursor.execute(f"DELETE FROM {table}")
+                
+                logger.info(f"✅ Cleared {count} records from {table}")
+                deleted_counts[table] = count
+                
+                cursor.close()
+                conn.close()
                         
             except Exception as conn_error:
-                logger.warning(f"Could not connect to clear table {table}: {str(conn_error)}")
+                logger.error(f"❌ Could not connect to clear table {table}: {str(conn_error)}")
                 deleted_counts[table] = f"Connection Error: {str(conn_error)}"
         
-        # Reset sequences
+        # Reset sequences using raw psycopg2
         try:
-            with db_engine.connect() as conn:
-                trans = conn.begin()
+            import psycopg2
+            
+            conn = psycopg2.connect(
+                host=os.getenv('POSTGRES_HOST', 'postgres'),
+                database=os.getenv('POSTGRES_DB'),
+                user=os.getenv('POSTGRES_USER'),
+                password=os.getenv('POSTGRES_PASSWORD'),
+                port=5432
+            )
+            conn.autocommit = True
+            cursor = conn.cursor()
+            
+            sequences = [
+                "transactions_id_seq",
+                "labeled_anomalies_id_seq", 
+                "expert_feedback_id_seq",
+                "model_retraining_events_id_seq",
+                "alerts_id_seq",
+                "ml_anomalies_id_seq"
+            ]
+            
+            for seq in sequences:
                 try:
-                    conn.execute(text("ALTER SEQUENCE IF EXISTS transactions_id_seq RESTART WITH 1"))
-                    conn.execute(text("ALTER SEQUENCE IF EXISTS labeled_anomalies_id_seq RESTART WITH 1"))
-                    conn.execute(text("ALTER SEQUENCE IF EXISTS expert_feedback_id_seq RESTART WITH 1"))
-                    conn.execute(text("ALTER SEQUENCE IF EXISTS model_retraining_events_id_seq RESTART WITH 1"))
-                    conn.execute(text("ALTER SEQUENCE IF EXISTS alerts_id_seq RESTART WITH 1"))
-                    conn.execute(text("ALTER SEQUENCE IF EXISTS ml_anomalies_id_seq RESTART WITH 1"))
-                    trans.commit()
+                    cursor.execute(f"ALTER SEQUENCE IF EXISTS {seq} RESTART WITH 1")
+                    logger.info(f"Reset sequence {seq}")
                 except Exception as seq_error:
-                    trans.rollback()
-                    logger.warning(f"Could not reset sequences: {str(seq_error)}")
+                    logger.warning(f"Could not reset sequence {seq}: {str(seq_error)}")
+            
+            cursor.close()
+            conn.close()
+                        
         except Exception as e:
             logger.warning(f"Could not reset sequences: {str(e)}")
         
@@ -1417,170 +1493,6 @@ def process_input():
         error_msg = f"Error processing input: {str(e)} | Type: {type(e).__name__} | Traceback: {traceback.format_exc()}"
         logger.error(error_msg)
         raise HTTPException(status_code=500, detail=str(e) if str(e) else f"Internal error: {type(e).__name__}")
-
-@app.delete("/api/v1/clear-data")
-def clear_all_data(confirm: str = None):
-    """Clear all data from the system with comprehensive foreign key handling"""
-    logger.info(f"🔥 CLEAR DATA ENDPOINT CALLED with confirm={confirm}")
-    
-    if confirm != "true":
-        raise HTTPException(
-            status_code=400, 
-            detail="This operation requires confirmation. Add ?confirm=true to proceed."
-        )
-    
-    import os
-    import shutil
-    import glob
-    
-    cleared_summary = {
-        "database_tables_cleared": [],
-        "files_cleared": [],
-        "redis_cleared": False,
-        "method_used": "",
-        "errors": []
-    }
-    
-    try:
-        # DATABASE CLEARING using SQLAlchemy with proper transaction handling
-        from sqlalchemy import text  # Import text for raw SQL
-        
-        success = False
-        
-        logger.info("Attempting database clearing with SQLAlchemy transaction")
-        
-        with db_engine.begin() as conn:  # Use begin() for automatic transaction
-            # Clear tables in strict dependency order
-            deletion_order = [
-                "ml_anomalies",         # Child table first
-                "expert_feedback",      # Child table 
-                "labeled_anomalies",    # Child table
-                "anomaly_detections",   # Independent table
-                "ml_summaries",         # Independent table
-                "ml_sessions"           # Parent table last
-            ]
-            
-            for table_name in deletion_order:
-                try:
-                    # Check if table exists
-                    exists_query = text("""
-                        SELECT EXISTS (
-                            SELECT FROM information_schema.tables 
-                            WHERE table_name = :table_name
-                        )
-                    """)
-                    exists_result = conn.execute(exists_query, {"table_name": table_name}).scalar()
-                    
-                    if exists_result:
-                        # Get count before deletion
-                        count_query = text(f"SELECT COUNT(*) FROM {table_name}")
-                        count_before = conn.execute(count_query).scalar()
-                        logger.info(f"About to delete {count_before} rows from {table_name}")
-                        
-                        # Execute deletion
-                        delete_query = text(f"DELETE FROM {table_name}")
-                        result = conn.execute(delete_query)
-                        
-                        cleared_summary["database_tables_cleared"].append(f"{table_name} ({count_before} rows)")
-                        logger.info(f"Successfully cleared {table_name}: {count_before} rows")
-                    else:
-                        logger.info(f"Table {table_name} does not exist, skipping")
-                except Exception as table_error:
-                    logger.error(f"Error clearing table {table_name}: {table_error}")
-                    raise table_error
-            
-            # Transaction will auto-commit here due to begin()
-            cleared_summary["method_used"] = "SQLAlchemy transaction with dependency order"
-            logger.info("Database clearing succeeded")
-            success = True
-        
-        # FILE SYSTEM CLEARING
-        try:
-            file_dirs = [
-                ("/app/data/sessions", "sessions"),
-                ("/app/data/output", "output"),
-                ("/app/data/processed", "processed"),
-                ("/app/data/models", "models"),
-                ("/app/data/logs", "logs"),
-                ("/app/static/debug", "debug"),
-                ("/app/uploads", "uploads")
-            ]
-            
-            for dir_path, dir_name in file_dirs:
-                try:
-                    if os.path.exists(dir_path):
-                        files = glob.glob(os.path.join(dir_path, "*"))
-                        if files:
-                            file_count = len(files)
-                            shutil.rmtree(dir_path)
-                            os.makedirs(dir_path, exist_ok=True)
-                            cleared_summary["files_cleared"].append(f"{dir_name} ({file_count} files)")
-                            logger.info(f"Cleared {dir_path}: {file_count} files")
-                except Exception as file_error:
-                    error_msg = f"Could not clear {dir_path}: {str(file_error)}"
-                    cleared_summary["errors"].append(error_msg)
-                    logger.warning(error_msg)
-            
-            # Clear CSV/JSON export files in data directory
-            try:
-                data_exports = glob.glob("/app/data/*.csv") + glob.glob("/app/data/*.json") + glob.glob("/app/data/*.txt")
-                if data_exports:
-                    export_count = len(data_exports)
-                    for export_file in data_exports:
-                        os.remove(export_file)
-                    cleared_summary["files_cleared"].append(f"data_exports ({export_count} files)")
-                    logger.info(f"Cleared data export files: {export_count} files")
-            except Exception as export_error:
-                logger.warning(f"Could not clear data export files: {export_error}")
-            
-        except Exception as file_system_error:
-            error_msg = f"File system clearing error: {str(file_system_error)}"
-            cleared_summary["errors"].append(error_msg)
-            logger.error(error_msg)
-        
-        # REDIS CACHE CLEARING
-        try:
-            import redis
-            redis_hosts = ['redis', 'localhost', '127.0.0.1']
-            
-            for host in redis_hosts:
-                try:
-                    r = redis.Redis(host=host, port=6379, db=0, socket_timeout=5)
-                    r.ping()
-                    r.flushall()
-                    cleared_summary["redis_cleared"] = True
-                    logger.info(f"Redis cache cleared (host: {host})")
-                    break
-                except Exception as redis_host_error:
-                    logger.debug(f"Redis connection failed for {host}: {redis_host_error}")
-                    continue
-            
-            if not cleared_summary["redis_cleared"]:
-                cleared_summary["errors"].append("Could not connect to Redis")
-                
-        except Exception as redis_error:
-            error_msg = f"Redis clearing error: {str(redis_error)}"
-            cleared_summary["errors"].append(error_msg)
-            logger.warning(error_msg)
-        
-        # PREPARE RESPONSE
-        success = len(cleared_summary["database_tables_cleared"]) > 0 or len(cleared_summary["files_cleared"]) > 0
-        
-        return {
-            "status": "success" if success else "partial",
-            "message": "Data clearing completed" + (" with some errors" if cleared_summary["errors"] else " successfully"),
-            "database_tables_cleared": cleared_summary["database_tables_cleared"],
-            "files_cleared": cleared_summary["files_cleared"],
-            "redis_cleared": cleared_summary["redis_cleared"],
-            "method_used": cleared_summary["method_used"],
-            "total_tables": len(cleared_summary["database_tables_cleared"]),
-            "total_file_groups": len(cleared_summary["files_cleared"]),
-            "errors": cleared_summary["errors"] if cleared_summary["errors"] else None
-        }
-        
-    except Exception as e:
-        logger.error(f"Clear data operation failed completely: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Clear data failed: {str(e)}")
 
 # Expert labeling endpoints
 @app.get("/api/v1/expert/anomalies")
@@ -2286,8 +2198,7 @@ async def get_all_anomalies_for_ml():
             s.critical_events,
             s.embedding_vector,
             s.session_length,
-            s.unique_events_count,
-            s.raw_text
+            s.unique_events_count
         FROM ml_sessions s
         WHERE s.is_anomaly = true
         ORDER BY s.anomaly_score DESC
@@ -2308,7 +2219,8 @@ async def get_all_anomalies_for_ml():
                 'embedding_vector': row[6].tobytes() if row[6] else None,
                 'session_length': row[7],
                 'unique_events_count': row[8],
-                'raw_text': row[9]
+                # raw_text now retrieved from file system via get_session_raw_text(session_id)
+                'raw_text': get_session_raw_text(row[0])  # Use file system retrieval
             }
             anomalies.append(anomaly_data)
         
@@ -3321,33 +3233,44 @@ async def get_session_full_raw_text(session_id: str):
 
 @app.get("/api/v1/sessions/{session_id}/texts")
 async def get_session_texts(session_id: str):
-    """Get both raw and cleaned text for a session"""
+    """Get both raw and cleaned text for a session from file system"""
     try:
-        # Use the existing get_session_data function which we know works
-        session_data = await get_session_data(session_id)
+        # Get raw text directly from file system
+        raw_text = get_session_raw_text(session_id)
         
-        if not session_data:
-            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        if raw_text == "Raw text not available":
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found or no text data available")
         
-        # Extract text data
-        raw_text = session_data.get('raw_text', 'Raw text not available')
+        # Get cleaned text directly from file system
+        cleaned_text = get_session_cleaned_text(session_id)
         
-        # Use BertViz analyzer to properly clean the text
-        cleaned_text = raw_text  # Default fallback
-        if BERTVIZ_AVAILABLE and raw_text != 'Raw text not available':
+        # If cleaned text not available, use BertViz analyzer to clean the raw text
+        if cleaned_text == "Cleaned text not available" and BERTVIZ_AVAILABLE:
             try:
                 from bertviz_analyzer import BertVisualizationAnalyzer
                 analyzer = BertVisualizationAnalyzer()
                 cleaned_text = analyzer._preprocess_text(raw_text)
-                logger.info(f"Successfully cleaned text for session {session_id}")
+                logger.info(f"Generated cleaned text using BertViz for session {session_id}")
             except Exception as e:
                 logger.warning(f"Error cleaning text with BertViz analyzer: {e}")
-                # Fall back to original cleaned text or raw text
-                cleaned_text = session_data.get('cleaned_text', raw_text)
+                cleaned_text = raw_text  # Fallback to raw text
+        elif cleaned_text == "Cleaned text not available":
+            cleaned_text = raw_text  # Fallback to raw text if BertViz not available
         
-        # Get basic events from the session data
-        detected_patterns = session_data.get('detected_patterns', [])
-        critical_events = session_data.get('critical_events', [])
+        # Get session metadata from database (patterns and events only)
+        detected_patterns = []
+        critical_events = []
+        try:
+            with db_engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT detected_patterns, critical_events FROM ml_sessions WHERE session_id = :session_id"),
+                    {"session_id": session_id}
+                ).fetchone()
+                if result:
+                    detected_patterns = result.detected_patterns if result.detected_patterns else []
+                    critical_events = result.critical_events if result.critical_events else []
+        except Exception as e:
+            logger.warning(f"Error retrieving session metadata for {session_id}: {e}")
         
         return {
             "status": "success",
@@ -3359,11 +3282,12 @@ async def get_session_texts(session_id: str):
                 "critical_events": critical_events
             },
             "text_lengths": {
-                "raw": len(raw_text) if raw_text != "Raw text not available" else 0,
-                "cleaned": len(cleaned_text) if cleaned_text != "Cleaned text not available" else 0,
+                "raw": len(raw_text),
+                "cleaned": len(cleaned_text),
                 "events_count": len(detected_patterns) + len(critical_events)
             },
-            "message": "Session texts retrieved successfully"
+            "storage_method": "file_system",
+            "message": "Session texts retrieved successfully from file system"
         }
         
     except HTTPException:
@@ -3374,26 +3298,27 @@ async def get_session_texts(session_id: str):
 
 @app.get("/api/v1/sessions/{session_id}/bert-analysis")
 async def get_session_bert_analysis(session_id: str):
-    """Get BERT attention analysis for a specific session using cleaned text"""
+    """Get BERT attention analysis for a specific session using cleaned text from file system"""
     if not BERTVIZ_AVAILABLE:
         raise HTTPException(status_code=503, detail="BertViz analyzer not available")
     
     try:
-        # Get session data first
-        session_data = await get_session_data(session_id)
+        # Get raw text directly from file system
+        raw_text = get_session_raw_text(session_id)
         
-        if not session_data:
-            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        if raw_text == "Raw text not available":
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found or no text data available")
         
-        # Get cleaned text using BertViz analyzer
-        raw_text = session_data.get('raw_text', 'Raw text not available')
-        if raw_text == 'Raw text not available':
-            raise HTTPException(status_code=404, detail=f"No text data available for session {session_id}")
+        # Try to get cleaned text from file system first
+        cleaned_text = get_session_cleaned_text(session_id)
         
-        # Use BertViz analyzer to clean and analyze the text
+        # If cleaned text not available, use BertViz analyzer to clean the raw text
         from bertviz_analyzer import BertVisualizationAnalyzer
         analyzer = BertVisualizationAnalyzer()
-        cleaned_text = analyzer._preprocess_text(raw_text)
+        
+        if cleaned_text == "Cleaned text not available":
+            logger.info(f"Cleaning raw text using BertViz for session {session_id}")
+            cleaned_text = analyzer._preprocess_text(raw_text)
         
         # Perform BERT analysis on cleaned text
         analysis_results = await asyncio.to_thread(
@@ -3412,6 +3337,7 @@ async def get_session_bert_analysis(session_id: str):
             'cleaned_text_length': len(cleaned_text),
             'cleaned_text': cleaned_text,
             'analysis_type': 'session_analysis',
+            'storage_method': 'file_system',
             'results': transformed_results
         }
         
@@ -3423,26 +3349,27 @@ async def get_session_bert_analysis(session_id: str):
 
 @app.get("/api/v1/sessions/{session_id}/bert-visualizations")
 async def get_session_bert_visualizations(session_id: str):
-    """Get BERT attention visualizations for a specific session using cleaned text"""
+    """Get BERT attention visualizations for a specific session using cleaned text from file system"""
     if not BERTVIZ_AVAILABLE:
         raise HTTPException(status_code=503, detail="BertViz analyzer not available")
     
     try:
-        # Get session data first
-        session_data = await get_session_data(session_id)
+        # Get raw text directly from file system
+        raw_text = get_session_raw_text(session_id)
         
-        if not session_data:
-            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        if raw_text == "Raw text not available":
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found or no text data available")
         
-        # Get cleaned text using BertViz analyzer
-        raw_text = session_data.get('raw_text', 'Raw text not available')
-        if raw_text == 'Raw text not available':
-            raise HTTPException(status_code=404, detail=f"No text data available for session {session_id}")
+        # Try to get cleaned text from file system first
+        cleaned_text = get_session_cleaned_text(session_id)
         
-        # Use BertViz analyzer to clean and generate visualizations
+        # If cleaned text not available, use BertViz analyzer to clean the raw text
         from bertviz_analyzer import BertVisualizationAnalyzer
         analyzer = BertVisualizationAnalyzer()
-        cleaned_text = analyzer._preprocess_text(raw_text)
+        
+        if cleaned_text == "Cleaned text not available":
+            logger.info(f"Cleaning raw text using BertViz for session {session_id}")
+            cleaned_text = analyzer._preprocess_text(raw_text)
         
         # Truncate if too long for visualization
         text_to_process = cleaned_text
@@ -3472,6 +3399,7 @@ async def get_session_bert_visualizations(session_id: str):
             'cleaned_text_length': len(cleaned_text),
             'processed_text_length': len(text_to_process),
             'token_count': len(tokens),
+            'storage_method': 'file_system',
             'visualizations': visualizations
         }
         
@@ -4986,7 +4914,7 @@ async def get_model_specific_visualization(model_name: str):
 
 # Helper functions for session evaluation
 async def get_session_data(session_id: str) -> Optional[Dict[str, Any]]:
-    """Get session data from ml_sessions table"""
+    """Get session data from ml_sessions table and load text from file system"""
     try:
         # Try to get from database first using the existing ml_sessions table
         if 'db_engine' in globals() and db_engine is not None:
@@ -4994,7 +4922,6 @@ async def get_session_data(session_id: str) -> Optional[Dict[str, Any]]:
                 query = text("""
                     SELECT 
                         session_id, 
-                        raw_text, 
                         timestamp, 
                         is_anomaly,
                         anomaly_score,
@@ -5032,10 +4959,32 @@ async def get_session_data(session_id: str) -> Optional[Dict[str, Any]]:
                     except (json.JSONDecodeError, AttributeError, TypeError):
                         critical_events = []
                     
+                    # Load session text from file system
+                    raw_text = ""
+                    try:
+                        session_dir = f"/app/data/sessions/{session_id[:2]}"
+                        # Try different file name patterns
+                        session_files = [
+                            f"{session_dir}/{session_id}_raw.txt",
+                            f"{session_dir}/{session_id}.txt",
+                            f"{session_dir}/{session_id}_cleaned.txt"
+                        ]
+                        
+                        for session_file in session_files:
+                            if os.path.exists(session_file):
+                                with open(session_file, 'r', encoding='utf-8') as f:
+                                    raw_text = f.read()
+                                logger.info(f"Loaded session data from: {session_file}")
+                                break
+                        else:
+                            logger.warning(f"No session file found for {session_id} in {session_dir}")
+                    except Exception as e:
+                        logger.error(f"Error loading session file for {session_id}: {e}")
+                    
                     return {
                         'session_id': result.session_id,
-                        'raw_text': result.raw_text or '',
-                        'cleaned_text': result.raw_text or '',  # Use raw_text as cleaned_text for now
+                        'raw_text': raw_text,
+                        'cleaned_text': raw_text,  # Use raw_text as cleaned_text for now
                         'timestamp': result.timestamp,
                         'is_anomaly': result.is_anomaly or False,
                         'anomaly_score': float(result.anomaly_score or 0.0),

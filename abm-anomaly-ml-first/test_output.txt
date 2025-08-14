@@ -1,9 +1,0 @@
-🧪 Testing BERT API with Special Token Filtering
-==================================================
-✅ API Health Check: OK
-
-✅ BERT Analysis API Response:
-Status: 200
-Response keys: ['status', 'text', 'analysis_type', 'results']
-
-✅ BERT API test completed successfully!

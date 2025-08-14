@@ -17,6 +17,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import TrainingVisualization from './components/TrainingVisualization';
+import apiConfig from './config/api';
 
 const SessionReview = () => {
   console.log('SessionReview component loaded - Live Data Fix v2.0');
@@ -48,7 +49,7 @@ const SessionReview = () => {
       console.log('SessionReview: Starting to fetch sessions from API...');
       
       // Fetch all sessions from the main sessions endpoint
-      const response = await fetch('/api/v1/sessions?limit=1000&anomaly_filter=all');
+      const response = await fetch(apiConfig.endpoint('/api/v1/sessions?limit=1000&anomaly_filter=all'));
       console.log('SessionReview: API response status:', response.status);
       
       const data = await response.json();
@@ -184,7 +185,7 @@ const SessionReview = () => {
     
     try {
       // Fetch session text data from the sessions API
-      const response = await fetch(`/api/v1/sessions/${session.session_id}/texts`);
+      const response = await fetch(apiConfig.endpoint(`/api/v1/sessions/${session.session_id}/texts`));
       
       if (response.ok) {
         const data = await response.json();
@@ -222,7 +223,7 @@ const SessionReview = () => {
         console.warn(`Session ${session.session_id} not found, trying session evaluation endpoint...`);
         
         // Try to fetch from session evaluation endpoint
-        const evalResponse = await fetch(`/api/v1/session-evaluation?session_id=${session.session_id}`);
+        const evalResponse = await fetch(apiConfig.endpoint(`/api/v1/session/evaluate/${session.session_id}`));
         
         if (evalResponse.ok) {
           const evalData = await evalResponse.json();
@@ -303,7 +304,7 @@ Please check the session ID and try again.`,
       
       console.log('Submitting feedback:', feedbackData);
       // Here you would send to your API
-      // await fetch('/api/v1/expert/feedback', { method: 'POST', body: JSON.stringify(feedbackData) });
+      // await fetch(apiConfig.endpoint('/api/v1/expert/feedback'), { method: 'POST', body: JSON.stringify(feedbackData) });
       
       alert('Feedback submitted successfully!');
       closeModal();
@@ -480,7 +481,7 @@ Please check the session ID and try again.`,
                           <span className="text-gray-300">|</span>
                           <button
                             onClick={() => {
-                              const url = `http://localhost:8000/session-evaluation?session_id=${session.session_id}&model=all`;
+                              const url = `/session-evaluation?session_id=${session.session_id}&model=all`;
                               window.open(url, '_blank');
                             }}
                             className="text-purple-600 hover:text-purple-900 flex items-center"
@@ -523,7 +524,8 @@ Please check the session ID and try again.`,
                 </span>
                 <button
                   onClick={() => {
-                    const url = `http://localhost:8000/session-evaluation?session_id=${selectedSession?.session_id}&model=all`;
+                    const baseUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000';
+                    const url = `${baseUrl}/session-evaluation?session_id=${selectedSession?.session_id}&model=all`;
                     window.open(url, '_blank');
                   }}
                   className="inline-flex items-center px-3 py-1 border border-purple-300 text-sm leading-4 font-medium rounded text-purple-700 bg-purple-50 hover:bg-purple-100"

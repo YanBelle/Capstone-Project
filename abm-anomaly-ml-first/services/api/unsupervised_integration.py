@@ -423,17 +423,24 @@ class EJUnsupervisedIntegration:
     async def analyze_session_from_database(self, session_id: str, get_db_connection) -> Dict:
         """Analyze a specific session from the database"""
         try:
-            # Get session data from database
+            # Get session data from database (metadata only)
             async with get_db_connection() as conn:
                 session_data = await conn.fetchrow(
-                    "SELECT session_id, raw_text FROM ml_sessions WHERE session_id = $1",
+                    "SELECT session_id FROM ml_sessions WHERE session_id = $1",
                     session_id
                 )
             
-            if not session_data or not session_data['raw_text']:
-                return {'error': f'No raw text found for session {session_id}'}
+            if not session_data:
+                return {'error': f'Session {session_id} not found'}
             
-            raw_text = session_data['raw_text']
+            # Get raw text from file system
+            try:
+                from main import get_session_raw_text
+                raw_text = get_session_raw_text(session_id)
+                if raw_text == "Raw text not available":
+                    return {'error': f'No raw text found for session {session_id}'}
+            except Exception as e:
+                return {'error': f'Failed to retrieve raw text for session {session_id}: {str(e)}'}
             
             # Analyze single sequence
             analyzer = UnsupervisedEJAnalyzer()

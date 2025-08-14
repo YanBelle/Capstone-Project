@@ -180,7 +180,7 @@ const DeepLogDashboard = () => {
       setLoading(true);
       
       // Load processed EJ sessions from the EJ Rule-Based Processor
-      const response = await fetch('/api/v1/bert-deeplog/load-ej-sessions?include_errors=true&limit=100');
+      const response = await fetch(apiEndpoint('/load-ej-sessions?include_errors=true&limit=100'));
       
       if (!response.ok) {
         throw new Error(`Failed to load EJ sessions: ${response.status}`);

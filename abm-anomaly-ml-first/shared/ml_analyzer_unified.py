@@ -31,6 +31,9 @@ from sklearn.metrics import silhouette_score
 # Database imports
 from sqlalchemy import create_engine, text
 
+# Setup logging first
+logger = logging.getLogger(__name__)
+
 # DeepLog integration
 try:
     from deeplog_service_integration import DeepLogServiceIntegration
@@ -38,8 +41,6 @@ try:
 except ImportError:
     DEEPLOG_AVAILABLE = False
     logger.warning("DeepLog integration not available")
-
-logger = logging.getLogger(__name__)
 
 @dataclass
 class TransactionSession:
